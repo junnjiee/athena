@@ -1,52 +1,38 @@
 @import "tailwindcss";
 
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
+  --bg: #0a0d12;
+  --panel-bg: rgba(15, 20, 27, 0.82);
+  --panel-bg-solid: #10151c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #8b95a5;
+  --text-h: #e8eaed;
+  --text-dim: #5b6472;
+
+  --accent: #4f9c82;
+  --accent-hover: #5cb193;
+  --accent-bg: rgba(79, 156, 130, 0.15);
+  --accent-border: rgba(79, 156, 130, 0.4);
+
+  --friendly: #4b8cf0;
+  --hostile: #e8564f;
+
   --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+    rgba(0, 0, 0, 0.5) 0 10px 30px -5px, rgba(0, 0, 0, 0.3) 0 4px 10px -3px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  font: 14px/145% var(--sans);
+  letter-spacing: 0.1px;
+  color-scheme: dark;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
 }
 
 body {
@@ -55,4 +41,23 @@ body {
 
 #root {
   height: 100svh;
+}
+
+/* Cesium's own credit/attribution widget sprawls full-width by default (worst case:
+   the "you're using the default demo ion token" notice, several sentences long) and
+   would otherwise sit above our chrome. Shrink and cap it instead of hiding it
+   outright -- attribution needs to stay visible, just out of the way. */
+.cesium-viewer-bottom {
+  z-index: 5 !important;
+  right: 220px !important;
+  max-width: 50vw;
+}
+.cesium-credit-textContainer,
+.cesium-credit-textContainer b {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+.cesium-credit-expand-link {
+  font-size: 10px !important;
 }

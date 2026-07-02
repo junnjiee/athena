@@ -34,9 +34,9 @@ export function useRectangleSelection({ viewer, armed, resetToken, onSelectionFi
     entityRef.current = v.entities.add({
       rectangle: {
         coordinates: new Cesium.CallbackProperty(() => rectangleRef.current, false),
-        material: Cesium.Color.fromCssColorString('#aa3bff').withAlpha(0.25), // mirrors --accent
+        material: Cesium.Color.fromCssColorString('#4b8cf0').withAlpha(0.25), // mirrors --friendly
         outline: true,
-        outlineColor: Cesium.Color.fromCssColorString('#aa3bff'),
+        outlineColor: Cesium.Color.fromCssColorString('#4b8cf0'),
         outlineWidth: 2,
         classificationType: Cesium.ClassificationType.TERRAIN, // drapes over terrain, no heightReference needed
       },
