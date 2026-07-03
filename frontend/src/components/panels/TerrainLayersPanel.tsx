@@ -15,10 +15,11 @@ import {
 interface Props {
   satelliteVisible: boolean
   onToggleSatellite: () => void
+  elevationExaggerated: boolean
+  onToggleElevation: () => void
 }
 
 const STUB_LAYERS = [
-  { label: 'Elevation', icon: Mountain, defaultVisible: false },
   { label: 'Slope', icon: TrendingUp, defaultVisible: false },
   { label: 'Cover', icon: Shield, defaultVisible: false },
   { label: 'Vegetation', icon: Leaf, defaultVisible: false },
@@ -27,7 +28,12 @@ const STUB_LAYERS = [
   { label: 'LOS', icon: ScanEye, defaultVisible: false },
 ]
 
-export function TerrainLayersPanel({ satelliteVisible, onToggleSatellite }: Props) {
+export function TerrainLayersPanel({
+  satelliteVisible,
+  onToggleSatellite,
+  elevationExaggerated,
+  onToggleElevation,
+}: Props) {
   const [stubVisibility, setStubVisibility] = useState(() =>
     Object.fromEntries(STUB_LAYERS.map((l) => [l.label, l.defaultVisible])),
   )
@@ -41,6 +47,12 @@ export function TerrainLayersPanel({ satelliteVisible, onToggleSatellite }: Prop
           Icon={SatelliteIcon}
           visible={satelliteVisible}
           onToggle={onToggleSatellite}
+        />
+        <LayerRow
+          label="Elevation"
+          Icon={Mountain}
+          visible={elevationExaggerated}
+          onToggle={onToggleElevation}
         />
         {STUB_LAYERS.map(({ label, icon }) => (
           <LayerRow

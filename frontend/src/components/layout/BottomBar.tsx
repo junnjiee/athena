@@ -2,15 +2,16 @@ import { Play, TrendingUp } from 'lucide-react'
 
 interface Props {
   canRunSimulation: boolean
+  planName: string
 }
 
-export function BottomBar({ canRunSimulation }: Props) {
+export function BottomBar({ canRunSimulation, planName }: Props) {
   return (
     <div className="flex h-20 shrink-0 items-center justify-between border-t border-(--border) bg-(--panel-bg-solid) px-6">
       <div>
         <div className="text-xs tracking-wide text-(--text-dim)">CURRENT PLAN</div>
         <div className="text-sm text-(--text-h)">
-          {canRunSimulation ? 'Untitled Plan' : 'No ground selected'}
+          {planName || (canRunSimulation ? 'Untitled Plan' : 'No ground selected')}
         </div>
         <div className="text-xs text-(--text-dim)">
           {canRunSimulation ? 'Not run yet' : 'Select an area to begin'}
