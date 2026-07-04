@@ -23,7 +23,7 @@ export function PlanRosterPanel({
   if (units.length === 0 && objectives.length === 0 && routes.length === 0) return null
 
   return (
-    <div className="w-60 rounded-lg border border-(--border) bg-(--panel-bg) p-3 backdrop-blur-md shadow-(--shadow)">
+    <div className="glass w-60 rounded-xl p-3">
       <div className="mb-2 text-xs tracking-wide text-(--text-dim)">UNITS & OBJECTIVES</div>
       <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
         {units.map((unit) => (

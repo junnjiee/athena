@@ -13,7 +13,7 @@ export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode }: Props
   }
 
   return (
-    <div className="w-44 rounded-lg border border-(--border) bg-(--panel-bg) p-3 backdrop-blur-md shadow-(--shadow)">
+    <div className="glass w-44 rounded-xl p-3">
       <div className="mb-2 text-xs tracking-wide text-(--text-dim)">DRAW / PLAN</div>
       <div className="grid grid-cols-4 gap-1.5">
         <ToolButton

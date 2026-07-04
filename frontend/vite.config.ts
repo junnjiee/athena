@@ -12,4 +12,10 @@ export default defineConfig({
     tailwindcss(),
     cesium()
   ],
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:8787',
+      '/socket.io': { target: 'http://127.0.0.1:8787', ws: true },
+    },
+  },
 })

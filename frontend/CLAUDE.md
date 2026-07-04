@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-Athena lets a commander sketch a plan on real ground and instantly see the odds it works, via Monte Carlo simulation of AI-driven soldiers on auto-generated real terrain. See README.md for the full product description (problem, approach, and September demo goals). The codebase itself is currently a fresh Vite + React + TypeScript scaffold — most product functionality described in the README has not been built yet.
+Athena lets a commander sketch a plan on real ground and instantly see the odds it works, via Monte Carlo simulation of AI-driven soldiers on auto-generated real terrain. See README.md for the full product description (problem, approach, and September demo goals). The terrain pipeline is live: area selection on the globe triggers `../server` (Fastify + Socket.IO, port 8787, proxied via Vite) which ingests DEM/OSM/weather, classifies terrain into a military grid, and streams progress; the frontend renders the battlefield (buildings/roads/water/trees + heatmap drapes) inside the same Cesium scene and validates drawn routes against the grid. The Monte Carlo simulation engine is not built yet.
 
 ## Commands
 

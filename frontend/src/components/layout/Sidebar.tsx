@@ -9,9 +9,10 @@ const NAV_ITEMS = [
   { label: 'Settings', icon: Settings, active: false },
 ]
 
+/** Floating glass navigation rail — self-positioned on the left edge. */
 export function Sidebar() {
   return (
-    <aside className="flex h-full w-52 shrink-0 flex-col border-r border-(--border) bg-(--panel-bg-solid)">
+    <aside className="glass-deep pointer-events-auto absolute top-4 bottom-4 left-4 z-30 flex w-52 flex-col rounded-2xl">
       <div className="flex items-center gap-2 px-5 py-5">
         <Triangle className="h-4 w-4 text-(--text-h)" strokeWidth={2.5} />
         <span className="text-sm font-semibold tracking-widest text-(--text-h)">ATHENA</span>
@@ -19,17 +20,21 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-1 px-3">
         {NAV_ITEMS.map(({ label, icon: Icon, active }) => (
-          <div
+          <button
             key={label}
-            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${
+            type="button"
+            className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               active
                 ? 'bg-white/10 text-(--text-h)'
                 : 'text-(--text) hover:bg-white/5 hover:text-(--text-h)'
             }`}
           >
+            {active && (
+              <span className="absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full bg-(--accent)" />
+            )}
             <Icon className="h-4 w-4" strokeWidth={1.75} />
             {label}
-          </div>
+          </button>
         ))}
       </nav>
 

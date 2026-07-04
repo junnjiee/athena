@@ -17,6 +17,10 @@ export function ViewerBridge({ onViewerReady }: Props) {
 
   useEffect(() => {
     if (viewer) onViewerReady(viewer)
+    // Dev-only handle for console debugging / E2E drivers; stripped in prod builds.
+    if (viewer && import.meta.env.DEV) {
+      ;(window as unknown as Record<string, unknown>).__athenaViewer = viewer
+    }
   }, [viewer, onViewerReady])
 
   return null

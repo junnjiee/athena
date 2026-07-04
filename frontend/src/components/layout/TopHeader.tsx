@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, Pencil, Layers, Thermometer, Cloud, Moon, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { ChevronRight, Pencil, Layers, Thermometer, Cloud, Moon, Sun, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { useBattleground } from '../../state/battleground'
 
 export type HeaderTab = 'layers' | 'heatmaps' | 'weather'
 
@@ -54,8 +55,8 @@ export function TopHeader({ activeTab, onTabChange, centerLabel, name, onNameCha
   }
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-(--border) bg-(--panel-bg-solid) px-5">
-      <div>
+    <header className="pointer-events-none flex items-start justify-between gap-3">
+      <div className="glass-deep pointer-events-auto min-w-56 rounded-xl px-4 py-2">
         <div className="flex items-center gap-1 text-xs text-(--text-dim)">
           <span>main</span>
           <ChevronRight className="h-3 w-3" />
@@ -97,13 +98,13 @@ export function TopHeader({ activeTab, onTabChange, centerLabel, name, onNameCha
         {centerLabel && <div className="text-xs text-(--text-dim)">{centerLabel}</div>}
       </div>
 
-      <div className="flex items-center gap-1 rounded-lg border border-(--border) bg-white/5 p-1">
+      <div className="glass-deep pointer-events-auto flex items-center gap-1 rounded-xl p-1.5">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => onTabChange(id)}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${
               activeTab === id ? 'bg-white/10 text-(--text-h)' : 'text-(--text) hover:text-(--text-h)'
             }`}
           >
@@ -113,27 +114,53 @@ export function TopHeader({ activeTab, onTabChange, centerLabel, name, onNameCha
         ))}
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-sm text-(--text)">
-          <span>24°C</span>
-          <span className="text-(--border-strong)">|</span>
-          <Moon className="h-4 w-4" strokeWidth={1.75} />
-          <span>Night (21:00)</span>
-        </div>
+      <div className="glass-deep pointer-events-auto flex items-center gap-3 rounded-xl py-1.5 pr-1.5 pl-3.5">
+        <WeatherAndClock />
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-(--border) text-(--text) hover:text-(--text-h)"
+          title="Display settings"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-(--border) text-(--text) transition-colors hover:border-(--border-strong) hover:text-(--text-h)"
         >
           <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
         </button>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md bg-(--accent) px-3 py-1.5 text-sm font-medium text-(--panel-bg-solid) hover:bg-(--accent-hover)"
+          className="flex items-center gap-1.5 rounded-lg bg-(--accent) px-3 py-1.5 text-sm font-medium text-(--panel-bg-solid) transition-colors hover:bg-(--accent-hover)"
         >
           <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
           AI Assistant
         </button>
       </div>
     </header>
+  )
+}
+
+/** Live temperature (Open-Meteo via the battleground meta) + a working
+ *  day/night toggle that relights the whole scene. */
+function WeatherAndClock() {
+  const meta = useBattleground((s) => s.meta)
+  const night = useBattleground((s) => s.night)
+  const setNight = useBattleground((s) => s.setNight)
+  const temperature = meta?.weather ? `${meta.weather.temperatureC.toFixed(0)}°C` : '—°C'
+
+  return (
+    <div className="flex items-center gap-2 text-sm text-(--text)">
+      <Thermometer className="h-4 w-4" strokeWidth={1.75} />
+      <span>{temperature}</span>
+      <span className="text-(--border-strong)">|</span>
+      <button
+        type="button"
+        onClick={() => setNight(!night)}
+        title="Toggle day / night lighting"
+        className="flex items-center gap-1.5 rounded-md border border-(--border) px-2.5 py-1 transition-colors hover:border-(--border-strong) hover:text-(--text-h)"
+      >
+        {night ? (
+          <Moon className="h-4 w-4" strokeWidth={1.75} />
+        ) : (
+          <Sun className="h-4 w-4" strokeWidth={1.75} />
+        )}
+        <span>{night ? 'Night (21:00)' : 'Day (13:00)'}</span>
+      </button>
+    </div>
   )
 }
