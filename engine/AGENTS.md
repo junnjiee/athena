@@ -68,3 +68,21 @@ Agent knowledge comes from:
 
 Future implementation should preserve this separation strictly. If an agent uses
 hidden global information, that is a simulation failure.
+
+## Implementation Notes
+
+Append learnings here in point form.
+
+- Document non-obvious modeling choices in the code where they appear. For example,
+  if a Pydantic model is configured as frozen/immutable, explain why mutation is
+  restricted and how state should be updated instead.
+- Write high-impact product code that moves Athena forward. Operate like a
+  startup: prefer direct, useful implementation over defensive scaffolding,
+  speculative abstractions, or code paths that do not serve the current product
+  need. Do not add defensive code or abstractions unless they protect a real
+  boundary, encode a real domain rule, or make the current implementation clearer.
+  - Example: do not add `from __future__ import annotations` unless the code can't work without it
+- Before implementing engine behavior, think through the model with the user until
+  the scope is concrete and explicitly confirmed. Correctness is critical in this
+  engine; do not turn a rough design conversation into code without a confirmed
+  implementation scope.

@@ -1,7 +1,7 @@
 # Athena Engine
 
 Minimal Python 2D grid simulation where one agent moves inside an environment.
-The agent chooses actions through LangChain using OpenRouter. The engine validates
+The agent chooses actions through LangChain using OpenRouter. The resolvers validate
 whether each movement is legal.
 
 ## Setup
@@ -44,4 +44,5 @@ Grid symbols:
 - `A`: agent
 - `E`: living enemy
 - `#`: hard-cover cell
+- `!`: concealment cell
 - `.`: empty cell

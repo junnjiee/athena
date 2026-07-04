@@ -1,2 +1,1 @@
-"""Athena minimal 2D simulation package."""
-
+"""Athena simulation engine."""
