@@ -1,18 +1,22 @@
-import { MapPin, MoveHorizontal, MoveVertical, Square, Info } from 'lucide-react'
+import { MapPin, MoveHorizontal, MoveVertical, Square, Info, Loader2, Zap } from 'lucide-react'
+import { useBattleground } from '../../state/battleground'
 import type { SelectionResult } from '../../types/selection'
 
 interface Props {
   selection: SelectionResult | null
   onClear: () => void
+  onGenerate: () => void
 }
 
-export function SelectionStatsPanel({ selection, onClear }: Props) {
+export function SelectionStatsPanel({ selection, onClear, onGenerate }: Props) {
+  const phase = useBattleground((s) => s.phase)
   if (!selection) return null
 
   const { stats } = selection
+  const generating = phase === 'generating'
 
   return (
-    <div className="w-64 rounded-lg border border-(--border) bg-(--panel-bg) p-3 backdrop-blur-md shadow-(--shadow)">
+    <div className="glass w-64 rounded-xl p-3">
       <div className="mb-2 flex items-center gap-1.5 text-xs tracking-wide text-(--text-dim)">
         <Info className="h-3 w-3" />
         GROUND SELECTION
@@ -23,10 +27,31 @@ export function SelectionStatsPanel({ selection, onClear }: Props) {
         <Row icon={MoveVertical} label="Height" value={`${stats.heightMeters.toFixed(0)} m`} />
         <Row icon={Square} label="Area" value={`${stats.areaKm2.toFixed(2)} km²`} />
       </dl>
+      {phase !== 'ready' && (
+        <button
+          type="button"
+          disabled={generating}
+          onClick={onGenerate}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-(--accent) py-2 text-sm font-medium text-(--panel-bg-solid) transition-colors hover:bg-(--accent-hover) disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-(--text-dim)"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+              Generating…
+            </>
+          ) : (
+            <>
+              <Zap className="h-4 w-4" strokeWidth={2} />
+              Generate Battlefield
+            </>
+          )}
+        </button>
+      )}
       <button
         type="button"
         onClick={onClear}
-        className="mt-3 w-full rounded-md border border-(--border) py-1.5 text-sm text-(--text) transition-colors hover:border-(--border-strong) hover:text-(--text-h)"
+        disabled={generating}
+        className="mt-2 w-full rounded-md border border-(--border) py-1.5 text-sm text-(--text) transition-colors hover:border-(--border-strong) hover:text-(--text-h) disabled:cursor-not-allowed disabled:opacity-50"
       >
         Clear selection
       </button>

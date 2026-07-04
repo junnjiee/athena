@@ -5,10 +5,10 @@
   --panel-bg: rgba(15, 20, 27, 0.82);
   --panel-bg-solid: #10151c;
   --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #8b95a5;
-  --text-h: #e8eaed;
-  --text-dim: #5b6472;
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #96a0af;
+  --text-h: #eceef1;
+  --text-dim: #667080;
 
   --accent: #4f9c82;
   --accent-hover: #5cb193;
@@ -43,14 +43,67 @@ body {
   height: 100svh;
 }
 
-/* Cesium's own credit/attribution widget sprawls full-width by default (worst case:
-   the "you're using the default demo ion token" notice, several sentences long) and
-   would otherwise sit above our chrome. Shrink and cap it instead of hiding it
-   outright -- attribution needs to stay visible, just out of the way. */
+/* ---------------------------------------------------------------------------
+   Glass floating islands
+   Layered translucent gradient over a dark base, heavy blur + saturation so
+   the battlefield glows through, and an inset top highlight for the lit edge.
+--------------------------------------------------------------------------- */
+.glass {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.012) 42%),
+    rgba(11, 15, 21, 0.62);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 40px -18px rgba(0, 0, 0, 0.65),
+    0 4px 14px -6px rgba(0, 0, 0, 0.45);
+}
+
+/* Denser variant for primary chrome (sidebar, header, dock) so text stays
+   readable over the brightest satellite imagery. */
+.glass-deep {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 45%),
+    rgba(10, 13, 19, 0.74);
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 22px 48px -20px rgba(0, 0, 0, 0.7),
+    0 4px 14px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* Keyboard-visible focus for every interactive element on the glass. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 6px;
+}
+
+/* Slim scrollbars inside panel lists. */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Cesium's credit/attribution widget: keep it visible but tuck it above the
+   floating dock, clear of the sidebar island. */
 .cesium-viewer-bottom {
-  z-index: 5 !important;
-  right: 220px !important;
-  max-width: 50vw;
+  z-index: 15 !important;
+  left: 248px !important;
+  right: auto !important;
+  bottom: 108px !important;
+  max-width: 40vw;
 }
 .cesium-credit-textContainer,
 .cesium-credit-textContainer b {

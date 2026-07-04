@@ -1,16 +1,14 @@
-import { useState } from 'react'
 import {
   Satellite as SatelliteIcon,
   Mountain,
-  TrendingUp,
-  Shield,
-  Leaf,
   Building2,
   Route,
-  ScanEye,
+  Trees,
+  Waves,
   Eye,
   EyeOff,
 } from 'lucide-react'
+import { useBattleground, type BattlefieldLayerToggles } from '../../state/battleground'
 
 interface Props {
   satelliteVisible: boolean
@@ -19,13 +17,11 @@ interface Props {
   onToggleElevation: () => void
 }
 
-const STUB_LAYERS = [
-  { label: 'Slope', icon: TrendingUp, defaultVisible: false },
-  { label: 'Cover', icon: Shield, defaultVisible: false },
-  { label: 'Vegetation', icon: Leaf, defaultVisible: false },
-  { label: 'Buildings', icon: Building2, defaultVisible: false },
-  { label: 'Roads', icon: Route, defaultVisible: false },
-  { label: 'LOS', icon: ScanEye, defaultVisible: false },
+const BATTLEFIELD_LAYERS: { key: keyof BattlefieldLayerToggles; label: string; icon: typeof Mountain }[] = [
+  { key: 'buildings', label: 'Buildings', icon: Building2 },
+  { key: 'roads', label: 'Roads', icon: Route },
+  { key: 'trees', label: 'Vegetation', icon: Trees },
+  { key: 'water', label: 'Water', icon: Waves },
 ]
 
 export function TerrainLayersPanel({
@@ -34,12 +30,13 @@ export function TerrainLayersPanel({
   elevationExaggerated,
   onToggleElevation,
 }: Props) {
-  const [stubVisibility, setStubVisibility] = useState(() =>
-    Object.fromEntries(STUB_LAYERS.map((l) => [l.label, l.defaultVisible])),
-  )
+  const phase = useBattleground((s) => s.phase)
+  const layers = useBattleground((s) => s.layers)
+  const toggleLayer = useBattleground((s) => s.toggleLayer)
+  const battlefieldReady = phase === 'ready'
 
   return (
-    <div className="w-44 rounded-lg border border-(--border) bg-(--panel-bg) p-3 backdrop-blur-md shadow-(--shadow)">
+    <div className="glass w-44 rounded-xl p-3">
       <div className="mb-2 text-xs tracking-wide text-(--text-dim)">TERRAIN LAYERS</div>
       <div className="flex flex-col">
         <LayerRow
@@ -54,13 +51,14 @@ export function TerrainLayersPanel({
           visible={elevationExaggerated}
           onToggle={onToggleElevation}
         />
-        {STUB_LAYERS.map(({ label, icon }) => (
+        {BATTLEFIELD_LAYERS.map(({ key, label, icon }) => (
           <LayerRow
-            key={label}
+            key={key}
             label={label}
             Icon={icon}
-            visible={stubVisibility[label]}
-            onToggle={() => setStubVisibility((s) => ({ ...s, [label]: !s[label] }))}
+            visible={battlefieldReady && layers[key]}
+            disabled={!battlefieldReady}
+            onToggle={() => toggleLayer(key)}
           />
         ))}
       </div>
@@ -72,17 +70,27 @@ interface RowProps {
   label: string
   Icon: typeof Mountain
   visible: boolean
+  disabled?: boolean
   onToggle: () => void
 }
 
-function LayerRow({ label, Icon, visible, onToggle }: RowProps) {
+function LayerRow({ label, Icon, visible, disabled, onToggle }: RowProps) {
   return (
-    <div className="flex items-center justify-between rounded-md px-1.5 py-1.5 text-sm hover:bg-white/5">
+    <div
+      className={`flex items-center justify-between rounded-md px-1.5 py-1.5 text-sm ${
+        disabled ? 'opacity-40' : 'hover:bg-white/5'
+      }`}
+    >
       <div className={`flex items-center gap-2 ${visible ? 'text-(--text-h)' : 'text-(--text-dim)'}`}>
         <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
         {label}
       </div>
-      <button type="button" onClick={onToggle} className="text-(--text-dim) hover:text-(--text-h)">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onToggle}
+        className="text-(--text-dim) hover:text-(--text-h) disabled:cursor-not-allowed"
+      >
         {visible ? <Eye className="h-3.5 w-3.5" strokeWidth={1.75} /> : <EyeOff className="h-3.5 w-3.5" strokeWidth={1.75} />}
       </button>
     </div>

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import * as Cesium from 'cesium'
 import { CesiumGlobe } from '../components/globe/CesiumGlobe'
 import { MapControls } from '../components/globe/MapControls'
 import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
@@ -6,10 +7,17 @@ import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
 import { PlanRosterPanel } from '../components/panels/PlanRosterPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
+import { ReasoningPanel } from '../components/panels/ReasoningPanel'
+import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
+import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
+import { WeatherPanel } from '../components/panels/WeatherPanel'
+import { ValidationPanel } from '../components/panels/ValidationPanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
 import { useMapControls } from '../hooks/useMapControls'
+import { useBattleground } from '../state/battleground'
+import { analyzePlan } from '../lib/validate'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
 
@@ -38,7 +46,19 @@ export function BattlegroundSelectorPage() {
   const [routes, setRoutes] = useState<PlacedRoute[]>([])
   const [isDrawingRoute, setIsDrawingRoute] = useState(false)
 
+  const phase = useBattleground((s) => s.phase)
+  const grid = useBattleground((s) => s.grid)
+  const night = useBattleground((s) => s.night)
+  const generate = useBattleground((s) => s.generate)
+  const clearBattleground = useBattleground((s) => s.clear)
+  const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
+
   const planningMode = selection !== null && battlegroundName.trim() !== ''
+
+  // Re-validate the plan (AI tactics linting) whenever routes or terrain change.
+  useEffect(() => {
+    setPlanAnalysis(analyzePlan(routes, grid))
+  }, [routes, grid, setPlanAnalysis])
 
   const {
     handleViewerReady,
@@ -57,6 +77,20 @@ export function BattlegroundSelectorPage() {
   const centerLabel = selection
     ? `${selection.stats.centerLatitude.toFixed(4)}° N, ${selection.stats.centerLongitude.toFixed(4)}° E`
     : null
+
+  function handleGenerate() {
+    if (!selection) return
+    const r = selection.rectangle
+    void generate(
+      {
+        west: Cesium.Math.toDegrees(r.west),
+        south: Cesium.Math.toDegrees(r.south),
+        east: Cesium.Math.toDegrees(r.east),
+        north: Cesium.Math.toDegrees(r.north),
+      },
+      battlegroundName.trim() || 'Untitled Battleground',
+    )
+  }
 
   function handlePlace(mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) {
     if (mode === 'place-objective') {
@@ -105,6 +139,7 @@ export function BattlegroundSelectorPage() {
   function handleClear() {
     setSelection(null)
     setResetToken((t) => t + 1)
+    clearBattleground()
     if (planningMode) {
       setBattlegroundName('')
       setUnits([])
@@ -115,10 +150,33 @@ export function BattlegroundSelectorPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-(--bg) text-(--text)">
+    <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
+      {/* Full-bleed battlefield — every piece of chrome floats above it. */}
+      <div className="absolute inset-0">
+        <CesiumGlobe
+          armed={toolMode === 'select-ground'}
+          resetToken={resetToken}
+          onSelectionFinalize={(result) => {
+            setSelection(result)
+            setToolMode('navigate')
+            if (battlegroundName.trim() === '') setNameEditSignal((t) => t + 1)
+          }}
+          onViewerReady={handleViewerReady}
+          toolMode={toolMode}
+          units={units}
+          objectives={objectives}
+          routes={routes}
+          onPlace={handlePlace}
+          onRouteComplete={handleRouteComplete}
+          onRouteDrawingChange={setIsDrawingRoute}
+        />
+      </div>
+
+      {night && <div className="pointer-events-none absolute inset-0 z-10 bg-[#0a1026]/40" />}
+
       <Sidebar />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="absolute top-4 right-4 left-60 z-30">
         <TopHeader
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -128,27 +186,9 @@ export function BattlegroundSelectorPage() {
           autoEditSignal={nameEditSignal}
           canName={selection !== null}
         />
+      </div>
 
-        <div className="relative min-h-0 flex-1">
-          <CesiumGlobe
-            armed={toolMode === 'select-ground'}
-            resetToken={resetToken}
-            onSelectionFinalize={(result) => {
-              setSelection(result)
-              setToolMode('navigate')
-              if (battlegroundName.trim() === '') setNameEditSignal((t) => t + 1)
-            }}
-            onViewerReady={handleViewerReady}
-            toolMode={toolMode}
-            units={units}
-            objectives={objectives}
-            routes={routes}
-            onPlace={handlePlace}
-            onRouteComplete={handleRouteComplete}
-            onRouteDrawingChange={setIsDrawingRoute}
-          />
-
-          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-4">
+      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-24 pr-4 pb-30 pl-60">
             <div className="flex items-start justify-between gap-3">
               <div className="pointer-events-auto">
                 {planningMode && (
@@ -163,22 +203,40 @@ export function BattlegroundSelectorPage() {
                   />
                 )}
               </div>
-              {activeTab === 'layers' && (
-                <div className="pointer-events-auto flex flex-col gap-3">
-                  <DrawPlanToolbar toolMode={toolMode} onSetToolMode={setToolMode} planningMode={planningMode} />
-                  <TerrainLayersPanel
-                    satelliteVisible={satelliteVisible}
-                    onToggleSatellite={toggleSatellite}
-                    elevationExaggerated={elevationExaggerated}
-                    onToggleElevation={toggleElevation}
-                  />
-                </div>
-              )}
+              <div className="pointer-events-auto flex flex-col gap-3">
+                {activeTab === 'layers' && (
+                  <>
+                    <DrawPlanToolbar toolMode={toolMode} onSetToolMode={setToolMode} planningMode={planningMode} />
+                    <TerrainLayersPanel
+                      satelliteVisible={satelliteVisible}
+                      onToggleSatellite={toggleSatellite}
+                      elevationExaggerated={elevationExaggerated}
+                      onToggleElevation={toggleElevation}
+                    />
+                  </>
+                )}
+                {activeTab === 'heatmaps' && <HeatmapsPanel />}
+                {activeTab === 'weather' && <WeatherPanel />}
+              </div>
             </div>
 
             <div className="flex items-end justify-between">
-              <div className="pointer-events-auto">
-                <SelectionStatsPanel selection={selection} onClear={handleClear} />
+              <div className="pointer-events-auto flex flex-col gap-3">
+                {phase === 'ready' ? (
+                  <>
+                    <ValidationPanel onLocate={flyToPositions} />
+                    <TerrainInfoPanel />
+                    <button
+                      type="button"
+                      onClick={handleClear}
+                      className="glass w-56 rounded-xl py-1.5 text-xs text-(--text) transition-colors hover:text-(--text-h)"
+                    >
+                      New ground selection
+                    </button>
+                  </>
+                ) : (
+                  <SelectionStatsPanel selection={selection} onClear={handleClear} onGenerate={handleGenerate} />
+                )}
               </div>
               <div className="pointer-events-auto">
                 <MapControls
@@ -192,13 +250,17 @@ export function BattlegroundSelectorPage() {
             </div>
           </div>
 
-          {toolMode !== 'navigate' && (
-            <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-              <PlacementHint toolMode={toolMode} isDrawingRoute={isDrawingRoute} />
-            </div>
-          )}
-        </div>
+      <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
+        <ReasoningPanel />
+      </div>
 
+      {toolMode !== 'navigate' && (
+        <div className="pointer-events-none absolute inset-x-60 top-24 z-30 flex justify-center">
+          <PlacementHint toolMode={toolMode} isDrawingRoute={isDrawingRoute} />
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
         <BottomBar canRunSimulation={selection !== null} planName={battlegroundName} />
       </div>
     </div>

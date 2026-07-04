@@ -4,6 +4,7 @@ import { worldTerrain } from '../../lib/cesium-setup'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
+import { BattlefieldController } from '../battlefield/BattlefieldController'
 import type { SelectionResult } from '../../types/selection'
 import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
 
@@ -75,6 +76,7 @@ export function CesiumGlobe({
         onRouteComplete={onRouteComplete}
         onRouteDrawingChange={onRouteDrawingChange}
       />
+      <BattlefieldController />
     </Viewer>
   )
 }

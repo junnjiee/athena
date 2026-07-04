@@ -27,7 +27,7 @@ export function PlacementHint({ toolMode, isDrawingRoute }: Props) {
   if (!hint) return null
 
   return (
-    <div className="rounded-full border border-(--border) bg-(--panel-bg) px-4 py-2 text-sm text-(--text-h) backdrop-blur-md shadow-(--shadow)">
+    <div className="glass rounded-full px-4 py-2 text-sm text-(--text-h)">
       {hint}
     </div>
   )
