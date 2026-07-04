@@ -46,6 +46,12 @@ export function computeRectangleStats(rectangle: Cesium.Rectangle) {
   }
 }
 
+function cornerDiagonalMeters(rectangle: Cesium.Rectangle): number {
+  const corner1 = Cesium.Cartesian3.fromRadians(rectangle.west, rectangle.south, 0)
+  const corner2 = Cesium.Cartesian3.fromRadians(rectangle.east, rectangle.north, 0)
+  return Cesium.Cartesian3.distance(corner1, corner2)
+}
+
 /** Fly/tilt the camera into an oblique ~45 degree preview fit to the selection. Uses
  *  ellipsoid height 0 for the corners/center (not sampled terrain elevation) -- on
  *  steep terrain the camera could clip into a hillside on fly-in; acceptable
@@ -54,10 +60,7 @@ export function computeRectangleStats(rectangle: Cesium.Rectangle) {
 export function flyToSelectionPreview(viewer: Cesium.Viewer, rectangle: Cesium.Rectangle) {
   const center = Cesium.Rectangle.center(rectangle)
   const centerCartesian = Cesium.Cartesian3.fromRadians(center.longitude, center.latitude, 0)
-
-  const corner1 = Cesium.Cartesian3.fromRadians(rectangle.west, rectangle.south, 0)
-  const corner2 = Cesium.Cartesian3.fromRadians(rectangle.east, rectangle.north, 0)
-  const diagonalMeters = Cesium.Cartesian3.distance(corner1, corner2)
+  const diagonalMeters = cornerDiagonalMeters(rectangle)
 
   viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(centerCartesian, diagonalMeters / 2), {
     duration: 2.0,
@@ -67,4 +70,17 @@ export function flyToSelectionPreview(viewer: Cesium.Viewer, rectangle: Cesium.R
       diagonalMeters * 1.2,
     ),
   })
+}
+
+const ZOOM_CAP_DIAGONAL_MULTIPLIER = 3
+const ZOOM_CAP_MINIMUM_METERS = 500
+
+/** Maximum camera height allowed once a ground selection is locked in. 3x the
+ *  selection's diagonal leaves headroom for an establishing oblique view of the whole
+ *  footprint plus margin, without letting the user zoom out far enough to see
+ *  real terrain/imagery outside the generated bbox and lose the "this is the
+ *  battlefield" framing. The floor keeps small selections from producing a cap so
+ *  tight it feels broken on approach. */
+export function computeMaximumZoomDistance(rectangle: Cesium.Rectangle): number {
+  return Math.max(cornerDiagonalMeters(rectangle) * ZOOM_CAP_DIAGONAL_MULTIPLIER, ZOOM_CAP_MINIMUM_METERS)
 }

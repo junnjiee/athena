@@ -6,6 +6,7 @@ import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
 import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
 import { PlanRosterPanel } from '../components/panels/PlanRosterPanel'
+import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
@@ -18,6 +19,7 @@ import { BottomBar } from '../components/layout/BottomBar'
 import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground } from '../state/battleground'
 import { analyzePlan } from '../lib/validate'
+import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
 
@@ -62,6 +64,7 @@ export function BattlegroundSelectorPage() {
 
   const {
     handleViewerReady,
+    getViewer,
     zoomIn,
     zoomOut,
     resetNorth,
@@ -69,6 +72,8 @@ export function BattlegroundSelectorPage() {
     toggleSatellite,
     toggleElevation,
     flyToPositions,
+    setSelectionZoomCap,
+    clearSelectionZoomCap,
     is3D,
     satelliteVisible,
     elevationExaggerated,
@@ -140,6 +145,9 @@ export function BattlegroundSelectorPage() {
     setSelection(null)
     setResetToken((t) => t + 1)
     clearBattleground()
+    clearSelectionZoomCap()
+    const viewer = getViewer()
+    if (viewer) clearGlobeClipping(viewer)
     if (planningMode) {
       setBattlegroundName('')
       setUnits([])
@@ -158,6 +166,9 @@ export function BattlegroundSelectorPage() {
           resetToken={resetToken}
           onSelectionFinalize={(result) => {
             setSelection(result)
+            setSelectionZoomCap(result.rectangle)
+            const viewer = getViewer()
+            if (viewer) applyGlobeClipping(viewer, result.rectangle)
             setToolMode('navigate')
             if (battlegroundName.trim() === '') setNameEditSignal((t) => t + 1)
           }}
@@ -202,6 +213,7 @@ export function BattlegroundSelectorPage() {
                     onDeleteRoute={handleDeleteRoute}
                   />
                 )}
+                {selection === null && <GroundSearchPanel getViewer={getViewer} />}
               </div>
               <div className="pointer-events-auto flex flex-col gap-3">
                 {activeTab === 'layers' && (

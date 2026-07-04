@@ -1,15 +1,19 @@
 import { useCallback, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
+import { computeMaximumZoomDistance } from '../lib/selectionGeometry'
 import type { LonLat } from '../types/entities'
 
 export function useMapControls() {
   const viewerRef = useRef<Cesium.Viewer | undefined>(undefined)
   const [is3D, setIs3D] = useState(true)
   const [satelliteVisible, setSatelliteVisible] = useState(true)
+  const maxZoomDistanceRef = useRef<number | null>(null)
 
   const handleViewerReady = useCallback((viewer: Cesium.Viewer) => {
     viewerRef.current = viewer
   }, [])
+
+  const getViewer = useCallback(() => viewerRef.current, [])
 
   const zoomIn = useCallback(() => {
     const viewer = viewerRef.current
@@ -17,10 +21,31 @@ export function useMapControls() {
     viewer.camera.zoomIn(viewer.camera.positionCartographic.height * 0.4)
   }, [])
 
+  // Camera.prototype.zoomOut moves the camera directly and never consults
+  // screenSpaceCameraController.maximumZoomDistance (confirmed against installed
+  // cesium@1.143.0 -- zoom3D() just calls camera.move()), so the cap has to be
+  // enforced here at the call site too, not just set on the controller.
   const zoomOut = useCallback(() => {
     const viewer = viewerRef.current
     if (!viewer) return
-    viewer.camera.zoomOut(viewer.camera.positionCartographic.height * 0.4)
+    const currentHeight = viewer.camera.positionCartographic.height
+    const proposedAmount = currentHeight * 0.4
+    const cap = maxZoomDistanceRef.current
+    const amount = cap != null ? Math.max(0, Math.min(proposedAmount, cap - currentHeight)) : proposedAmount
+    viewer.camera.zoomOut(amount)
+  }, [])
+
+  const setSelectionZoomCap = useCallback((rectangle: Cesium.Rectangle) => {
+    const distance = computeMaximumZoomDistance(rectangle)
+    maxZoomDistanceRef.current = distance
+    const viewer = viewerRef.current
+    if (viewer) viewer.scene.screenSpaceCameraController.maximumZoomDistance = distance
+  }, [])
+
+  const clearSelectionZoomCap = useCallback(() => {
+    maxZoomDistanceRef.current = null
+    const viewer = viewerRef.current
+    if (viewer) viewer.scene.screenSpaceCameraController.maximumZoomDistance = Number.POSITIVE_INFINITY
   }, [])
 
   const resetNorth = useCallback(() => {
@@ -98,6 +123,7 @@ export function useMapControls() {
 
   return {
     handleViewerReady,
+    getViewer,
     zoomIn,
     zoomOut,
     resetNorth,
@@ -105,6 +131,8 @@ export function useMapControls() {
     toggleSatellite,
     toggleElevation,
     flyToPositions,
+    setSelectionZoomCap,
+    clearSelectionZoomCap,
     is3D,
     satelliteVisible,
     elevationExaggerated,

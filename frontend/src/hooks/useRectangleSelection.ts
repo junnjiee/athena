@@ -89,6 +89,13 @@ export function useRectangleSelection({ viewer, armed, resetToken, onSelectionFi
       isDraggingRef.current = false
       const finalRectangle = rectangleRef.current
       flyToSelectionPreview(viewer, finalRectangle)
+      // The drag-preview box has done its job once finalized -- remove it rather than
+      // leaving it draped over the terrain through classification/planning. The globe
+      // clipping applied on finalize already shows the selection bounds from here on.
+      if (entityRef.current) {
+        viewer.entities.remove(entityRef.current)
+        entityRef.current = null
+      }
       onSelectionFinalizeRef.current({ rectangle: finalRectangle, stats: computeRectangleStats(finalRectangle) })
     }, Cesium.ScreenSpaceEventType.LEFT_UP)
 
