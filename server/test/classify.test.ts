@@ -125,3 +125,53 @@ describe('terrain classification', () => {
     expect(g.vehicleMobility[mid]).toBeLessThan(20)
   })
 })
+
+describe('land-cover fallback', () => {
+  test('fills cells OSM left open, but never overrides an OSM polygon, building, or road', () => {
+    const ringWestHalf: [number, number][] = [
+      [103.7, 1.3],
+      [103.705, 1.3],
+      [103.705, 1.31],
+      [103.7, 1.31],
+    ]
+    const features: OsmFeatures = {
+      roads: [{ roadClass: 'major', points: [[103.7, 1.305], [103.71, 1.305]] }],
+      waterLines: [],
+      areas: [{ kind: 'forest', ring: ringWestHalf }],
+      buildings: [
+        {
+          footprint: [
+            [103.7005, 1.3085],
+            [103.7025, 1.3085],
+            [103.7025, 1.3099],
+            [103.7005, 1.3099],
+          ],
+          heightMeters: 12,
+        },
+      ],
+    }
+    // Land cover disagrees with OSM everywhere it can: SCRUB under the OSM forest
+    // polygon (west half), WATER everywhere else (including the road/building cells).
+    const landCover = new Uint8Array(W * H)
+    for (let i = 0; i < W * H; i++) {
+      landCover[i] = i % W < W / 2 ? C.SCRUB : C.WATER
+    }
+
+    const g = buildGridChannels(bbox, W, H, CELL, flatHeights(), features, landCover)
+
+    const insideForest = cellIndex(103.701, 1.302) // under the OSM forest polygon
+    const onRoad = cellIndex(103.705, 1.305)
+    const buildingCell = cellIndex(103.7015, 1.309)
+    const eastOpenCell = cellIndex(103.709, 1.302) // no OSM area/road/building here
+
+    expect(g.cls[insideForest]).toBe(C.FOREST) // OSM polygon still wins over the SCRUB fallback
+    expect(g.cls[onRoad]).toBe(C.ROAD) // road still wins over the WATER fallback
+    expect(g.cls[buildingCell]).toBe(C.BUILDING) // building still wins over the WATER fallback
+    expect(g.cls[eastOpenCell]).toBe(C.WATER) // previously OPEN, now correctly filled in
+  })
+
+  test('omitting land cover preserves today\'s exact OPEN-default behavior', () => {
+    const g = buildGridChannels(bbox, W, H, CELL, flatHeights(), emptyFeatures)
+    expect(g.cls.every((c) => c === C.OPEN)).toBe(true)
+  })
+})

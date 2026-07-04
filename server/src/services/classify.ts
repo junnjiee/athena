@@ -2,6 +2,7 @@ import RBush from 'rbush'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point, polygon } from '@turf/helpers'
 import { metersPerDegree, pointToSegmentDistSqMeters, ringBBox } from '../lib/geo'
+import { LANDCOVER_NONE } from './landcover'
 import { TERRAIN_CLASS, type BBox, type GridChannels, type OsmFeatures, type RoadClass } from '../types'
 
 const C = TERRAIN_CLASS
@@ -124,6 +125,7 @@ function classifyCell(
   cellMeters: number,
   polygons: RBush<IndexedPolygon>,
   segments: RBush<IndexedSegment>,
+  landCoverFallback: number | null,
 ): number {
   const pt = point([lon, lat])
 
@@ -148,7 +150,9 @@ function classifyCell(
     }
   }
 
-  return areaCls ?? C.OPEN
+  // Satellite land cover only fills in where OSM had no opinion at all -- it never
+  // overrides an OSM area polygon, building, road, or water hit above.
+  return areaCls ?? landCoverFallback ?? C.OPEN
 }
 
 function computeSlopeDeg(height: Float32Array, w: number, h: number, cellMeters: number): Uint8Array {
@@ -220,6 +224,7 @@ export function buildGridChannels(
   cellMeters: number,
   heights: Float32Array,
   features: OsmFeatures,
+  landCover: Uint8Array | null = null,
 ): GridChannels {
   const n = width * height
   const cls = new Uint8Array(n)
@@ -243,7 +248,8 @@ export function buildGridChannels(
     for (let col = 0; col < width; col++) {
       const i = row * width + col
       const lon = bbox.west + (col + 0.5) * dLon
-      const c = classifyCell(lon, lat, cellMeters, polygons, segments)
+      const lc = landCover ? landCover[i] : LANDCOVER_NONE
+      const c = classifyCell(lon, lat, cellMeters, polygons, segments, lc === LANDCOVER_NONE ? null : lc)
       cls[i] = c
 
       const [baseCover, baseConceal, baseMove, baseVehicle] = BASE_PROPS[c] ?? BASE_PROPS[C.OPEN]

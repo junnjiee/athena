@@ -115,7 +115,7 @@ export interface CellSample {
   ambush: number
 }
 
-export type ProgressStepId = 'elevation' | 'features' | 'weather' | 'classify' | 'military' | 'grid'
+export type ProgressStepId = 'elevation' | 'features' | 'landcover' | 'weather' | 'classify' | 'military' | 'grid'
 
 export interface ProgressEvent {
   step: ProgressStepId

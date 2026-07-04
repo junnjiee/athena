@@ -6,6 +6,7 @@ import type { BattlegroundJob, BBox, ProgressEvent, ProgressStepId } from '../ty
 import { buildGridChannels } from './classify'
 import { buildHeightGrid } from './dem'
 import { packGrid } from './grid'
+import { fetchLandCoverGrid } from './landcover'
 import { fetchOsmFeatures } from './osm'
 import { fetchWeather } from './weather'
 
@@ -79,8 +80,9 @@ async function runPipeline(
 
     emit('elevation', 'start')
     emit('features', 'start')
+    emit('landcover', 'start')
     emit('weather', 'start')
-    const [heights, features, weather] = await Promise.all([
+    const [heights, features, landCover, weather] = await Promise.all([
       buildHeightGrid(bbox, width, height, cellMeters).then((h) => {
         emit('elevation', 'done', `${width}×${height} @ ${cellMeters.toFixed(1)} m`)
         return h
@@ -103,6 +105,10 @@ async function runPipeline(
           }
           return empty
         }),
+      fetchLandCoverGrid(bbox, width, height).then((lc) => {
+        emit('landcover', 'done', lc ? 'satellite land-cover sampled' : 'unavailable — OSM-only fallback')
+        return lc
+      }),
       fetchWeather(midLat, midLon).then((w) => {
         emit('weather', 'done', w ? `${w.temperatureC.toFixed(0)}°C, wind ${w.windSpeedKmh.toFixed(0)} km/h` : 'unavailable')
         return w
@@ -110,7 +116,7 @@ async function runPipeline(
     ])
 
     emit('classify', 'start')
-    const channels = buildGridChannels(bbox, width, height, cellMeters, heights, features)
+    const channels = buildGridChannels(bbox, width, height, cellMeters, heights, features, landCover)
     emit('classify', 'done', `${features.areas.length} land-cover polygons`)
 
     emit('military', 'start')

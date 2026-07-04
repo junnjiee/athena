@@ -109,6 +109,7 @@ export interface GridMeta {
 export type ProgressStepId =
   | 'elevation'
   | 'features'
+  | 'landcover'
   | 'weather'
   | 'classify'
   | 'military'

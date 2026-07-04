@@ -25,6 +25,15 @@ export const config = {
   openMeteoUrl: 'https://api.open-meteo.com/v1/forecast',
   weatherTimeoutMs: 8_000,
 
+  /** ESA WorldCover v200 map layer (Terrascope titiler) — public, no key needed.
+   *  Fallback vegetation/land-cover signal for cells OSM has no polygon for. */
+  worldCoverWmsUrl: 'https://titiler.terrascope.be/wms',
+  worldCoverLayer: 'esa-worldcover-map-10m-2021-v2_map',
+  worldCoverTimeoutMs: 15_000,
+  /** Supersample the single GetMap fetch before majority-voting down to grid
+   *  resolution -- cheap since it's one small image, not a tile pyramid. */
+  worldCoverSupersample: 2,
+
   /** Grid sizing: cells are square; the longest bbox edge maps to at most maxCellsPerAxis. */
   maxCellsPerAxis: 288,
   minCellMeters: 5,

@@ -18,6 +18,7 @@ export type BattlegroundPhase = 'idle' | 'generating' | 'ready'
 const STEP_LABELS: [ReasoningStep['id'], string][] = [
   ['elevation', 'Downloading elevation model'],
   ['features', 'Detecting roads, buildings & vegetation'],
+  ['landcover', 'Sampling satellite land cover'],
   ['weather', 'Sensing weather conditions'],
   ['classify', 'Classifying terrain cover'],
   ['military', 'Computing military properties'],
