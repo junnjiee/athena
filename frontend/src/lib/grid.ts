@@ -214,7 +214,7 @@ const HEATMAP_UPSCALE = 3
 
 /** Rasterize a metric to a crisp (nearest-neighbor upscaled) canvas for draping
  *  over terrain as a single-tile imagery layer. */
-export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric, monochrome = false): HTMLCanvasElement {
+export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric): HTMLCanvasElement {
   const { width, height } = grid
   const base = document.createElement('canvas')
   base.width = width
@@ -258,12 +258,7 @@ export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric, monoc
   if (metric === 'contours') {
     const [min, max] = elevationRange(grid)
     const plan = computeContourPlan(min, max)
-    if (plan) {
-      drawContours(
-        outCtx, grid, plan.levels, HEATMAP_UPSCALE,
-        monochrome ? { color: 'rgba(20, 20, 20, 0.85)' } : undefined,
-      )
-    }
+    if (plan) drawContours(outCtx, grid, plan.levels, HEATMAP_UPSCALE)
   }
 
   return out

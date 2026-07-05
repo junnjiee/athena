@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import * as Cesium from 'cesium'
 import { CesiumGlobe } from '../components/globe/CesiumGlobe'
 import { MapControls } from '../components/globe/MapControls'
+import { ViewModeToggle, type ViewMode } from '../components/globe/ViewModeToggle'
+import { TopoMapView } from '../components/topomap/TopoMapView'
 import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
 import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
@@ -47,14 +49,17 @@ export function BattlegroundSelectorPage() {
   const [objectives, setObjectives] = useState<PlacedObjective[]>([])
   const [routes, setRoutes] = useState<PlacedRoute[]>([])
   const [isDrawingRoute, setIsDrawingRoute] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('globe')
 
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
+  const features = useBattleground((s) => s.features)
   const night = useBattleground((s) => s.night)
-  const monochrome = useBattleground((s) => s.monochrome)
   const generate = useBattleground((s) => s.generate)
   const clearBattleground = useBattleground((s) => s.clear)
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
+
+  const showTopo = viewMode === 'topo' && phase === 'ready' && grid !== null
 
   const planningMode = selection !== null && battlegroundName.trim() !== ''
   // Placement tools/roster need a fully generated battlefield, not just a name+
@@ -84,22 +89,6 @@ export function BattlegroundSelectorPage() {
     satelliteVisible,
     elevationExaggerated,
   } = useMapControls()
-
-  // Monochrome mode hides satellite imagery entirely (real topo maps are schematic,
-  // not desaturated photos) rather than desaturating it -- restores the user's own
-  // Satellite preference when monochrome is turned back off. Cesium's globe falls
-  // back to a bright blue placeholder appearance when it has no visible imagery
-  // layer at all (confirmed visually, not just Globe.baseColor's documented black
-  // default), so baseColor alone isn't enough -- explicitly override it here.
-  useEffect(() => {
-    const viewer = getViewer()
-    if (!viewer || viewer.isDestroyed()) return
-    const layer = viewer.imageryLayers.get(0)
-    if (layer) layer.show = monochrome ? false : satelliteVisible
-    viewer.scene.globe.baseColor = monochrome
-      ? Cesium.Color.fromCssColorString('#15171a')
-      : Cesium.Color.BLACK
-  }, [monochrome, satelliteVisible, getViewer])
 
   const centerLabel = selection
     ? `${selection.stats.centerLatitude.toFixed(4)}° N, ${selection.stats.centerLongitude.toFixed(4)}° E`
@@ -176,13 +165,17 @@ export function BattlegroundSelectorPage() {
       setObjectives([])
       setRoutes([])
       setToolMode('navigate')
+      setViewMode('globe')
     }
   }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
-      {/* Full-bleed battlefield — every piece of chrome floats above it. */}
-      <div className="absolute inset-0">
+      {/* Full-bleed battlefield — every piece of chrome floats above it. Cesium stays
+          mounted (never unmounted) while the topo view is shown, to avoid re-paying
+          its Viewer/worldTerrain initialization cost every time the user switches
+          back -- visibility:hidden pulls it out of paint/hit-testing instead. */}
+      <div className="absolute inset-0" style={{ visibility: showTopo ? 'hidden' : 'visible' }}>
         <CesiumGlobe
           armed={toolMode === 'select-ground'}
           resetToken={resetToken}
@@ -204,6 +197,10 @@ export function BattlegroundSelectorPage() {
           onRouteDrawingChange={setIsDrawingRoute}
         />
       </div>
+
+      {showTopo && grid && (
+        <TopoMapView grid={grid} features={features} units={units} objectives={objectives} routes={routes} />
+      )}
 
       {night && <div className="pointer-events-none absolute inset-0 z-10 bg-[#0a1026]/40" />}
 
@@ -277,7 +274,8 @@ export function BattlegroundSelectorPage() {
                   <SelectionStatsPanel selection={selection} onClear={handleClear} onGenerate={handleGenerate} />
                 )}
               </div>
-              <div className="pointer-events-auto">
+              <div className="pointer-events-auto flex flex-col items-end gap-2">
+                <ViewModeToggle mode={viewMode} onChange={setViewMode} disabled={phase !== 'ready'} />
                 <MapControls
                   is3D={is3D}
                   onResetNorth={resetNorth}

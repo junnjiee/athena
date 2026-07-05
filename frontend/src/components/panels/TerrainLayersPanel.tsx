@@ -1,7 +1,6 @@
 import {
   Satellite as SatelliteIcon,
   Mountain,
-  Contrast,
   Building2,
   Route,
   Trees,
@@ -34,8 +33,6 @@ export function TerrainLayersPanel({
   const phase = useBattleground((s) => s.phase)
   const layers = useBattleground((s) => s.layers)
   const toggleLayer = useBattleground((s) => s.toggleLayer)
-  const monochrome = useBattleground((s) => s.monochrome)
-  const toggleMonochrome = useBattleground((s) => s.toggleMonochrome)
   const battlefieldReady = phase === 'ready'
 
   return (
@@ -49,16 +46,10 @@ export function TerrainLayersPanel({
           onToggle={onToggleSatellite}
         />
         <LayerRow
-          label="Relief Shading"
+          label="Terrain Exaggeration"
           Icon={Mountain}
           visible={elevationExaggerated}
           onToggle={onToggleElevation}
-        />
-        <LayerRow
-          label="Monochrome"
-          Icon={Contrast}
-          visible={monochrome}
-          onToggle={toggleMonochrome}
         />
         {BATTLEFIELD_LAYERS.map(({ key, label, icon }) => (
           <LayerRow
