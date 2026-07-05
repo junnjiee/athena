@@ -3,13 +3,16 @@ import * as Cesium from 'cesium'
 import { useCesium } from 'resium'
 import { useBattleground } from '../../state/battleground'
 import { renderHeatmapCanvas, sampleCell } from '../../lib/grid'
-import { scatterTrees, treeSpriteDataUrl } from '../../lib/treeSprite'
+import { scatterTrees, treeSpriteDataUrl, type TreeInstance } from '../../lib/treeSprite'
 import {
   buildBuildings,
   buildRoads,
   buildWarningMarkers,
   buildWater,
   freezeBuildings,
+  restyleBuildings,
+  restyleRoads,
+  restyleWater,
 } from './entityBuilders'
 
 const REVEAL_MS = 5000
@@ -62,6 +65,7 @@ export function BattlefieldController() {
   const heatmap = useBattleground((s) => s.heatmap)
   const layers = useBattleground((s) => s.layers)
   const night = useBattleground((s) => s.night)
+  const monochrome = useBattleground((s) => s.monochrome)
   const planAnalysis = useBattleground((s) => s.planAnalysis)
 
   const buildingsDsRef = useRef<Cesium.CustomDataSource | null>(null)
@@ -69,6 +73,7 @@ export function BattlefieldController() {
   const waterDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const warningsDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const treesRef = useRef<Cesium.BillboardCollection | null>(null)
+  const treeInstancesRef = useRef<TreeInstance[]>([])
   const heatmapLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   const revealTRef = useRef(0)
 
@@ -88,18 +93,31 @@ export function BattlefieldController() {
     roadsDsRef.current = roadsDs
     waterDsRef.current = waterDs
 
+    // Captured once at build time, not a reactive dependency of this effect --
+    // toggling monochrome mid-session restyles in place (see the effect below)
+    // rather than replaying this whole 5s reveal + camera flight.
+    const monochromeAtBuild = useBattleground.getState().monochrome
+
     revealTRef.current = 0
-    buildBuildings(buildingsDs, features, () =>
-      stageFactor(revealTRef.current, STAGE.buildingsStart, STAGE.buildingsEnd),
+    buildBuildings(
+      buildingsDs,
+      features,
+      () => stageFactor(revealTRef.current, STAGE.buildingsStart, STAGE.buildingsEnd),
+      monochromeAtBuild,
     )
-    buildRoads(roadsDs, features)
-    buildWater(waterDs, features)
+    buildRoads(roadsDs, features, monochromeAtBuild)
+    buildWater(waterDs, features, monochromeAtBuild)
 
     const trees = new Cesium.BillboardCollection({ scene: viewer.scene })
     viewer.scene.primitives.add(trees)
     treesRef.current = trees
-    const sprites = [treeSpriteDataUrl(0), treeSpriteDataUrl(1), treeSpriteDataUrl(2)]
+    const sprites = [
+      treeSpriteDataUrl(0, monochromeAtBuild),
+      treeSpriteDataUrl(1, monochromeAtBuild),
+      treeSpriteDataUrl(2, monochromeAtBuild),
+    ]
     const instances = scatterTrees(grid)
+    treeInstancesRef.current = instances
     let treesAdded = 0
 
     // settle the camera into an oblique overview of the battlefield
@@ -166,6 +184,7 @@ export function BattlefieldController() {
       roadsDsRef.current = null
       waterDsRef.current = null
       treesRef.current = null
+      treeInstancesRef.current = []
     }
   }, [viewer, grid, features, revealToken])
 
@@ -176,6 +195,28 @@ export function BattlefieldController() {
     if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water
     if (treesRef.current) treesRef.current.show = layers.trees
   }, [layers, revealToken])
+
+  // --- monochrome restyle (in place, no rebuild/reveal replay) ---------------
+  useEffect(() => {
+    if (buildingsDsRef.current) restyleBuildings(buildingsDsRef.current, monochrome)
+    if (roadsDsRef.current) restyleRoads(roadsDsRef.current, monochrome)
+    if (waterDsRef.current) restyleWater(waterDsRef.current, monochrome)
+
+    const trees = treesRef.current
+    const instances = treeInstancesRef.current
+    if (!trees || instances.length === 0) return
+    const sprites = [
+      treeSpriteDataUrl(0, monochrome),
+      treeSpriteDataUrl(1, monochrome),
+      treeSpriteDataUrl(2, monochrome),
+    ]
+    // trees.length may be less than instances.length if the reveal animation hasn't
+    // finished scattering them all yet -- restyle only what's actually been added.
+    const n = Math.min(trees.length, instances.length)
+    for (let i = 0; i < n; i++) {
+      trees.get(i).image = sprites[instances[i].variant]
+    }
+  }, [monochrome])
 
   // --- heatmap drape --------------------------------------------------------
   useEffect(() => {
@@ -196,7 +237,7 @@ export function BattlefieldController() {
       grid.bbox.east,
       grid.bbox.north,
     )
-    const dataUrl = renderHeatmapCanvas(grid, heatmap).toDataURL('image/png')
+    const dataUrl = renderHeatmapCanvas(grid, heatmap, monochrome).toDataURL('image/png')
     void Cesium.SingleTileImageryProvider.fromUrl(dataUrl, { rectangle }).then((provider) => {
       if (cancelled || viewer.isDestroyed()) return
       const layer = viewer.imageryLayers.addImageryProvider(provider)
@@ -219,7 +260,7 @@ export function BattlefieldController() {
         heatmapLayerRef.current = null
       }
     }
-  }, [viewer, grid, heatmap, phase])
+  }, [viewer, grid, heatmap, phase, monochrome])
 
   // --- terrain hover sampling ----------------------------------------------
   useEffect(() => {

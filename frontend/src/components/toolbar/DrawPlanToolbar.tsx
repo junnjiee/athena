@@ -5,12 +5,19 @@ interface Props {
   toolMode: ToolMode
   onSetToolMode: (mode: ToolMode) => void
   planningMode: boolean
+  /** Whether the battlefield has finished generating -- placement tools need real
+   *  grid/terrain data behind them, not just a name+selection. */
+  battlefieldReady: boolean
 }
 
-export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode }: Props) {
+export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode, battlefieldReady }: Props) {
   function toggle(mode: ToolMode) {
     onSetToolMode(toolMode === mode ? 'navigate' : mode)
   }
+
+  const canPlace = planningMode && battlefieldReady
+  const placementTitle = (label: string) =>
+    !planningMode ? 'Name the battleground to begin planning' : !battlefieldReady ? 'Generate the battlefield first' : label
 
   return (
     <div className="glass w-44 rounded-xl p-3">
@@ -25,9 +32,9 @@ export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode }: Props
           <MousePointer2 className="h-4 w-4" strokeWidth={1.75} />
         </ToolButton>
         <ToolButton
-          title={planningMode ? 'Draw movement route (click a unit to start)' : 'Name the battleground to begin planning'}
+          title={placementTitle('Draw movement route (click a unit to start)')}
           active={toolMode === 'draw-route'}
-          disabled={!planningMode}
+          disabled={!canPlace}
           onClick={() => toggle('draw-route')}
         >
           <Pencil className="h-4 w-4" strokeWidth={1.75} />
@@ -41,9 +48,9 @@ export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode }: Props
           <Square className="h-4 w-4" strokeWidth={1.75} />
         </ToolButton>
         <ToolButton
-          title={planningMode ? 'Place objective' : 'Name the battleground to begin planning'}
+          title={placementTitle('Place objective')}
           active={toolMode === 'place-objective'}
-          disabled={!planningMode}
+          disabled={!canPlace}
           onClick={() => toggle('place-objective')}
         >
           <Star className="h-4 w-4" strokeWidth={1.75} />
@@ -52,18 +59,18 @@ export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode }: Props
 
       <div className="mt-2 flex gap-1.5">
         <ToolButton
-          title={planningMode ? 'Place blue-force unit' : 'Name the battleground to begin planning'}
+          title={placementTitle('Place blue-force unit')}
           active={toolMode === 'place-blue'}
-          disabled={!planningMode}
+          disabled={!canPlace}
           onClick={() => toggle('place-blue')}
           colorClass="text-(--friendly)"
         >
           <Users className="h-4 w-4" strokeWidth={1.75} />
         </ToolButton>
         <ToolButton
-          title={planningMode ? 'Place red-force threat' : 'Name the battleground to begin planning'}
+          title={placementTitle('Place red-force threat')}
           active={toolMode === 'place-red'}
-          disabled={!planningMode}
+          disabled={!canPlace}
           onClick={() => toggle('place-red')}
           colorClass="text-(--hostile)"
         >

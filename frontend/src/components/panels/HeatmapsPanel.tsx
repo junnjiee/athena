@@ -1,5 +1,5 @@
-import { Shield, EyeOff, Footprints, Eye, Car, Crosshair, TrendingUp, Mountain, Map, Ban } from 'lucide-react'
-import { legendGradient } from '../../lib/grid'
+import { Shield, EyeOff, Footprints, Eye, Car, Crosshair, TrendingUp, Mountain, Layers, Map, Ban } from 'lucide-react'
+import { contourLegendLabel, legendGradient } from '../../lib/grid'
 import { useBattleground } from '../../state/battleground'
 import type { HeatmapMetric } from '../../types/terrain'
 
@@ -13,6 +13,7 @@ const METRICS: { id: HeatmapMetric; label: string; icon: typeof Shield; low?: st
   { id: 'ambush', label: 'Ambush Potential', icon: Crosshair, low: '', high: 'Prime' },
   { id: 'slope', label: 'Slope', icon: TrendingUp, low: 'Flat', high: 'Steep' },
   { id: 'elevation', label: 'Elevation', icon: Mountain, low: 'Low', high: 'High' },
+  { id: 'contours', label: 'Contours', icon: Layers },
   { id: 'landcover', label: 'Land Cover', icon: Map },
 ]
 
@@ -21,6 +22,7 @@ export function HeatmapsPanel() {
   const phase = useBattleground((s) => s.phase)
   const heatmap = useBattleground((s) => s.heatmap)
   const setHeatmap = useBattleground((s) => s.setHeatmap)
+  const grid = useBattleground((s) => s.grid)
   const disabled = phase !== 'ready'
 
   return (
@@ -47,7 +49,10 @@ export function HeatmapsPanel() {
                 <span className="flex-1">{label}</span>
                 {active && <span className="h-1.5 w-1.5 rounded-full bg-(--accent)" />}
               </div>
-              {active && id !== 'none' && id !== 'landcover' && (
+              {active && id === 'contours' && grid && (
+                <div className="mt-1.5 px-0.5 text-[10px] text-(--text-dim)">{contourLegendLabel(grid)}</div>
+              )}
+              {active && id !== 'none' && id !== 'landcover' && id !== 'contours' && (
                 <div className="mt-1.5 px-0.5">
                   <div className="h-1.5 rounded-full" style={{ background: legendGradient(id) }} />
                   <div className="mt-0.5 flex justify-between text-[10px] text-(--text-dim)">

@@ -143,4 +143,5 @@ export type HeatmapMetric =
   | 'ambush'
   | 'slope'
   | 'elevation'
+  | 'contours'
   | 'landcover'

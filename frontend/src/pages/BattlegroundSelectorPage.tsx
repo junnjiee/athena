@@ -51,11 +51,17 @@ export function BattlegroundSelectorPage() {
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
   const night = useBattleground((s) => s.night)
+  const monochrome = useBattleground((s) => s.monochrome)
   const generate = useBattleground((s) => s.generate)
   const clearBattleground = useBattleground((s) => s.clear)
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
 
   const planningMode = selection !== null && battlegroundName.trim() !== ''
+  // Placement tools/roster need a fully generated battlefield, not just a name+
+  // selection -- planningMode alone still gates the toolbar's own "ground already
+  // selected, can't redraw" lock (DrawPlanToolbar's select-ground button), which
+  // should NOT wait for generation to finish.
+  const canPlan = planningMode && phase === 'ready'
 
   // Re-validate the plan (AI tactics linting) whenever routes or terrain change.
   useEffect(() => {
@@ -78,6 +84,22 @@ export function BattlegroundSelectorPage() {
     satelliteVisible,
     elevationExaggerated,
   } = useMapControls()
+
+  // Monochrome mode hides satellite imagery entirely (real topo maps are schematic,
+  // not desaturated photos) rather than desaturating it -- restores the user's own
+  // Satellite preference when monochrome is turned back off. Cesium's globe falls
+  // back to a bright blue placeholder appearance when it has no visible imagery
+  // layer at all (confirmed visually, not just Globe.baseColor's documented black
+  // default), so baseColor alone isn't enough -- explicitly override it here.
+  useEffect(() => {
+    const viewer = getViewer()
+    if (!viewer || viewer.isDestroyed()) return
+    const layer = viewer.imageryLayers.get(0)
+    if (layer) layer.show = monochrome ? false : satelliteVisible
+    viewer.scene.globe.baseColor = monochrome
+      ? Cesium.Color.fromCssColorString('#15171a')
+      : Cesium.Color.BLACK
+  }, [monochrome, satelliteVisible, getViewer])
 
   const centerLabel = selection
     ? `${selection.stats.centerLatitude.toFixed(4)}° N, ${selection.stats.centerLongitude.toFixed(4)}° E`
@@ -202,7 +224,7 @@ export function BattlegroundSelectorPage() {
       <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-24 pr-4 pb-30 pl-60">
             <div className="flex items-start justify-between gap-3">
               <div className="pointer-events-auto">
-                {planningMode && (
+                {canPlan && (
                   <PlanRosterPanel
                     units={units}
                     objectives={objectives}
@@ -218,7 +240,12 @@ export function BattlegroundSelectorPage() {
               <div className="pointer-events-auto flex flex-col gap-3">
                 {activeTab === 'layers' && (
                   <>
-                    <DrawPlanToolbar toolMode={toolMode} onSetToolMode={setToolMode} planningMode={planningMode} />
+                    <DrawPlanToolbar
+                      toolMode={toolMode}
+                      onSetToolMode={setToolMode}
+                      planningMode={planningMode}
+                      battlefieldReady={phase === 'ready'}
+                    />
                     <TerrainLayersPanel
                       satelliteVisible={satelliteVisible}
                       onToggleSatellite={toggleSatellite}

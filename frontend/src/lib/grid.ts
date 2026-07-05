@@ -1,3 +1,4 @@
+import { computeContourPlan, drawContours } from './contours'
 import {
   TERRAIN_CLASS,
   TERRAIN_CLASS_NAMES,
@@ -164,6 +165,25 @@ export function legendGradient(metric: HeatmapMetric): string {
   return `linear-gradient(to right, ${css})`
 }
 
+export function elevationRange(grid: GridData): [number, number] {
+  let min = Infinity
+  let max = -Infinity
+  for (const v of grid.elevation) {
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  return [min, max]
+}
+
+/** Plain-text legend for the "contours" metric -- a gradient bar doesn't meaningfully
+ *  represent iso-line spacing, so the panel shows this instead (same reasoning
+ *  "landcover" already uses to skip the gradient bar). */
+export function contourLegendLabel(grid: GridData): string {
+  const [min, max] = elevationRange(grid)
+  const plan = computeContourPlan(min, max)
+  return plan ? `${plan.step}m intervals` : 'Flat terrain — no contours'
+}
+
 function metricValue(grid: GridData, metric: HeatmapMetric, i: number, elevRange: [number, number]): number {
   switch (metric) {
     case 'cover':
@@ -194,7 +214,7 @@ const HEATMAP_UPSCALE = 3
 
 /** Rasterize a metric to a crisp (nearest-neighbor upscaled) canvas for draping
  *  over terrain as a single-tile imagery layer. */
-export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric): HTMLCanvasElement {
+export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric, monochrome = false): HTMLCanvasElement {
   const { width, height } = grid
   const base = document.createElement('canvas')
   base.width = width
@@ -202,35 +222,30 @@ export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric): HTML
   const ctx = base.getContext('2d')
   if (!ctx) throw new Error('2d context unavailable')
 
-  let elevRange: [number, number] = [0, 0]
-  if (metric === 'elevation') {
-    let min = Infinity
-    let max = -Infinity
-    for (const v of grid.elevation) {
-      if (v < min) min = v
-      if (v > max) max = v
+  // Contours are traced/stroked directly at upscaled resolution below (vector paths,
+  // not a per-pixel fill), so `base` is left fully transparent here -- canvases start
+  // blank, nothing to fill.
+  if (metric !== 'contours') {
+    const elevRange: [number, number] = metric === 'elevation' ? elevationRange(grid) : [0, 0]
+    const image = ctx.createImageData(width, height)
+    const stops = RAMPS[metric]
+    for (let i = 0; i < width * height; i++) {
+      let color: Rgba
+      if (metric === 'landcover') {
+        color = CLASS_COLORS[grid.cls[i]] ?? [0, 0, 0, 0]
+      } else if (stops) {
+        color = rampColor(stops, metricValue(grid, metric, i, elevRange))
+      } else {
+        color = [0, 0, 0, 0]
+      }
+      const o = i * 4
+      image.data[o] = color[0]
+      image.data[o + 1] = color[1]
+      image.data[o + 2] = color[2]
+      image.data[o + 3] = color[3]
     }
-    elevRange = [min, max]
+    ctx.putImageData(image, 0, 0)
   }
-
-  const image = ctx.createImageData(width, height)
-  const stops = RAMPS[metric]
-  for (let i = 0; i < width * height; i++) {
-    let color: Rgba
-    if (metric === 'landcover') {
-      color = CLASS_COLORS[grid.cls[i]] ?? [0, 0, 0, 0]
-    } else if (stops) {
-      color = rampColor(stops, metricValue(grid, metric, i, elevRange))
-    } else {
-      color = [0, 0, 0, 0]
-    }
-    const o = i * 4
-    image.data[o] = color[0]
-    image.data[o + 1] = color[1]
-    image.data[o + 2] = color[2]
-    image.data[o + 3] = color[3]
-  }
-  ctx.putImageData(image, 0, 0)
 
   const out = document.createElement('canvas')
   out.width = width * HEATMAP_UPSCALE
@@ -239,5 +254,17 @@ export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric): HTML
   if (!outCtx) throw new Error('2d context unavailable')
   outCtx.imageSmoothingEnabled = false
   outCtx.drawImage(base, 0, 0, out.width, out.height)
+
+  if (metric === 'contours') {
+    const [min, max] = elevationRange(grid)
+    const plan = computeContourPlan(min, max)
+    if (plan) {
+      drawContours(
+        outCtx, grid, plan.levels, HEATMAP_UPSCALE,
+        monochrome ? { color: 'rgba(20, 20, 20, 0.85)' } : undefined,
+      )
+    }
+  }
+
   return out
 }

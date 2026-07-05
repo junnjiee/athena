@@ -37,6 +37,14 @@ function applyProgress(steps: ReasoningStep[], event: ProgressEvent): ReasoningS
   })
 }
 
+/** Some pipeline steps (classify/military, and any step replayed from a late-joining
+ *  subscriber's snapshot burst) emit 'start' and 'done' with no real gap between them,
+ *  so the 'active'/spinning state gets set and immediately overwritten in the same
+ *  render -- the spinner never actually paints. Enforce a minimum visible duration:
+ *  'start' applies immediately, but a 'done'/'error' arriving before MIN_ACTIVE_MS has
+ *  elapsed since that step went active is deferred until the remainder has passed. */
+const MIN_ACTIVE_MS = 400
+
 export interface BattlefieldLayerToggles {
   buildings: boolean
   roads: boolean
@@ -57,6 +65,7 @@ interface BattlegroundState {
   heatmap: HeatmapMetric
   layers: BattlefieldLayerToggles
   night: boolean
+  monochrome: boolean
   hoverCell: CellSample | null
   planAnalysis: PlanAnalysis | null
 
@@ -66,6 +75,7 @@ interface BattlegroundState {
   setHeatmap: (metric: HeatmapMetric) => void
   toggleLayer: (layer: keyof BattlefieldLayerToggles) => void
   setNight: (night: boolean) => void
+  toggleMonochrome: () => void
   setHoverCell: (cell: CellSample | null) => void
   setPlanAnalysis: (analysis: PlanAnalysis | null) => void
 }
@@ -85,6 +95,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   heatmap: 'none',
   layers: { buildings: true, roads: true, trees: true, water: true },
   night: false,
+  monochrome: false,
   hoverCell: null,
   planAnalysis: null,
 
@@ -93,6 +104,26 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
     unsubscribe?.()
     unsubscribe = null
     set({ phase: 'generating', steps: freshSteps(), error: null, jobId: null })
+
+    const activeSince = new Map<ReasoningStep['id'], number>()
+    function applyEventWithMinDwell(event: ProgressEvent) {
+      if (event.status === 'start') {
+        activeSince.set(event.step, Date.now())
+        set((s) => ({ steps: applyProgress(s.steps, event) }))
+        return
+      }
+      const startedAt = activeSince.get(event.step)
+      const elapsed = startedAt != null ? Date.now() - startedAt : MIN_ACTIVE_MS
+      const remaining = Math.max(0, MIN_ACTIVE_MS - elapsed)
+      if (remaining === 0) {
+        set((s) => ({ steps: applyProgress(s.steps, event) }))
+      } else {
+        setTimeout(() => {
+          if (gen !== generation) return
+          set((s) => ({ steps: applyProgress(s.steps, event) }))
+        }, remaining)
+      }
+    }
 
     const fail = (message: string) => {
       if (gen !== generation) return
@@ -126,7 +157,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
       unsubscribe = subscribeBattleground(jobId, {
         onProgress(event) {
           if (gen !== generation) return
-          set((s) => ({ steps: applyProgress(s.steps, event) }))
+          applyEventWithMinDwell(event)
         },
         onDone(status, error) {
           if (gen !== generation) return
@@ -147,6 +178,10 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   },
 
   clear() {
+    // Bump generation so any in-flight callback tied to the abandoned session (a
+    // pending loadResults() fetch, or a deferred min-dwell-time setTimeout from
+    // applyEventWithMinDwell) becomes a no-op instead of resurrecting stale state
+    // after the reset below.
     generation++
     unsubscribe?.()
     unsubscribe = null
@@ -168,6 +203,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   toggleLayer: (layer) =>
     set((s) => ({ layers: { ...s.layers, [layer]: !s.layers[layer] } })),
   setNight: (night) => set({ night }),
+  toggleMonochrome: () => set((s) => ({ monochrome: !s.monochrome })),
   setHoverCell: (cell) => set({ hoverCell: cell }),
   setPlanAnalysis: (analysis) => set({ planAnalysis: analysis }),
 }))
