@@ -104,6 +104,22 @@ export interface GridMeta {
   generatedAt: string
   weather: Weather | null
   featureCounts: { roads: number; buildings: number; areas: number }
+  /** null when the segmentation stage was skipped or failed */
+  segmentation?: SegmentationInfo | null
+}
+
+/** Per-cell semantic segmentation output over the live satellite raster.
+ *  cls uses TERRAIN_CLASS ids with 255 (= LANDCOVER_NONE) meaning "no call";
+ *  confidence is 0-100. */
+export interface SegmentationResult {
+  cls: Uint8Array
+  confidence: Uint8Array
+}
+
+export interface SegmentationInfo {
+  backend: 'spectral' | 'onnx'
+  /** share of cells (0-100) where segmentation made a confident call */
+  coveragePct: number
 }
 
 export type ProgressStepId =
@@ -111,6 +127,7 @@ export type ProgressStepId =
   | 'features'
   | 'landcover'
   | 'weather'
+  | 'segment'
   | 'classify'
   | 'military'
   | 'grid'
