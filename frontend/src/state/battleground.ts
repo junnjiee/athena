@@ -19,6 +19,7 @@ import type {
   ReasoningStep,
 } from '../types/terrain'
 import type { PlanAnalysis } from '../lib/validate'
+import type { LonLat } from '../types/entities'
 
 export type BattlegroundPhase = 'idle' | 'generating' | 'ready'
 
@@ -78,6 +79,8 @@ interface BattlegroundState {
   planAnalysis: PlanAnalysis | null
   /** friendly-unit viewshed currently draped on the battlefield */
   viewshed: { unitId: string; mask: Uint8Array } | null
+  /** ghost route preview from the A* suggester (cleared on accept/dismiss) */
+  suggestedPath: LonLat[] | null
 
   generate: (bbox: BBoxDeg, name: string) => Promise<void>
   dismissError: () => void
@@ -92,6 +95,7 @@ interface BattlegroundState {
   refreshDanger: (observers: DangerObserver[]) => Promise<void>
   requestViewshed: (unitId: string, position: { longitude: number; latitude: number }) => void
   clearViewshed: () => void
+  setSuggestedPath: (points: LonLat[] | null) => void
 }
 
 let generation = 0
@@ -113,6 +117,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   hoverCell: null,
   planAnalysis: null,
   viewshed: null,
+  suggestedPath: null,
 
   async generate(bbox, name) {
     const gen = ++generation
@@ -212,6 +217,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
       hoverCell: null,
       planAnalysis: null,
       viewshed: null,
+      suggestedPath: null,
     })
   },
 
@@ -268,6 +274,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   },
 
   clearViewshed: () => set({ viewshed: null }),
+  setSuggestedPath: (points) => set({ suggestedPath: points }),
 }))
 
 let viewshedRequestId = 0

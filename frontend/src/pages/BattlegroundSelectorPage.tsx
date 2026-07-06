@@ -6,6 +6,7 @@ import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
 import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
 import { PlanRosterPanel } from '../components/panels/PlanRosterPanel'
+import { RouteSuggestionPanel } from '../components/panels/RouteSuggestionPanel'
 import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
@@ -241,7 +242,7 @@ export function BattlegroundSelectorPage() {
 
       <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-24 pr-4 pb-30 pl-60">
             <div className="flex items-start justify-between gap-3">
-              <div className="pointer-events-auto">
+              <div className="pointer-events-auto flex flex-col gap-3">
                 {canPlan && (
                   <PlanRosterPanel
                     units={units}
@@ -251,6 +252,13 @@ export function BattlegroundSelectorPage() {
                     onDeleteUnit={handleDeleteUnit}
                     onDeleteObjective={handleDeleteObjective}
                     onDeleteRoute={handleDeleteRoute}
+                  />
+                )}
+                {canPlan && (
+                  <RouteSuggestionPanel
+                    units={units}
+                    objectives={objectives}
+                    onAccept={handleRouteComplete}
                   />
                 )}
                 {selection === null && <GroundSearchPanel getViewer={getViewer} />}

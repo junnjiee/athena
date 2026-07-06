@@ -68,6 +68,7 @@ export function BattlefieldController() {
   const monochrome = useBattleground((s) => s.monochrome)
   const planAnalysis = useBattleground((s) => s.planAnalysis)
   const viewshed = useBattleground((s) => s.viewshed)
+  const suggestedPath = useBattleground((s) => s.suggestedPath)
 
   const buildingsDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const roadsDsRef = useRef<Cesium.CustomDataSource | null>(null)
@@ -77,6 +78,7 @@ export function BattlefieldController() {
   const treeInstancesRef = useRef<TreeInstance[]>([])
   const heatmapLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   const viewshedLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const ghostDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const revealTRef = useRef(0)
 
   // --- battlefield content + cinematic reveal -----------------------------
@@ -300,6 +302,31 @@ export function BattlefieldController() {
       }
     }
   }, [viewer, grid, viewshed, phase])
+
+  // --- suggested (ghost) route preview ---------------------------------------
+  useEffect(() => {
+    if (!viewer || viewer.isDestroyed()) return
+    const ds = new Cesium.CustomDataSource('bf-ghost-route')
+    void viewer.dataSources.add(ds)
+    ghostDsRef.current = ds
+    if (suggestedPath && suggestedPath.length >= 2) {
+      ds.entities.add({
+        polyline: {
+          positions: suggestedPath.map((p) => Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude)),
+          clampToGround: true,
+          width: 5,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: Cesium.Color.fromCssColorString('#38bdf8'),
+            dashLength: 18,
+          }),
+        },
+      })
+    }
+    return () => {
+      if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true)
+      ghostDsRef.current = null
+    }
+  }, [viewer, suggestedPath])
 
   // --- terrain hover sampling ----------------------------------------------
   useEffect(() => {
