@@ -68,6 +68,21 @@ export function BattlegroundSelectorPage() {
     setPlanAnalysis(analyzePlan(routes, grid))
   }, [routes, grid, setPlanAnalysis])
 
+  // Recompute the enemy LOS danger field when red-force positions change.
+  // Debounced: placing several threats in a row should trigger one viewshed
+  // sweep, not one per click.
+  const refreshDanger = useBattleground((s) => s.refreshDanger)
+  useEffect(() => {
+    if (phase !== 'ready') return
+    const observers = units
+      .filter((u) => u.side === 'red')
+      .map((u) => ({ longitude: u.position.longitude, latitude: u.position.latitude }))
+    const timer = setTimeout(() => {
+      void refreshDanger(observers)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [units, phase, refreshDanger])
+
   const {
     handleViewerReady,
     getViewer,
@@ -147,6 +162,9 @@ export function BattlegroundSelectorPage() {
   function handleDeleteUnit(id: string) {
     setUnits((prev) => prev.filter((u) => u.id !== id))
     setRoutes((prev) => prev.filter((r) => r.startUnitId !== id && !(r.endRef?.kind === 'unit' && r.endRef.id === id)))
+    if (useBattleground.getState().viewshed?.unitId === id) {
+      useBattleground.getState().clearViewshed()
+    }
   }
 
   function handleDeleteObjective(id: string) {

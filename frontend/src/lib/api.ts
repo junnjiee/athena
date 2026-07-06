@@ -34,3 +34,20 @@ export async function fetchBattlegroundGrid(id: string, bbox: BBoxDeg): Promise<
   if (!res.ok) throw new Error(await readError(res))
   return decodeGrid(await res.arrayBuffer(), bbox)
 }
+
+export interface DangerObserver {
+  longitude: number
+  latitude: number
+  eyeHeightM?: number
+}
+
+/** Cumulative enemy viewshed (0-100 per cell) for the given red-force positions. */
+export async function fetchDangerField(id: string, observers: DangerObserver[]): Promise<Uint8Array> {
+  const res = await fetch(`/api/battleground/${id}/danger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ observers }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return new Uint8Array(await res.arrayBuffer())
+}

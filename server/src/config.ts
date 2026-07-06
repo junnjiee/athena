@@ -57,6 +57,9 @@ export const config = {
   segModelClassMap: process.env.ATHENA_SEG_CLASSMAP ?? null,
   segWorkerThreads: 2,
 
+  /** Upper bound on enemy observers per danger-field request. */
+  dangerMaxObservers: 32,
+
   /** Grid sizing: cells are square; the longest bbox edge maps to at most maxCellsPerAxis. */
   maxCellsPerAxis: 288,
   minCellMeters: 5,
