@@ -34,6 +34,29 @@ export const config = {
    *  resolution -- cheap since it's one small image, not a tile pyramid. */
   worldCoverSupersample: 2,
 
+  /** Esri World Imagery RGB tiles — the raster the segmentation stage runs on.
+   *  Same endpoint the frontend already drapes as its base layer. */
+  satelliteTileUrl: (z: number, x: number, y: number) =>
+    `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+  satelliteMinZoom: 12,
+  satelliteMaxZoom: 16,
+  satelliteFetchConcurrency: 8,
+  satelliteTileCacheSize: 256,
+  /** Aim for at least this many imagery pixels per grid-cell edge so per-cell
+   *  texture (local variance) is meaningful, not noise. */
+  satellitePixelsPerCell: 3,
+
+  /** Segmentation classes below this confidence (0-100) are ignored and the
+   *  classifier falls through to the WorldCover prior. */
+  segConfidenceMin: 55,
+  /** Optional ONNX model path (ATHENA_SEG_MODEL). When unset, the deterministic
+   *  spectral backend runs — see services/segment.ts for the model contract. */
+  segModelPath: process.env.ATHENA_SEG_MODEL ?? null,
+  segModelResolution: Number(process.env.ATHENA_SEG_RES ?? 512),
+  /** JSON array mapping model output channel -> TERRAIN_CLASS id (255 = ignore). */
+  segModelClassMap: process.env.ATHENA_SEG_CLASSMAP ?? null,
+  segWorkerThreads: 2,
+
   /** Grid sizing: cells are square; the longest bbox edge maps to at most maxCellsPerAxis. */
   maxCellsPerAxis: 288,
   minCellMeters: 5,

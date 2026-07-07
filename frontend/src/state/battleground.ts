@@ -20,6 +20,7 @@ const STEP_LABELS: [ReasoningStep['id'], string][] = [
   ['features', 'Detecting roads, buildings & vegetation'],
   ['landcover', 'Sampling satellite land cover'],
   ['weather', 'Sensing weather conditions'],
+  ['segment', 'Segmenting satellite imagery'],
   ['classify', 'Classifying terrain cover'],
   ['military', 'Computing military properties'],
   ['grid', 'Building simulation grid'],

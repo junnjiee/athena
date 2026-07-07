@@ -1,9 +1,17 @@
 import RBush from 'rbush'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point, polygon } from '@turf/helpers'
+import { config } from '../config'
 import { metersPerDegree, pointToSegmentDistSqMeters, ringBBox } from '../lib/geo'
 import { LANDCOVER_NONE } from './landcover'
-import { TERRAIN_CLASS, type BBox, type GridChannels, type OsmFeatures, type RoadClass } from '../types'
+import {
+  TERRAIN_CLASS,
+  type BBox,
+  type GridChannels,
+  type OsmFeatures,
+  type RoadClass,
+  type SegmentationResult,
+} from '../types'
 
 const C = TERRAIN_CLASS
 
@@ -125,6 +133,7 @@ function classifyCell(
   cellMeters: number,
   polygons: RBush<IndexedPolygon>,
   segments: RBush<IndexedSegment>,
+  segFallback: number | null,
   landCoverFallback: number | null,
 ): number {
   const pt = point([lon, lat])
@@ -150,9 +159,11 @@ function classifyCell(
     }
   }
 
-  // Satellite land cover only fills in where OSM had no opinion at all -- it never
-  // overrides an OSM area polygon, building, road, or water hit above.
-  return areaCls ?? landCoverFallback ?? C.OPEN
+  // Satellite intelligence only fills in where OSM had no opinion at all -- it never
+  // overrides an OSM area polygon, building, road, or water hit above. Live-imagery
+  // segmentation (fresher, higher-res) outranks the 2021 WorldCover prior, but only
+  // when it cleared the confidence gate applied in buildGridChannels.
+  return areaCls ?? segFallback ?? landCoverFallback ?? C.OPEN
 }
 
 function computeSlopeDeg(height: Float32Array, w: number, h: number, cellMeters: number): Uint8Array {
@@ -225,6 +236,7 @@ export function buildGridChannels(
   heights: Float32Array,
   features: OsmFeatures,
   landCover: Uint8Array | null = null,
+  seg: SegmentationResult | null = null,
 ): GridChannels {
   const n = width * height
   const cls = new Uint8Array(n)
@@ -249,7 +261,12 @@ export function buildGridChannels(
       const i = row * width + col
       const lon = bbox.west + (col + 0.5) * dLon
       const lc = landCover ? landCover[i] : LANDCOVER_NONE
-      const c = classifyCell(lon, lat, cellMeters, polygons, segments, lc === LANDCOVER_NONE ? null : lc)
+      // Confidence gate: a weak segmentation call must never displace WorldCover.
+      const sc =
+        seg && seg.cls[i] !== LANDCOVER_NONE && seg.confidence[i] >= config.segConfidenceMin
+          ? seg.cls[i]
+          : null
+      const c = classifyCell(lon, lat, cellMeters, polygons, segments, sc, lc === LANDCOVER_NONE ? null : lc)
       cls[i] = c
 
       const [baseCover, baseConceal, baseMove, baseVehicle] = BASE_PROPS[c] ?? BASE_PROPS[C.OPEN]
