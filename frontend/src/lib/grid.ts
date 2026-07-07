@@ -122,6 +122,14 @@ const RAMPS: Partial<Record<HeatmapMetric, Stop[]>> = {
     [0.85, [185, 141, 94, 165]],
     [1, [232, 224, 208, 175]],
   ],
+  // True enemy line-of-sight: unseen ground stays transparent, anything observed
+  // ramps from "one observer" green through amber into the red kill zone.
+  enemyVisibility: [
+    [0, [34, 197, 94, 0]],
+    [0.25, [34, 197, 94, 110]],
+    [0.6, [234, 179, 8, 150]],
+    [1, [220, 38, 38, 200]],
+  ],
 }
 
 const CLASS_COLORS: Record<number, Rgba> = {
@@ -201,6 +209,8 @@ function metricValue(grid: GridData, metric: HeatmapMetric, i: number, elevRange
       return grid.ambush[i] / 100
     case 'slope':
       return Math.min(1, grid.slope[i] / 40)
+    case 'enemyVisibility':
+      return (grid.danger?.[i] ?? 0) / 100
     case 'elevation': {
       const [min, max] = elevRange
       return max > min ? (grid.elevation[i] - min) / (max - min) : 0
@@ -211,6 +221,40 @@ function metricValue(grid: GridData, metric: HeatmapMetric, i: number, elevRange
 }
 
 const HEATMAP_UPSCALE = 3
+
+/** Rasterize a 0/1 mask (e.g. a friendly unit's viewshed) to a crisp single-color
+ *  drape canvas, same upscale convention as the heatmaps. */
+export function renderMaskCanvas(
+  width: number,
+  height: number,
+  mask: Uint8Array,
+  rgba: [number, number, number, number],
+): HTMLCanvasElement {
+  const base = document.createElement('canvas')
+  base.width = width
+  base.height = height
+  const ctx = base.getContext('2d')
+  if (!ctx) throw new Error('2d context unavailable')
+  const image = ctx.createImageData(width, height)
+  for (let i = 0; i < width * height; i++) {
+    if (!mask[i]) continue
+    const o = i * 4
+    image.data[o] = rgba[0]
+    image.data[o + 1] = rgba[1]
+    image.data[o + 2] = rgba[2]
+    image.data[o + 3] = rgba[3]
+  }
+  ctx.putImageData(image, 0, 0)
+
+  const out = document.createElement('canvas')
+  out.width = width * HEATMAP_UPSCALE
+  out.height = height * HEATMAP_UPSCALE
+  const outCtx = out.getContext('2d')
+  if (!outCtx) throw new Error('2d context unavailable')
+  outCtx.imageSmoothingEnabled = false
+  outCtx.drawImage(base, 0, 0, out.width, out.height)
+  return out
+}
 
 /** Rasterize a metric to a crisp (nearest-neighbor upscaled) canvas for draping
  *  over terrain as a single-tile imagery layer. */

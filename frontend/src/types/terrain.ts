@@ -99,6 +99,9 @@ export interface GridData {
   visibility: Uint8Array
   vehicleMobility: Uint8Array
   ambush: Uint8Array
+  /** live "seen-by-enemy" field (0-100 share of red observers seeing each cell);
+   *  present only after red-force units are placed */
+  danger?: Uint8Array
 }
 
 export interface CellSample {
@@ -153,5 +156,6 @@ export type HeatmapMetric =
   | 'ambush'
   | 'slope'
   | 'elevation'
+  | 'enemyVisibility'
   | 'contours'
   | 'landcover'

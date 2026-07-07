@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { useCesium } from 'resium'
 import { useBattleground } from '../../state/battleground'
-import { renderHeatmapCanvas, sampleCell } from '../../lib/grid'
+import { renderHeatmapCanvas, renderMaskCanvas, sampleCell } from '../../lib/grid'
 import { scatterTrees, treeSpriteDataUrl, type TreeInstance } from '../../lib/treeSprite'
 import {
   buildBuildings,
@@ -67,6 +67,7 @@ export function BattlefieldController() {
   const night = useBattleground((s) => s.night)
   const monochrome = useBattleground((s) => s.monochrome)
   const planAnalysis = useBattleground((s) => s.planAnalysis)
+  const viewshed = useBattleground((s) => s.viewshed)
 
   const buildingsDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const roadsDsRef = useRef<Cesium.CustomDataSource | null>(null)
@@ -75,6 +76,7 @@ export function BattlefieldController() {
   const treesRef = useRef<Cesium.BillboardCollection | null>(null)
   const treeInstancesRef = useRef<TreeInstance[]>([])
   const heatmapLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const viewshedLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   const revealTRef = useRef(0)
 
   // --- battlefield content + cinematic reveal -----------------------------
@@ -261,6 +263,43 @@ export function BattlefieldController() {
       }
     }
   }, [viewer, grid, heatmap, phase, monochrome])
+
+  // --- friendly-unit viewshed drape ------------------------------------------
+  useEffect(() => {
+    if (!viewer || viewer.isDestroyed() || !grid) return
+    let cancelled = false
+
+    const previous = viewshedLayerRef.current
+    if (previous) {
+      viewer.imageryLayers.remove(previous, true)
+      viewshedLayerRef.current = null
+    }
+    if (!viewshed || phase !== 'ready') return
+
+    const rectangle = Cesium.Rectangle.fromDegrees(
+      grid.bbox.west,
+      grid.bbox.south,
+      grid.bbox.east,
+      grid.bbox.north,
+    )
+    const dataUrl = renderMaskCanvas(grid.width, grid.height, viewshed.mask, [56, 189, 248, 120]).toDataURL(
+      'image/png',
+    )
+    void Cesium.SingleTileImageryProvider.fromUrl(dataUrl, { rectangle }).then((provider) => {
+      if (cancelled || viewer.isDestroyed()) return
+      const layer = viewer.imageryLayers.addImageryProvider(provider)
+      layer.alpha = 0.75
+      viewshedLayerRef.current = layer
+    })
+
+    return () => {
+      cancelled = true
+      if (viewshedLayerRef.current && !viewer.isDestroyed()) {
+        viewer.imageryLayers.remove(viewshedLayerRef.current, true)
+        viewshedLayerRef.current = null
+      }
+    }
+  }, [viewer, grid, viewshed, phase])
 
   // --- terrain hover sampling ----------------------------------------------
   useEffect(() => {

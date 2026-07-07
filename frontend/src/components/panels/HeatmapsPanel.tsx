@@ -1,4 +1,4 @@
-import { Shield, EyeOff, Footprints, Eye, Car, Crosshair, TrendingUp, Mountain, Layers, Map, Ban } from 'lucide-react'
+import { Shield, EyeOff, Footprints, Eye, Car, Crosshair, TrendingUp, Mountain, Layers, Map, Ban, Radar } from 'lucide-react'
 import { contourLegendLabel, legendGradient } from '../../lib/grid'
 import { useBattleground } from '../../state/battleground'
 import type { HeatmapMetric } from '../../types/terrain'
@@ -9,6 +9,7 @@ const METRICS: { id: HeatmapMetric; label: string; icon: typeof Shield; low?: st
   { id: 'concealment', label: 'Concealment', icon: EyeOff, low: 'Exposed', high: 'Hidden' },
   { id: 'movement', label: 'Movement', icon: Footprints, low: 'Fast', high: 'Slow' },
   { id: 'visibility', label: 'Exposure', icon: Eye, low: 'Safe', high: 'Seen' },
+  { id: 'enemyVisibility', label: 'Enemy LOS', icon: Radar, low: 'Unseen', high: 'Kill zone' },
   { id: 'vehicle', label: 'Vehicle Mobility', icon: Car, low: 'No-go', high: 'Go' },
   { id: 'ambush', label: 'Ambush Potential', icon: Crosshair, low: '', high: 'Prime' },
   { id: 'slope', label: 'Slope', icon: TrendingUp, low: 'Flat', high: 'Steep' },
@@ -51,6 +52,11 @@ export function HeatmapsPanel() {
               </div>
               {active && id === 'contours' && grid && (
                 <div className="mt-1.5 px-0.5 text-[10px] text-(--text-dim)">{contourLegendLabel(grid)}</div>
+              )}
+              {active && id === 'enemyVisibility' && !grid?.danger && (
+                <div className="mt-1.5 px-0.5 text-[10px] text-(--text-dim)">
+                  Place red-force units to compute enemy sightlines
+                </div>
               )}
               {active && id !== 'none' && id !== 'landcover' && id !== 'contours' && (
                 <div className="mt-1.5 px-0.5">

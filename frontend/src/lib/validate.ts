@@ -1,4 +1,4 @@
-import { sampleCell } from './grid'
+import { cellIndexAt, sampleCell } from './grid'
 import { TERRAIN_CLASS, type GridData } from '../types/terrain'
 import type { LonLat, PlacedRoute } from '../types/entities'
 
@@ -33,6 +33,8 @@ export interface PlanAnalysis {
 const WALK_SPEED_MS = 1.4
 const STEEP_SLOPE_DEG = 30
 const EXPOSED_VISIBILITY = 65
+/** danger-field level (share of enemy observers seeing the cell) that counts as exposed */
+const EXPOSED_DANGER = 50
 /** consecutive samples that must offend before a warning is raised */
 const MIN_RUN = 3
 
@@ -43,7 +45,15 @@ interface Sample {
   slope: number
   cls: number
   visibility: number
+  /** true enemy LOS (0-100), or null when no red-force units are placed */
+  danger: number | null
   moveCostFactor: number
+}
+
+/** Exposure keys off real enemy sightlines when the danger field exists, and
+ *  falls back to the static visibility proxy otherwise. */
+function isExposed(s: Sample): boolean {
+  return s.danger !== null ? s.danger >= EXPOSED_DANGER : s.visibility >= EXPOSED_VISIBILITY
 }
 
 function metersPerDegree(latDeg: number): { lat: number; lon: number } {
@@ -68,6 +78,7 @@ function sampleRoute(points: LonLat[], grid: GridData): Sample[] {
       const lat = a.latitude + (b.latitude - a.latitude) * f
       const cell = sampleCell(grid, lon, lat)
       if (!cell) continue
+      const cellIdx = cellIndexAt(grid, lon, lat)
       samples.push({
         lon,
         lat,
@@ -75,6 +86,7 @@ function sampleRoute(points: LonLat[], grid: GridData): Sample[] {
         slope: cell.slopeDeg,
         cls: cell.cls,
         visibility: cell.visibility,
+        danger: grid.danger && cellIdx >= 0 ? grid.danger[cellIdx] : null,
         moveCostFactor: cell.moveCostFactor,
       })
     }
@@ -103,10 +115,18 @@ const DETECTORS: RunDetector[] = [
     message: (m) => `Steep slope ≥${STEEP_SLOPE_DEG}° for ${Math.round(m)} m`,
   },
   {
-    offending: (s) => s.visibility >= EXPOSED_VISIBILITY && s.cls !== TERRAIN_CLASS.WATER,
+    offending: (s) => isExposed(s) && s.cls !== TERRAIN_CLASS.WATER,
     kind: 'exposed',
     severity: 'warning',
     message: (m) => `Exposed crossing — ${Math.round(m)} m in open view`,
+  },
+  {
+    // Only fires when the danger field exists — this is the LOS-backed upgrade of
+    // "exposed": ground actually watched by placed red-force units.
+    offending: (s) => s.danger !== null && s.danger >= 100,
+    kind: 'exposed',
+    severity: 'critical',
+    message: (m) => `Kill zone — ${Math.round(m)} m seen by every enemy position`,
   },
   {
     offending: (s) => s.moveCostFactor >= 3 && s.cls !== TERRAIN_CLASS.WATER,
@@ -160,7 +180,7 @@ export function analyzeRoute(route: PlacedRoute, grid: GridData): { warnings: Pl
   for (const s of samples) {
     lengthMeters += s.stepMeters
     effortSeconds += (s.stepMeters * s.moveCostFactor) / WALK_SPEED_MS
-    if (s.visibility >= EXPOSED_VISIBILITY) exposedMeters += s.stepMeters
+    if (isExposed(s)) exposedMeters += s.stepMeters
   }
 
   return {

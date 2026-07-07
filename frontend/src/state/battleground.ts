@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import { createBattleground, fetchBattlegroundGrid, fetchBattlegroundMeta } from '../lib/api'
+import {
+  createBattleground,
+  fetchBattlegroundGrid,
+  fetchBattlegroundMeta,
+  fetchDangerField,
+  type DangerObserver,
+} from '../lib/api'
+import type { ViewshedRequest, ViewshedResponse } from '../workers/los.worker'
 import { subscribeBattleground } from '../lib/socket'
 import type {
   BattlegroundMeta,
@@ -69,6 +76,8 @@ interface BattlegroundState {
   monochrome: boolean
   hoverCell: CellSample | null
   planAnalysis: PlanAnalysis | null
+  /** friendly-unit viewshed currently draped on the battlefield */
+  viewshed: { unitId: string; mask: Uint8Array } | null
 
   generate: (bbox: BBoxDeg, name: string) => Promise<void>
   dismissError: () => void
@@ -79,6 +88,10 @@ interface BattlegroundState {
   toggleMonochrome: () => void
   setHoverCell: (cell: CellSample | null) => void
   setPlanAnalysis: (analysis: PlanAnalysis | null) => void
+  /** recompute the enemy LOS danger field for the current red-force positions */
+  refreshDanger: (observers: DangerObserver[]) => Promise<void>
+  requestViewshed: (unitId: string, position: { longitude: number; latitude: number }) => void
+  clearViewshed: () => void
 }
 
 let generation = 0
@@ -99,6 +112,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   monochrome: false,
   hoverCell: null,
   planAnalysis: null,
+  viewshed: null,
 
   async generate(bbox, name) {
     const gen = ++generation
@@ -197,6 +211,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
       heatmap: 'none',
       hoverCell: null,
       planAnalysis: null,
+      viewshed: null,
     })
   },
 
@@ -207,4 +222,69 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   toggleMonochrome: () => set((s) => ({ monochrome: !s.monochrome })),
   setHoverCell: (cell) => set({ hoverCell: cell }),
   setPlanAnalysis: (analysis) => set({ planAnalysis: analysis }),
+
+  async refreshDanger(observers) {
+    const { grid, jobId } = get()
+    if (!grid || !jobId) return
+    if (observers.length === 0) {
+      if (grid.danger) set({ grid: { ...grid, danger: undefined } })
+      return
+    }
+    const requestGen = generation
+    try {
+      const danger = await fetchDangerField(jobId, observers)
+      if (requestGen !== generation) return
+      const current = get().grid
+      if (!current) return
+      set({ grid: { ...current, danger } })
+    } catch (error: unknown) {
+      console.warn('[danger] refresh failed:', error instanceof Error ? error.message : error)
+    }
+  },
+
+  requestViewshed(unitId, position) {
+    const grid = get().grid
+    if (!grid) return
+    const col = Math.floor(((position.longitude - grid.bbox.west) / (grid.bbox.east - grid.bbox.west)) * grid.width)
+    const row = Math.floor(((grid.bbox.north - position.latitude) / (grid.bbox.north - grid.bbox.south)) * grid.height)
+    if (col < 0 || col >= grid.width || row < 0 || row >= grid.height) return
+
+    const requestId = ++viewshedRequestId
+    // Copies, not the live grid views — the worker transfer would detach the
+    // whole grid buffer otherwise.
+    const elevation = grid.elevation.slice()
+    const cls = grid.cls.slice()
+    const request: ViewshedRequest = {
+      requestId,
+      width: grid.width,
+      height: grid.height,
+      cellMeters: grid.cellMeters,
+      elevation: elevation.buffer as ArrayBuffer,
+      cls: cls.buffer as ArrayBuffer,
+      col,
+      row,
+    }
+    getLosWorker(unitId).postMessage(request, [request.elevation, request.cls])
+  },
+
+  clearViewshed: () => set({ viewshed: null }),
 }))
+
+let viewshedRequestId = 0
+let losWorker: Worker | null = null
+let pendingViewshedUnitId: string | null = null
+
+function getLosWorker(unitId: string): Worker {
+  pendingViewshedUnitId = unitId
+  if (!losWorker) {
+    losWorker = new Worker(new URL('../workers/los.worker.ts', import.meta.url), { type: 'module' })
+    losWorker.onmessage = (event: MessageEvent<ViewshedResponse>) => {
+      // only the latest request wins — stale responses are dropped
+      if (event.data.requestId !== viewshedRequestId || !pendingViewshedUnitId) return
+      useBattleground.setState({
+        viewshed: { unitId: pendingViewshedUnitId, mask: new Uint8Array(event.data.mask) },
+      })
+    }
+  }
+  return losWorker
+}
