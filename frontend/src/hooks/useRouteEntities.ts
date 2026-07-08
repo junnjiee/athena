@@ -3,6 +3,8 @@ import * as Cesium from 'cesium'
 import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
 import { routeArrowIcon } from '../lib/markerIcons'
 import { bearingRadians } from '../lib/bearing'
+import { movementLineStyle } from '../lib/movementStyle'
+import { MOVEMENT_PROFILES } from '../types/movement'
 import type { PlacedRoute } from '../types/entities'
 
 interface Args {
@@ -13,6 +15,7 @@ interface Args {
 interface RouteEntityPair {
   line: Cesium.Entity
   arrow: Cesium.Entity
+  label: Cesium.Entity
 }
 
 export function useRouteEntities({ viewer, routes }: Args) {
@@ -35,16 +38,14 @@ export function useRouteEntities({ viewer, routes }: Args) {
       // while compass bearing is measured clockwise from north -- negate to convert.
       const rotation = -bearingRadians(secondToLast, last)
 
-      // Line is uniformly dashed along its whole length -- previously a second,
-      // solid (non-dashed) polyline was overlaid on just the final segment to act as
-      // an arrowhead, which looked inconsistent (last segment solid, rest dashed).
-      // A small rotated arrow billboard at the endpoint reads as a direction marker
-      // without breaking the dash pattern.
+      // Line style encodes the movement gait (dotted crawl → glowing rush); it
+      // clamps to ground so it reads the same in 2D and 3D.
+      const style = movementLineStyle(route.movementType, colorHex)
       const line = viewer.entities.add({
         polyline: {
           positions,
-          width: 3,
-          material: new Cesium.PolylineDashMaterialProperty({ color: Cesium.Color.fromCssColorString(colorHex) }),
+          width: style.width,
+          material: style.material,
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
         },
@@ -61,13 +62,32 @@ export function useRouteEntities({ viewer, routes }: Args) {
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
       })
-      entityMapRef.current.set(route.id, { line, arrow })
+      // Gait tag at the route midpoint so the movement order is legible at a glance.
+      const midpoint = positions[Math.floor(positions.length / 2)]
+      const label = viewer.entities.add({
+        position: midpoint,
+        label: {
+          text: MOVEMENT_PROFILES[route.movementType].label.toUpperCase(),
+          font: '600 11px system-ui, sans-serif',
+          fillColor: Cesium.Color.fromCssColorString(colorHex),
+          showBackground: true,
+          backgroundColor: new Cesium.Color(0.04, 0.05, 0.07, 0.8),
+          backgroundPadding: new Cesium.Cartesian2(6, 3),
+          scaleByDistance: new Cesium.NearFarScalar(500, 1.0, 8000, 0.6),
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -8),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      })
+      entityMapRef.current.set(route.id, { line, arrow, label })
     }
 
     for (const [id, pair] of entityMapRef.current) {
       if (!seen.has(id)) {
         viewer.entities.remove(pair.line)
         viewer.entities.remove(pair.arrow)
+        viewer.entities.remove(pair.label)
         entityMapRef.current.delete(id)
       }
     }
@@ -80,6 +100,7 @@ export function useRouteEntities({ viewer, routes }: Args) {
       for (const pair of entityMap.values()) {
         viewer.entities.remove(pair.line)
         viewer.entities.remove(pair.arrow)
+        viewer.entities.remove(pair.label)
       }
       entityMap.clear()
     }

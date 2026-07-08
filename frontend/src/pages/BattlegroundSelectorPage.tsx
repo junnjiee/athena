@@ -6,6 +6,7 @@ import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
 import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
 import { PlanRosterPanel } from '../components/panels/PlanRosterPanel'
+import { MovementModePanel } from '../components/panels/MovementModePanel'
 import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
@@ -22,6 +23,7 @@ import { analyzePlan } from '../lib/validate'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
+import { DEFAULT_LOADOUT, DEFAULT_MOVEMENT, type MovementLoadout, type MovementType } from '../types/movement'
 
 const NATO = [
   'Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliett',
@@ -34,6 +36,8 @@ interface NewRouteInput {
   startUnitId: string
   points: LonLat[]
   endRef: PlacedRoute['endRef']
+  movementType: MovementType
+  loadout: MovementLoadout
 }
 
 export function BattlegroundSelectorPage() {
@@ -47,6 +51,8 @@ export function BattlegroundSelectorPage() {
   const [objectives, setObjectives] = useState<PlacedObjective[]>([])
   const [routes, setRoutes] = useState<PlacedRoute[]>([])
   const [isDrawingRoute, setIsDrawingRoute] = useState(false)
+  const [movementType, setMovementType] = useState<MovementType>(DEFAULT_MOVEMENT)
+  const [loadout, setLoadout] = useState<MovementLoadout>(DEFAULT_LOADOUT)
 
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
@@ -199,6 +205,8 @@ export function BattlegroundSelectorPage() {
           units={units}
           objectives={objectives}
           routes={routes}
+          movementType={movementType}
+          loadout={loadout}
           onPlace={handlePlace}
           onRouteComplete={handleRouteComplete}
           onRouteDrawingChange={setIsDrawingRoute}
@@ -246,6 +254,15 @@ export function BattlegroundSelectorPage() {
                       planningMode={planningMode}
                       battlefieldReady={phase === 'ready'}
                     />
+                    {canPlan && (
+                      <MovementModePanel
+                        movementType={movementType}
+                        onMovementTypeChange={setMovementType}
+                        loadout={loadout}
+                        onLoadoutChange={setLoadout}
+                        active={toolMode === 'draw-route'}
+                      />
+                    )}
                     <TerrainLayersPanel
                       satelliteVisible={satelliteVisible}
                       onToggleSatellite={toggleSatellite}

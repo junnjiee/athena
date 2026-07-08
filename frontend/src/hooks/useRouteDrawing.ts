@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
 import type { ForceSide, LonLat, PlacedObjective, PlacedUnit, RouteEndpointRef } from '../types/entities'
+import type { MovementLoadout, MovementType } from '../types/movement'
 import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
+import { movementLineStyle } from '../lib/movementStyle'
 
 interface NewRouteInput {
   side: ForceSide
   startUnitId: string
   points: LonLat[]
   endRef: RouteEndpointRef | null
+  movementType: MovementType
+  loadout: MovementLoadout
 }
 
 interface Args {
@@ -15,6 +19,9 @@ interface Args {
   active: boolean
   units: PlacedUnit[]
   objectives: PlacedObjective[]
+  /** gait to stamp on the next drawn route (and to style the live preview) */
+  movementType: MovementType
+  loadout: MovementLoadout
   onRouteComplete: (route: NewRouteInput) => void
   onDrawingChange?: (isDrawing: boolean) => void
 }
@@ -77,7 +84,16 @@ function findNearestMarker(
  *  (inherits that unit's force color), then accumulates waypoints on empty ground,
  *  and finishes either by clicking another unit/objective (snapping the endpoint)
  *  or pressing Enter (finishes early, needs >=2 points) / Escape (discards). */
-export function useRouteDrawing({ viewer, active, units, objectives, onRouteComplete, onDrawingChange }: Args) {
+export function useRouteDrawing({
+  viewer,
+  active,
+  units,
+  objectives,
+  movementType,
+  loadout,
+  onRouteComplete,
+  onDrawingChange,
+}: Args) {
   const stateRef = useRef<'idle' | 'drawing'>('idle')
   const sideRef = useRef<ForceSide | null>(null)
   const startUnitIdRef = useRef<string | null>(null)
@@ -88,6 +104,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   const onDrawingChangeRef = useRef(onDrawingChange)
   const unitsRef = useRef(units)
   const objectivesRef = useRef(objectives)
+  const movementTypeRef = useRef(movementType)
+  const loadoutRef = useRef(loadout)
   const [isDrawing, setIsDrawing] = useState(false)
 
   useEffect(() => {
@@ -102,6 +120,12 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   useEffect(() => {
     objectivesRef.current = objectives
   }, [objectives])
+  useEffect(() => {
+    movementTypeRef.current = movementType
+  }, [movementType])
+  useEffect(() => {
+    loadoutRef.current = loadout
+  }, [loadout])
   useEffect(() => {
     onDrawingChangeRef.current?.(isDrawing)
   }, [isDrawing])
@@ -124,7 +148,14 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   const finish = useCallback(
     (viewer: Cesium.Viewer, endRef: RouteEndpointRef | null) => {
       const lonLats = pointsRef.current.map((c) => cartesianToLonLat(viewer, c))
-      onRouteCompleteRef.current({ side: sideRef.current!, startUnitId: startUnitIdRef.current!, points: lonLats, endRef })
+      onRouteCompleteRef.current({
+        side: sideRef.current!,
+        startUnitId: startUnitIdRef.current!,
+        points: lonLats,
+        endRef,
+        movementType: movementTypeRef.current,
+        loadout: loadoutRef.current,
+      })
       teardown(viewer)
     },
     [teardown],
@@ -144,6 +175,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
     }
 
     function ensurePreviewEntity(side: ForceSide) {
+      // Preview matches the committed route's per-gait styling exactly.
+      const style = movementLineStyle(movementTypeRef.current, side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX)
       previewEntityRef.current = viewer!.entities.add({
         polyline: {
           positions: new Cesium.CallbackProperty(() => {
@@ -151,10 +184,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
             if (mouseGroundPosRef.current) pts.push(mouseGroundPosRef.current)
             return pts.length >= 2 ? pts : undefined
           }, false),
-          width: 3,
-          material: new Cesium.PolylineDashMaterialProperty({
-            color: Cesium.Color.fromCssColorString(side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX),
-          }),
+          width: style.width,
+          material: style.material,
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
         },
