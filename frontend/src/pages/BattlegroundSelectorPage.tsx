@@ -113,6 +113,12 @@ export function BattlegroundSelectorPage() {
 
   function handleGenerate() {
     if (!selection) return
+    // Planning tools are gated on a non-empty name (planningMode). If the user
+    // generates without naming, commit the fallback name to state too — otherwise
+    // the battlefield renders but every placement tool stays locked with no clear
+    // reason ("Battlefield ready — draw a plan" while the draw tools are disabled).
+    const name = battlegroundName.trim() || 'Untitled Battleground'
+    if (battlegroundName.trim() === '') setBattlegroundName(name)
     const r = selection.rectangle
     void generate(
       {
@@ -121,7 +127,7 @@ export function BattlegroundSelectorPage() {
         east: Cesium.Math.toDegrees(r.east),
         north: Cesium.Math.toDegrees(r.north),
       },
-      battlegroundName.trim() || 'Untitled Battleground',
+      name,
     )
   }
 
