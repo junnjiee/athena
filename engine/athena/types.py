@@ -1,7 +1,8 @@
+import json
 from enum import StrEnum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 IMMUTABLE_MODEL_CONFIG = ConfigDict(frozen=True)
@@ -67,6 +68,28 @@ class ChosenAction(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     action: MoveAction | ShootAction
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_stringified_action(cls, data: Any) -> Any:
+        """Normalize the LLM boundary before validation.
+
+        models emit the nested ``action`` as an escaped JSON string, e.g.
+        ``{"action": "{\\"kind\\": \\"move\\", ...}"}`` instead of a real nested
+        object. 
+        Pydantic will not coerce a str into a nested model, so that shape
+        raises a model_type ValidationError. Parse only that case back into a
+        dict; a properly nested object passes through untouched.
+        """
+        if isinstance(data, dict) and isinstance(data.get("action"), str):
+            try:
+                parsed = json.loads(data["action"])
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"action was a string but not valid JSON: {data['action']!r}"
+                ) from exc
+            return {**data, "action": parsed}
+        return data
 
 
 class VisibleSoldier(BaseModel):
