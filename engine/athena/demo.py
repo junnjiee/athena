@@ -1,13 +1,40 @@
+import argparse
 import asyncio
+import sys
+from functools import partial
 
 from dotenv import load_dotenv
 
+from athena.agent import (
+    OllamaUnavailable,
+    choose_action,
+    choose_action_local,
+    resolve_local_model,
+)
 from athena.battlefield import Battlefield
-from athena.loop import LoopEngine
+from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.soldier import Soldier
 from athena.types import ObservedSoldier, Position, Team
+
+OLLAMA_PREFIX = "ollama:"
+
+
+# Map a --model spec to an action chooser: None=hosted default, ollama:*=local, else an OpenRouter id; logs the choice.
+def build_action_chooser(model_spec: str | None) -> ActionChooser:
+    if model_spec is None:
+        print("[athena] agent: OpenRouter (default hosted model)", file=sys.stderr)
+        return choose_action
+
+    if model_spec.startswith(OLLAMA_PREFIX):
+        name = model_spec[len(OLLAMA_PREFIX):]
+        resolved = resolve_local_model(None if name == "auto" else name)
+        print(f"[athena] agent: Ollama local model '{resolved}'", file=sys.stderr)
+        return partial(choose_action_local, model=resolved)
+
+    print(f"[athena] agent: OpenRouter model '{model_spec}'", file=sys.stderr)
+    return partial(choose_action, model=model_spec)
 
 
 def format_positions(positions: list[Position]) -> str:
@@ -73,8 +100,9 @@ def render_demo_frame(
     print()
 
 
-async def run_demo() -> None:
+async def run_demo(model_spec: str | None = None) -> None:
     load_dotenv()
+    action_chooser = build_action_chooser(model_spec)
 
     blue_1 = Soldier(
         team=Team.BLUE,
@@ -116,10 +144,13 @@ async def run_demo() -> None:
             Position(x=8, y=6),
         },
     )
+    # build_action_chooser (above) already resolved which backend/model to use;
+    # everything downstream (loop, rendering, output) is identical regardless.
     loop = LoopEngine(
         battlefield=battlefield,
         vision_resolver=VisionResolver(),
         movement_resolver=MovementResolver(),
+        action_chooser=action_chooser,
     )
 
     render_demo_frame("Initial", battlefield, loop.observed_soldiers_map())
@@ -133,7 +164,16 @@ async def run_demo() -> None:
 
 
 def main() -> None:
-    asyncio.run(run_demo())
+    parser = argparse.ArgumentParser(description="Run the Athena demo simulation.")
+    parser.add_argument(
+        "--model",
+        default=None,
+    )
+    args = parser.parse_args()
+    try:
+        asyncio.run(run_demo(model_spec=args.model))
+    except OllamaUnavailable as exc:
+        raise SystemExit(f"error: {exc}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import asyncio
+from typing import Awaitable, Callable
 
 from athena.agent import choose_action
 from athena.battlefield import Battlefield
@@ -16,6 +17,10 @@ from athena.types import (
     VisibleSoldiers,
 )
 
+# An action chooser turns one soldier's local observation into a validated action
+# (or None). choose_action drives OpenRouter; choose_action_local drives Ollama.
+ActionChooser = Callable[..., Awaitable[Action | None]]
+
 
 class LoopEngine:
     def __init__(
@@ -23,10 +28,12 @@ class LoopEngine:
         battlefield: Battlefield,
         vision_resolver: VisionResolver,
         movement_resolver: MovementResolver,
+        action_chooser: ActionChooser = choose_action,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
+        self.action_chooser = action_chooser
 
     def visible_soldiers_map(self) -> list[VisibleSoldiers]:
         """
@@ -104,7 +111,7 @@ class LoopEngine:
         # keeps this collection phase fail-fast while the engine is still small.
         return await asyncio.gather(
             *[
-                choose_action(
+                self.action_chooser(
                     observed_soldier=observed_soldier,
                     battlefield=self.battlefield,
                     soldier=self.battlefield.soldiers[soldier_index],
