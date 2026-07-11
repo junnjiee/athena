@@ -15,7 +15,8 @@ async def choose_action(
     model: str = "deepseek/deepseek-v4-flash",
 ) -> Action | None:
     llm = ChatOpenRouter(model=model)
-    structured_llm = llm.with_structured_output(ChosenAction)
+    # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
+    structured_llm = llm.with_structured_output(ChosenAction, method="json_schema")
 
     for _ in range(max_attempts):
         chosen_action = await structured_llm.ainvoke(

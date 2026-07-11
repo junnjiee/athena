@@ -8,6 +8,7 @@ import { buildHeightGrid } from './dem'
 import { packGrid } from './grid'
 import { fetchLandCoverGrid } from './landcover'
 import { fetchOsmFeatures } from './osm'
+import { segmentBattlefield, type SegmentationStage } from './segment'
 import { fetchWeather } from './weather'
 
 export type ProgressListener = (jobId: string, event: ProgressEvent) => void
@@ -81,8 +82,9 @@ async function runPipeline(
     emit('elevation', 'start')
     emit('features', 'start')
     emit('landcover', 'start')
+    emit('segment', 'start')
     emit('weather', 'start')
-    const [heights, features, landCover, weather] = await Promise.all([
+    const [heights, features, landCover, segmentation, weather] = await Promise.all([
       buildHeightGrid(bbox, width, height, cellMeters).then((h) => {
         emit('elevation', 'done', `${width}×${height} @ ${cellMeters.toFixed(1)} m`)
         return h
@@ -109,6 +111,16 @@ async function runPipeline(
         emit('landcover', 'done', lc ? 'satellite land-cover sampled' : 'unavailable — OSM-only fallback')
         return lc
       }),
+      segmentBattlefield(bbox, width, height, cellMeters).then((stage: SegmentationStage) => {
+        emit(
+          'segment',
+          'done',
+          stage.info
+            ? `${stage.info.backend} · ${stage.info.coveragePct}% confident coverage`
+            : 'unavailable — WorldCover prior only',
+        )
+        return stage
+      }),
       fetchWeather(midLat, midLon).then((w) => {
         emit('weather', 'done', w ? `${w.temperatureC.toFixed(0)}°C, wind ${w.windSpeedKmh.toFixed(0)} km/h` : 'unavailable')
         return w
@@ -116,7 +128,16 @@ async function runPipeline(
     ])
 
     emit('classify', 'start')
-    const channels = buildGridChannels(bbox, width, height, cellMeters, heights, features, landCover)
+    const channels = buildGridChannels(
+      bbox,
+      width,
+      height,
+      cellMeters,
+      heights,
+      features,
+      landCover,
+      segmentation.seg,
+    )
     emit('classify', 'done', `${features.areas.length} land-cover polygons`)
 
     emit('military', 'start')
@@ -140,6 +161,7 @@ async function runPipeline(
         buildings: features.buildings.length,
         areas: features.areas.length,
       },
+      segmentation: segmentation.info,
     }
     job.features = features
     job.status = 'ready'

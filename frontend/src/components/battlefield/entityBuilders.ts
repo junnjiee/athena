@@ -15,19 +15,6 @@ const ROAD_STYLE: Record<RoadClass, { width: number; color: Cesium.Color; dashed
   path: { width: 1.5, color: Cesium.Color.fromCssColorString('#a8a68f').withAlpha(0.55), dashed: true },
 }
 
-// Monochrome/military-map palette -- widths and dash patterns are reused unchanged
-// from ROAD_STYLE above, since hue can't carry the road-class distinction in
-// grayscale; only color differs.
-const MONO_BUILDING_COLOR = Cesium.Color.fromCssColorString('#2b2f36').withAlpha(0.94)
-const MONO_WATER_COLOR = Cesium.Color.fromCssColorString('#828a94').withAlpha(0.5)
-
-const MONO_ROAD_STYLE: Record<RoadClass, { width: number; color: Cesium.Color; dashed: boolean }> = {
-  major: { width: 4.5, color: Cesium.Color.fromCssColorString('#f2f2f2').withAlpha(0.9), dashed: false },
-  minor: { width: 2.75, color: Cesium.Color.fromCssColorString('#c9c9c9').withAlpha(0.75), dashed: false },
-  track: { width: 2, color: Cesium.Color.fromCssColorString('#9a9a9a').withAlpha(0.65), dashed: true },
-  path: { width: 1.5, color: Cesium.Color.fromCssColorString('#7f7f7f').withAlpha(0.6), dashed: true },
-}
-
 function ringToPositions(ring: [number, number][]): Cesium.Cartesian3[] {
   return Cesium.Cartesian3.fromDegreesArray(ring.flat())
 }
@@ -38,14 +25,12 @@ export function buildBuildings(
   ds: Cesium.CustomDataSource,
   features: OsmFeatures,
   extrusionFactor: () => number,
-  monochrome: boolean,
 ): void {
-  const color = monochrome ? MONO_BUILDING_COLOR : BUILDING_COLOR
   for (const b of features.buildings.slice(0, MAX_BUILDINGS)) {
     ds.entities.add({
       polygon: {
         hierarchy: new Cesium.PolygonHierarchy(ringToPositions(b.footprint)),
-        material: color,
+        material: BUILDING_COLOR,
         height: 0,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         extrudedHeight: new Cesium.CallbackProperty(
@@ -70,18 +55,9 @@ export function freezeBuildings(ds: Cesium.CustomDataSource): void {
   }
 }
 
-/** Restyle already-built building entities in place (no rebuild/reveal replay). */
-export function restyleBuildings(ds: Cesium.CustomDataSource, monochrome: boolean): void {
-  const color = monochrome ? MONO_BUILDING_COLOR : BUILDING_COLOR
-  for (const entity of ds.entities.values) {
-    if (entity.polygon) entity.polygon.material = new Cesium.ColorMaterialProperty(color)
-  }
-}
-
-export function buildRoads(ds: Cesium.CustomDataSource, features: OsmFeatures, monochrome: boolean): void {
-  const table = monochrome ? MONO_ROAD_STYLE : ROAD_STYLE
+export function buildRoads(ds: Cesium.CustomDataSource, features: OsmFeatures): void {
   for (const road of features.roads.slice(0, MAX_ROADS)) {
-    const style = table[road.roadClass]
+    const style = ROAD_STYLE[road.roadClass]
     ds.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray(road.points.flat()),
@@ -91,35 +67,19 @@ export function buildRoads(ds: Cesium.CustomDataSource, features: OsmFeatures, m
           ? new Cesium.PolylineDashMaterialProperty({ color: style.color, dashLength: 12 })
           : new Cesium.ColorMaterialProperty(style.color),
       },
-      properties: { roadClass: road.roadClass },
     })
   }
 }
 
-/** Restyle already-built road entities in place (no rebuild/reveal replay). */
-export function restyleRoads(ds: Cesium.CustomDataSource, monochrome: boolean): void {
-  const table = monochrome ? MONO_ROAD_STYLE : ROAD_STYLE
-  for (const entity of ds.entities.values) {
-    const roadClass = entity.properties?.roadClass?.getValue() as RoadClass | undefined
-    if (!entity.polyline || !roadClass) continue
-    const style = table[roadClass]
-    entity.polyline.material = style.dashed
-      ? new Cesium.PolylineDashMaterialProperty({ color: style.color, dashLength: 12 })
-      : new Cesium.ColorMaterialProperty(style.color)
-  }
-}
-
-export function buildWater(ds: Cesium.CustomDataSource, features: OsmFeatures, monochrome: boolean): void {
-  const waterColor = monochrome ? MONO_WATER_COLOR : WATER_COLOR
+export function buildWater(ds: Cesium.CustomDataSource, features: OsmFeatures): void {
   for (const area of features.areas) {
     if (area.kind !== 'water' && area.kind !== 'wetland') continue
     ds.entities.add({
       polygon: {
         hierarchy: new Cesium.PolygonHierarchy(ringToPositions(area.ring)),
-        material: area.kind === 'water' ? waterColor : waterColor.withAlpha(0.28),
+        material: area.kind === 'water' ? WATER_COLOR : WATER_COLOR.withAlpha(0.28),
         classificationType: Cesium.ClassificationType.TERRAIN,
       },
-      properties: { areaKind: area.kind },
     })
   }
   for (const line of features.waterLines) {
@@ -128,25 +88,9 @@ export function buildWater(ds: Cesium.CustomDataSource, features: OsmFeatures, m
         positions: Cesium.Cartesian3.fromDegreesArray(line.points.flat()),
         clampToGround: true,
         width: 5,
-        material: new Cesium.ColorMaterialProperty(waterColor.withAlpha(0.65)),
+        material: new Cesium.ColorMaterialProperty(WATER_COLOR.withAlpha(0.65)),
       },
-      properties: { areaKind: 'waterline' },
     })
-  }
-}
-
-/** Restyle already-built water entities in place (no rebuild/reveal replay). */
-export function restyleWater(ds: Cesium.CustomDataSource, monochrome: boolean): void {
-  const waterColor = monochrome ? MONO_WATER_COLOR : WATER_COLOR
-  for (const entity of ds.entities.values) {
-    const areaKind = entity.properties?.areaKind?.getValue() as string | undefined
-    if (entity.polygon) {
-      entity.polygon.material = new Cesium.ColorMaterialProperty(
-        areaKind === 'water' ? waterColor : waterColor.withAlpha(0.28),
-      )
-    } else if (entity.polyline) {
-      entity.polyline.material = new Cesium.ColorMaterialProperty(waterColor.withAlpha(0.65))
-    }
   }
 }
 

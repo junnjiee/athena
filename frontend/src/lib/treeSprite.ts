@@ -12,30 +12,22 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-/** Paint a soft conifer/broadleaf silhouette; three hue variants for variety.
- *  `monochrome` swaps the green canopy/brown trunk for grayscale equivalents,
- *  keeping the same relative luminance spread across variants. */
-export function treeSpriteDataUrl(variant: 0 | 1 | 2, monochrome = false): string {
+/** Paint a soft conifer/broadleaf silhouette; three hue variants for variety. */
+export function treeSpriteDataUrl(variant: 0 | 1 | 2): string {
   const canvas = document.createElement('canvas')
   canvas.width = 48
   canvas.height = 72
   const ctx = canvas.getContext('2d')
   if (!ctx) return ''
 
-  const greens = (monochrome
-    ? [
-        ['#3a3d40', '#54585c'],
-        ['#34373a', '#4c5054'],
-        ['#3f4245', '#5c6165'],
-      ]
-    : [
-        ['#1d4a2a', '#2c6b3d'],
-        ['#1a422f', '#276044'],
-        ['#24512b', '#38763f'],
-      ])[variant]
+  const greens = [
+    ['#1d4a2a', '#2c6b3d'],
+    ['#1a422f', '#276044'],
+    ['#24512b', '#38763f'],
+  ][variant]
 
   // trunk
-  ctx.fillStyle = monochrome ? '#232527' : '#3b2f23'
+  ctx.fillStyle = '#3b2f23'
   ctx.fillRect(21, 52, 6, 18)
 
   // canopy: stacked blobs, darker at the base

@@ -79,6 +79,8 @@ export interface BattlegroundMeta {
   generatedAt: string
   weather: Weather | null
   featureCounts: { roads: number; buildings: number; areas: number }
+  /** live-imagery segmentation summary; null/absent when the stage was skipped */
+  segmentation?: { backend: 'spectral' | 'onnx'; coveragePct: number } | null
 }
 
 /** Decoded simulation grid: row-major, row 0 = northernmost. */
@@ -115,7 +117,15 @@ export interface CellSample {
   ambush: number
 }
 
-export type ProgressStepId = 'elevation' | 'features' | 'landcover' | 'weather' | 'classify' | 'military' | 'grid'
+export type ProgressStepId =
+  | 'elevation'
+  | 'features'
+  | 'landcover'
+  | 'weather'
+  | 'segment'
+  | 'classify'
+  | 'military'
+  | 'grid'
 
 export interface ProgressEvent {
   step: ProgressStepId

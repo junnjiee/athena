@@ -20,6 +20,7 @@ const STEP_LABELS: [ReasoningStep['id'], string][] = [
   ['features', 'Detecting roads, buildings & vegetation'],
   ['landcover', 'Sampling satellite land cover'],
   ['weather', 'Sensing weather conditions'],
+  ['segment', 'Segmenting satellite imagery'],
   ['classify', 'Classifying terrain cover'],
   ['military', 'Computing military properties'],
   ['grid', 'Building simulation grid'],
@@ -65,7 +66,6 @@ interface BattlegroundState {
   heatmap: HeatmapMetric
   layers: BattlefieldLayerToggles
   night: boolean
-  monochrome: boolean
   hoverCell: CellSample | null
   planAnalysis: PlanAnalysis | null
 
@@ -75,7 +75,6 @@ interface BattlegroundState {
   setHeatmap: (metric: HeatmapMetric) => void
   toggleLayer: (layer: keyof BattlefieldLayerToggles) => void
   setNight: (night: boolean) => void
-  toggleMonochrome: () => void
   setHoverCell: (cell: CellSample | null) => void
   setPlanAnalysis: (analysis: PlanAnalysis | null) => void
 }
@@ -95,7 +94,6 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   heatmap: 'none',
   layers: { buildings: true, roads: true, trees: true, water: true },
   night: false,
-  monochrome: false,
   hoverCell: null,
   planAnalysis: null,
 
@@ -203,7 +201,6 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   toggleLayer: (layer) =>
     set((s) => ({ layers: { ...s.layers, [layer]: !s.layers[layer] } })),
   setNight: (night) => set({ night }),
-  toggleMonochrome: () => set((s) => ({ monochrome: !s.monochrome })),
   setHoverCell: (cell) => set({ hoverCell: cell }),
   setPlanAnalysis: (analysis) => set({ planAnalysis: analysis }),
 }))

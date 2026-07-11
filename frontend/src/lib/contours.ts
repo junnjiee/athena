@@ -145,3 +145,33 @@ export function drawContours(
   ctx.stroke()
   ctx.restore()
 }
+
+/** Sibling to drawContours for the stylized topo-map view: takes a projection
+ *  function instead of a flat scale multiplier, and alternates solid/dashed by
+ *  level index for the mixed solid/dashed isoline look of a printed topo map. */
+export function drawStyledContours(
+  ctx: CanvasRenderingContext2D,
+  grid: GridData,
+  levels: number[],
+  projectCell: (cx: number, cy: number) => [number, number],
+  style?: { color?: string; lineWidth?: number },
+): void {
+  const { color = '#2b2620', lineWidth = 1.1 } = style ?? {}
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = lineWidth
+  ctx.lineJoin = 'round'
+  levels.forEach((level, i) => {
+    ctx.setLineDash(i % 2 === 0 ? [] : [5, 4])
+    ctx.beginPath()
+    const segs = traceContour(grid, level)
+    for (let j = 0; j < segs.length; j += 4) {
+      const [ax, ay] = projectCell(segs[j], segs[j + 1])
+      const [bx, by] = projectCell(segs[j + 2], segs[j + 3])
+      ctx.moveTo(ax, ay)
+      ctx.lineTo(bx, by)
+    }
+    ctx.stroke()
+  })
+  ctx.restore()
+}
