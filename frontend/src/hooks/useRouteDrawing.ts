@@ -4,6 +4,7 @@ import type { ForceSide, LonLat, PlacedObjective, PlacedUnit, RouteEndpointRef }
 import type { MovementLoadout, MovementType } from '../types/movement'
 import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
 import { movementLineStyle } from '../lib/movementStyle'
+import { markerWorldPosition, pickGroundPosition } from '../lib/pickTerrain'
 
 interface NewRouteInput {
   side: ForceSide
@@ -57,8 +58,11 @@ function findNearestMarker(
 ): NearestMarker | null {
   let best: (NearestMarker & { distance: number }) | null = null
 
+  // markerWorldPosition lifts each marker to terrain height — the billboards render
+  // CLAMP_TO_GROUND, so hit-testing at ellipsoid height 0 would project to the
+  // wrong pixel on any hillside and clicks would "miss" the visible icon.
   for (const unit of units) {
-    const position = Cesium.Cartesian3.fromDegrees(unit.position.longitude, unit.position.latitude)
+    const position = markerWorldPosition(unit.position)
     const screen = viewer.scene.cartesianToCanvasCoordinates(position)
     if (!screen) continue
     const distance = Cesium.Cartesian2.distance(screen, canvasPos)
@@ -68,7 +72,7 @@ function findNearestMarker(
   }
 
   for (const objective of objectives) {
-    const position = Cesium.Cartesian3.fromDegrees(objective.position.longitude, objective.position.latitude)
+    const position = markerWorldPosition(objective.position)
     const screen = viewer.scene.cartesianToCanvasCoordinates(position)
     if (!screen) continue
     const distance = Cesium.Cartesian2.distance(screen, canvasPos)
@@ -214,13 +218,13 @@ export function useRouteDrawing({
         return
       }
 
-      const cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid)
+      const cartesian = pickGroundPosition(viewer, click.position)
       if (cartesian) pointsRef.current.push(cartesian)
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
     handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
       if (stateRef.current !== 'drawing') return
-      mouseGroundPosRef.current = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid) ?? null
+      mouseGroundPosRef.current = pickGroundPosition(viewer, movement.endPosition) ?? null
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 
     return () => {

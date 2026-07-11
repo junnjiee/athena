@@ -6,15 +6,12 @@ import type { MovementType } from '../types/movement'
  *  route entities so what you draw is what you get.
  *
  *  Visual language (slow/stealthy → fast/loud):
- *    crawl  · fine dotted, thin   — barely-there track
- *    prowl  ‑ ‑ short dashes      — deliberate stalk
- *    patrol – – long dashes       — cautious pace
- *    march  ──── solid            — standard travel
- *    rush   ━━━━ bold glow        — hard, committed dash
+ *    prowl  ‑ ‑ short dashes  — deliberate stalk
+ *    patrol – – long dashes   — cautious pace
+ *    charge ━━━━ bold glow    — hard, committed assault
  */
 
 // 16-bit stipple patterns for PolylineDashMaterialProperty.
-const DOT = 0xaaaa
 const SHORT_DASH = 0xf0f0
 const LONG_DASH = 0xff00
 
@@ -26,11 +23,6 @@ export interface MovementLineStyle {
 export function movementLineStyle(movementType: MovementType, colorHex: string): MovementLineStyle {
   const color = Cesium.Color.fromCssColorString(colorHex)
   switch (movementType) {
-    case 'crawl':
-      return {
-        width: 2.5,
-        material: new Cesium.PolylineDashMaterialProperty({ color, dashLength: 6, dashPattern: DOT }),
-      }
     case 'prowl':
       return {
         width: 3,
@@ -41,9 +33,7 @@ export function movementLineStyle(movementType: MovementType, colorHex: string):
         width: 3.5,
         material: new Cesium.PolylineDashMaterialProperty({ color, dashLength: 18, dashPattern: LONG_DASH }),
       }
-    case 'march':
-      return { width: 4, material: new Cesium.ColorMaterialProperty(color) }
-    case 'rush':
+    case 'charge':
       return {
         width: 6,
         material: new Cesium.PolylineGlowMaterialProperty({ color, glowPower: 0.25, taperPower: 1 }),

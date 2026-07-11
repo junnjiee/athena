@@ -1,4 +1,4 @@
-import { PersonStanding, Footprints, Rabbit, Snail, Wind, Backpack } from 'lucide-react'
+import { PersonStanding, Footprints, Rabbit, Wind, Backpack } from 'lucide-react'
 import {
   LOAD_PRESETS,
   MOVEMENT_ORDER,
@@ -19,11 +19,9 @@ interface Props {
 }
 
 const GAIT_ICON: Record<MovementType, typeof Footprints> = {
-  crawl: Snail,
   prowl: PersonStanding,
   patrol: Footprints,
-  march: Footprints,
-  rush: Rabbit,
+  charge: Rabbit,
 }
 
 const LOAD_ORDER: Exclude<LoadPreset, 'custom'>[] = ['light', 'fighting', 'approach']
@@ -41,7 +39,7 @@ export function MovementModePanel({ movementType, onMovementTypeChange, loadout,
         MOVEMENT ORDER
       </div>
 
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {MOVEMENT_ORDER.map((type) => {
           const Icon = GAIT_ICON[type]
           const selected = type === movementType

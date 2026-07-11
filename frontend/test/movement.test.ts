@@ -78,20 +78,20 @@ describe('weatherFactors', () => {
 })
 
 describe('estimateMovement', () => {
-  test('rush is faster but burns more energy than prowl over the same ground', () => {
+  test('charge is faster but burns more energy than prowl over the same ground', () => {
     const grid = makeGrid()
-    const rush = estimateMovement([WEST, EAST], 'rush', DEFAULT_LOADOUT, grid, null)
+    const charge = estimateMovement([WEST, EAST], 'charge', DEFAULT_LOADOUT, grid, null)
     const prowl = estimateMovement([WEST, EAST], 'prowl', DEFAULT_LOADOUT, grid, null)
-    expect(rush.distanceM).toBeCloseTo(prowl.distanceM, 0)
-    expect(rush.durationMin).toBeLessThan(prowl.durationMin)
-    expect(rush.energyKJ).toBeGreaterThan(prowl.energyKJ)
+    expect(charge.distanceM).toBeCloseTo(prowl.distanceM, 0)
+    expect(charge.durationMin).toBeLessThan(prowl.durationMin)
+    expect(charge.energyKJ).toBeGreaterThan(prowl.energyKJ)
   })
 
   test('slope raises time, energy, and terrain penalty', () => {
     const flat = makeGrid()
     const hill = makeGrid((g) => g.slope.fill(25))
-    const onFlat = estimateMovement([WEST, EAST], 'march', DEFAULT_LOADOUT, flat, null)
-    const onHill = estimateMovement([WEST, EAST], 'march', DEFAULT_LOADOUT, hill, null)
+    const onFlat = estimateMovement([WEST, EAST], 'patrol', DEFAULT_LOADOUT, flat, null)
+    const onHill = estimateMovement([WEST, EAST], 'patrol', DEFAULT_LOADOUT, hill, null)
     expect(onHill.durationMin).toBeGreaterThan(onFlat.durationMin)
     expect(onHill.energyKJ).toBeGreaterThan(onFlat.energyKJ)
     expect(onHill.terrainPenaltyPct).toBeGreaterThan(onFlat.terrainPenaltyPct)
@@ -99,8 +99,8 @@ describe('estimateMovement', () => {
 
   test('heavier loadout raises energy and fatigue', () => {
     const grid = makeGrid()
-    const light = estimateMovement([WEST, EAST], 'march', loadoutFromPreset('light'), grid, null)
-    const approach = estimateMovement([WEST, EAST], 'march', loadoutFromPreset('approach'), grid, null)
+    const light = estimateMovement([WEST, EAST], 'patrol', loadoutFromPreset('light'), grid, null)
+    const approach = estimateMovement([WEST, EAST], 'patrol', loadoutFromPreset('approach'), grid, null)
     expect(approach.energyKJ).toBeGreaterThan(light.energyKJ)
     expect(approach.fatigueIndex).toBeGreaterThanOrEqual(light.fatigueIndex)
   })
@@ -108,20 +108,20 @@ describe('estimateMovement', () => {
   test('forest terrain costs more energy than open ground', () => {
     const open = makeGrid()
     const forest = makeGrid((g) => g.cls.fill(C.FOREST))
-    const onOpen = estimateMovement([WEST, EAST], 'march', DEFAULT_LOADOUT, open, null)
-    const onForest = estimateMovement([WEST, EAST], 'march', DEFAULT_LOADOUT, forest, null)
+    const onOpen = estimateMovement([WEST, EAST], 'patrol', DEFAULT_LOADOUT, open, null)
+    const onForest = estimateMovement([WEST, EAST], 'patrol', DEFAULT_LOADOUT, forest, null)
     expect(onForest.energyKJ).toBeGreaterThan(onOpen.energyKJ)
   })
 
-  test('fatigue index stays within 0–100', () => {
+  test('fatigue index stays within 0–100 even charging uphill under approach load', () => {
     const grid = makeGrid((g) => g.slope.fill(35))
-    const e = estimateMovement([WEST, EAST], 'crawl', loadoutFromPreset('approach'), grid, null)
+    const e = estimateMovement([WEST, EAST], 'charge', loadoutFromPreset('approach'), grid, null)
     expect(e.fatigueIndex).toBeGreaterThanOrEqual(0)
     expect(e.fatigueIndex).toBeLessThanOrEqual(100)
   })
 
   test('degrades gracefully with no grid (flat clear assumption)', () => {
-    const e = estimateMovement([WEST, EAST], 'march', DEFAULT_LOADOUT, null, null)
+    const e = estimateMovement([WEST, EAST], 'patrol', DEFAULT_LOADOUT, null, null)
     expect(e.distanceM).toBeGreaterThan(0)
     expect(e.durationMin).toBeGreaterThan(0)
     expect(e.terrainPenaltyPct).toBe(0)

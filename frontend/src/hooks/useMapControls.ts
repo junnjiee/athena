@@ -61,10 +61,33 @@ export function useMapControls() {
   const toggleSceneMode = useCallback(() => {
     const viewer = viewerRef.current
     if (!viewer) return
+    const { scene, camera } = viewer
+
+    // Cesium's morph does NOT preserve framing -- morphTo2D in particular parks the
+    // camera at a whole-Earth altitude, so the battlefield vanishes and clicks land
+    // on the far side of the planet. Capture what the camera is centered on now and
+    // re-center there once the morph completes, keeping the AO in view (and drawable)
+    // across the toggle.
+    const canvas = scene.canvas
+    const screenCenter = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2)
+    const centered = camera.pickEllipsoid(screenCenter, scene.globe.ellipsoid)
+    const centerCarto = centered
+      ? Cesium.Cartographic.fromCartesian(centered)
+      : camera.positionCartographic.clone()
+    const height = camera.positionCartographic.height
+
+    const removeListener = scene.morphComplete.addEventListener(() => {
+      removeListener()
+      camera.setView({
+        destination: Cesium.Cartesian3.fromRadians(centerCarto.longitude, centerCarto.latitude, height),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+      })
+    })
+
     if (is3D) {
-      viewer.scene.morphTo2D(0.5)
+      scene.morphTo2D(0.5)
     } else {
-      viewer.scene.morphTo3D(0.5)
+      scene.morphTo3D(0.5)
     }
     setIs3D((v) => !v)
   }, [is3D])

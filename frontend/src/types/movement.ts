@@ -20,7 +20,7 @@
  * route's cost; the real per-agent physiology lands when the agent API is wired.
  */
 
-export type MovementType = 'crawl' | 'prowl' | 'patrol' | 'march' | 'rush'
+export type MovementType = 'prowl' | 'patrol' | 'charge'
 
 export type Posture = 'prone' | 'crouch' | 'upright'
 
@@ -43,19 +43,8 @@ export interface MovementProfile {
   exposureMultiplier: number
 }
 
-/** Ordered slowest→fastest; also the natural toolbar order. */
+/** Ordered slowest/stealthiest → fastest/loudest; also the toolbar order. */
 export const MOVEMENT_PROFILES: Record<MovementType, MovementProfile> = {
-  crawl: {
-    type: 'crawl',
-    label: 'Crawl',
-    blurb: 'Low crawl — max concealment, minimal noise, exhausting',
-    baseSpeedMs: 0.3,
-    stealth: 0.95,
-    noise: 0.1,
-    energyRate: 3.5,
-    posture: 'prone',
-    exposureMultiplier: 0.25,
-  },
   prowl: {
     type: 'prowl',
     label: 'Prowl',
@@ -78,21 +67,10 @@ export const MOVEMENT_PROFILES: Record<MovementType, MovementProfile> = {
     posture: 'upright',
     exposureMultiplier: 0.85,
   },
-  march: {
-    type: 'march',
-    label: 'March',
-    blurb: 'Sustainable travel pace over distance',
-    baseSpeedMs: 1.4,
-    stealth: 0.3,
-    noise: 0.6,
-    energyRate: 1.0,
-    posture: 'upright',
-    exposureMultiplier: 1.0,
-  },
-  rush: {
-    type: 'rush',
-    label: 'Rush',
-    blurb: 'Bound/dash — cross danger areas fast; loud and tiring',
+  charge: {
+    type: 'charge',
+    label: 'Charge',
+    blurb: 'Assault dash — close fast; loud and exhausting',
     baseSpeedMs: 3.0,
     stealth: 0.1,
     noise: 0.95,
@@ -102,9 +80,9 @@ export const MOVEMENT_PROFILES: Record<MovementType, MovementProfile> = {
   },
 }
 
-export const MOVEMENT_ORDER: MovementType[] = ['crawl', 'prowl', 'patrol', 'march', 'rush']
+export const MOVEMENT_ORDER: MovementType[] = ['prowl', 'patrol', 'charge']
 
-export const DEFAULT_MOVEMENT: MovementType = 'march'
+export const DEFAULT_MOVEMENT: MovementType = 'patrol'
 
 /** Soldier mass model — the load side of the metabolic estimate. */
 export interface MovementLoadout {
