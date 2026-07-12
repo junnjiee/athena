@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
+import { pickGroundPosition } from '../lib/pickTerrain'
 import type { LonLat, ToolMode } from '../types/entities'
 
 type PlaceableMode = 'place-blue' | 'place-red' | 'place-objective'
@@ -32,7 +33,9 @@ export function usePlacementTool({ viewer, mode, onPlace }: Args) {
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
 
     handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-      const cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid)
+      // Terrain-accurate pick: on a hillside the ellipsoid intersection lands
+      // meters away from where the cursor visibly points.
+      const cartesian = pickGroundPosition(viewer, click.position)
       if (!cartesian) return
       const carto = Cesium.Cartographic.fromCartesian(cartesian, viewer.scene.globe.ellipsoid)
       onPlaceRef.current(mode, {

@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
 import type { ForceSide, LonLat, PlacedObjective, PlacedUnit, RouteEndpointRef } from '../types/entities'
+import type { MovementLoadout, MovementType } from '../types/movement'
 import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
+import { movementLineStyle } from '../lib/movementStyle'
+import { markerWorldPosition, pickGroundPosition } from '../lib/pickTerrain'
 
 interface NewRouteInput {
   side: ForceSide
   startUnitId: string
   points: LonLat[]
   endRef: RouteEndpointRef | null
+  movementType: MovementType
+  loadout: MovementLoadout
 }
 
 interface Args {
@@ -15,6 +20,9 @@ interface Args {
   active: boolean
   units: PlacedUnit[]
   objectives: PlacedObjective[]
+  /** gait to stamp on the next drawn route (and to style the live preview) */
+  movementType: MovementType
+  loadout: MovementLoadout
   onRouteComplete: (route: NewRouteInput) => void
   onDrawingChange?: (isDrawing: boolean) => void
 }
@@ -50,8 +58,11 @@ function findNearestMarker(
 ): NearestMarker | null {
   let best: (NearestMarker & { distance: number }) | null = null
 
+  // markerWorldPosition lifts each marker to terrain height — the billboards render
+  // CLAMP_TO_GROUND, so hit-testing at ellipsoid height 0 would project to the
+  // wrong pixel on any hillside and clicks would "miss" the visible icon.
   for (const unit of units) {
-    const position = Cesium.Cartesian3.fromDegrees(unit.position.longitude, unit.position.latitude)
+    const position = markerWorldPosition(unit.position)
     const screen = viewer.scene.cartesianToCanvasCoordinates(position)
     if (!screen) continue
     const distance = Cesium.Cartesian2.distance(screen, canvasPos)
@@ -61,7 +72,7 @@ function findNearestMarker(
   }
 
   for (const objective of objectives) {
-    const position = Cesium.Cartesian3.fromDegrees(objective.position.longitude, objective.position.latitude)
+    const position = markerWorldPosition(objective.position)
     const screen = viewer.scene.cartesianToCanvasCoordinates(position)
     if (!screen) continue
     const distance = Cesium.Cartesian2.distance(screen, canvasPos)
@@ -77,7 +88,16 @@ function findNearestMarker(
  *  (inherits that unit's force color), then accumulates waypoints on empty ground,
  *  and finishes either by clicking another unit/objective (snapping the endpoint)
  *  or pressing Enter (finishes early, needs >=2 points) / Escape (discards). */
-export function useRouteDrawing({ viewer, active, units, objectives, onRouteComplete, onDrawingChange }: Args) {
+export function useRouteDrawing({
+  viewer,
+  active,
+  units,
+  objectives,
+  movementType,
+  loadout,
+  onRouteComplete,
+  onDrawingChange,
+}: Args) {
   const stateRef = useRef<'idle' | 'drawing'>('idle')
   const sideRef = useRef<ForceSide | null>(null)
   const startUnitIdRef = useRef<string | null>(null)
@@ -88,6 +108,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   const onDrawingChangeRef = useRef(onDrawingChange)
   const unitsRef = useRef(units)
   const objectivesRef = useRef(objectives)
+  const movementTypeRef = useRef(movementType)
+  const loadoutRef = useRef(loadout)
   const [isDrawing, setIsDrawing] = useState(false)
 
   useEffect(() => {
@@ -102,6 +124,12 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   useEffect(() => {
     objectivesRef.current = objectives
   }, [objectives])
+  useEffect(() => {
+    movementTypeRef.current = movementType
+  }, [movementType])
+  useEffect(() => {
+    loadoutRef.current = loadout
+  }, [loadout])
   useEffect(() => {
     onDrawingChangeRef.current?.(isDrawing)
   }, [isDrawing])
@@ -124,7 +152,14 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
   const finish = useCallback(
     (viewer: Cesium.Viewer, endRef: RouteEndpointRef | null) => {
       const lonLats = pointsRef.current.map((c) => cartesianToLonLat(viewer, c))
-      onRouteCompleteRef.current({ side: sideRef.current!, startUnitId: startUnitIdRef.current!, points: lonLats, endRef })
+      onRouteCompleteRef.current({
+        side: sideRef.current!,
+        startUnitId: startUnitIdRef.current!,
+        points: lonLats,
+        endRef,
+        movementType: movementTypeRef.current,
+        loadout: loadoutRef.current,
+      })
       teardown(viewer)
     },
     [teardown],
@@ -144,6 +179,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
     }
 
     function ensurePreviewEntity(side: ForceSide) {
+      // Preview matches the committed route's per-gait styling exactly.
+      const style = movementLineStyle(movementTypeRef.current, side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX)
       previewEntityRef.current = viewer!.entities.add({
         polyline: {
           positions: new Cesium.CallbackProperty(() => {
@@ -151,10 +188,8 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
             if (mouseGroundPosRef.current) pts.push(mouseGroundPosRef.current)
             return pts.length >= 2 ? pts : undefined
           }, false),
-          width: 3,
-          material: new Cesium.PolylineDashMaterialProperty({
-            color: Cesium.Color.fromCssColorString(side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX),
-          }),
+          width: style.width,
+          material: style.material,
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
         },
@@ -183,13 +218,13 @@ export function useRouteDrawing({ viewer, active, units, objectives, onRouteComp
         return
       }
 
-      const cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid)
+      const cartesian = pickGroundPosition(viewer, click.position)
       if (cartesian) pointsRef.current.push(cartesian)
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
     handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
       if (stateRef.current !== 'drawing') return
-      mouseGroundPosRef.current = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid) ?? null
+      mouseGroundPosRef.current = pickGroundPosition(viewer, movement.endPosition) ?? null
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 
     return () => {

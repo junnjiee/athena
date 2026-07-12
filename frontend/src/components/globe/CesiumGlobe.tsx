@@ -7,12 +7,15 @@ import { PlacementController } from './PlacementController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
 import type { SelectionResult } from '../../types/selection'
 import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
+import type { MovementLoadout, MovementType } from '../../types/movement'
 
 interface NewRouteInput {
   side: PlacedRoute['side']
   startUnitId: string
   points: LonLat[]
   endRef: PlacedRoute['endRef']
+  movementType: MovementType
+  loadout: MovementLoadout
 }
 
 interface Props {
@@ -24,6 +27,8 @@ interface Props {
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
+  movementType: MovementType
+  loadout: MovementLoadout
   onPlace: (mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) => void
   onRouteComplete: (route: NewRouteInput) => void
   onRouteDrawingChange?: (isDrawing: boolean) => void
@@ -41,6 +46,8 @@ export function CesiumGlobe({
   units,
   objectives,
   routes,
+  movementType,
+  loadout,
   onPlace,
   onRouteComplete,
   onRouteDrawingChange,
@@ -72,6 +79,8 @@ export function CesiumGlobe({
         units={units}
         objectives={objectives}
         routes={routes}
+        movementType={movementType}
+        loadout={loadout}
         onPlace={onPlace}
         onRouteComplete={onRouteComplete}
         onRouteDrawingChange={onRouteDrawingChange}

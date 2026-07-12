@@ -1,3 +1,5 @@
+import type { MovementLoadout, MovementType } from './movement'
+
 export interface LonLat {
   longitude: number
   latitude: number
@@ -29,6 +31,12 @@ export interface PlacedRoute {
   startUnitId: string
   points: LonLat[]
   endRef: RouteEndpointRef | null
+  /** the gait this leg is moved at (prowl, rush, ...). Defaults to march for
+   *  routes created before movement types existed. */
+  movementType: MovementType
+  /** soldier mass model used for the cost estimate; carried so a future agent
+   *  API can re-derive physiology from the drawn plan. */
+  loadout: MovementLoadout
 }
 
 export type ToolMode = 'navigate' | 'select-ground' | 'place-blue' | 'place-red' | 'place-objective' | 'draw-route'
