@@ -48,6 +48,12 @@ interface Stroke {
   startUnitId: string
   startPosition: LonLat
   points: XY[]
+  /** whether the pointer has ever moved beyond the start unit's hit radius --
+   *  until it has, the stroke is a fidget (not a route) and the start unit is
+   *  not a legal snap target, so a 13-26px wiggle can't commit a degenerate
+   *  route looped onto its own start. Once escaped, snapping back to the start
+   *  is a deliberate out-and-back loop and is allowed. */
+  escapedStart: boolean
 }
 
 /** Same screen-space marker tolerance as the 3D view's route tool. */
@@ -216,6 +222,12 @@ export function TopoPlanOverlay({
     const raw: XY[] = [...stroke.points, release]
     if (polylineLength(raw) < MIN_STROKE_PX) return
 
+    // A fast drag can outrun sampling, so also count the release point itself
+    // as having escaped the start radius.
+    const [startX, startY] = stroke.points[0]
+    const escaped = stroke.escapedStart || Math.hypot(release[0] - startX, release[1] - startY) > HIT_RADIUS_PX
+    if (!escaped) return
+
     const snap = nearestMarker(release)
     const pixels = simplifyPolyline(snap ? [...stroke.points, [snap.x, snap.y]] : raw, SIMPLIFY_PX)
     // Endpoints carry the exact marker coordinates instead of unprojected pixels,
@@ -267,6 +279,7 @@ export function TopoPlanOverlay({
       startUnitId: start.id,
       startPosition: start.position,
       points: [[start.x, start.y]],
+      escapedStart: false,
     }
     onDrawingChangeRef.current?.(true)
     drawPreview(point)
@@ -279,6 +292,10 @@ export function TopoPlanOverlay({
       const last = stroke.points[stroke.points.length - 1]
       if (Math.hypot(point[0] - last[0], point[1] - last[1]) >= MIN_SAMPLE_PX) {
         stroke.points.push(point)
+      }
+      const [startX, startY] = stroke.points[0]
+      if (!stroke.escapedStart && Math.hypot(point[0] - startX, point[1] - startY) > HIT_RADIUS_PX) {
+        stroke.escapedStart = true
       }
       drawPreview(point)
       return
