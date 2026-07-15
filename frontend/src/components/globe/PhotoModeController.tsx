@@ -60,14 +60,27 @@ function showTilesets(tilesets: readonly (Cesium.Cesium3DTileset | null)[], show
   }
 }
 
-/** Real occlusion (distance 0) vs X-ray (Infinity) for every plan marker. */
+/** Real occlusion (distance 0) vs X-ray (Infinity) for every plan marker.
+ *
+ *  MUST be idempotent: assigning an entity property raises the collection's
+ *  collectionChanged event, and this function runs from that very event -- an
+ *  unconditional assignment (always a "change", since each ConstantProperty is
+ *  a fresh instance) re-fires the event and locks the tab in an infinite
+ *  assign->event->assign loop. Only write when the value actually differs. */
 function applyDepthTestDistance(viewer: Cesium.Viewer, distance: number): void {
-  const property = new Cesium.ConstantProperty(distance)
+  const now = Cesium.JulianDate.now()
+  let changed = false
   for (const entity of viewer.entities.values) {
-    if (entity.billboard) entity.billboard.disableDepthTestDistance = property
-    if (entity.label) entity.label.disableDepthTestDistance = property
+    for (const graphics of [entity.billboard, entity.label]) {
+      if (!graphics) continue
+      const current: unknown = graphics.disableDepthTestDistance?.getValue(now)
+      if (current !== distance) {
+        graphics.disableDepthTestDistance = new Cesium.ConstantProperty(distance)
+        changed = true
+      }
+    }
   }
-  viewer.scene.requestRender()
+  if (changed) viewer.scene.requestRender()
 }
 
 function attachTileset(viewer: Cesium.Viewer, tileset: Cesium.Cesium3DTileset, show: boolean): void {
@@ -186,12 +199,15 @@ export function PhotoModeController({ active }: Props) {
 
   // --- occlusion / X-ray: real depth-tested markers among the buildings ------
   useEffect(() => {
-    if (!viewer || viewer.isDestroyed()) return
-    const occlude = active && !xray
-    const apply = () => applyDepthTestDistance(viewer, occlude ? 0 : Number.POSITIVE_INFINITY)
+    // Only touch marker depth-testing while photo mode is actually active --
+    // outside it, entities keep their built-in always-on-top defaults and this
+    // controller must not subscribe to (or mutate on) collection changes at all.
+    if (!viewer || viewer.isDestroyed() || !active) return
+    const apply = () => applyDepthTestDistance(viewer, xray ? Number.POSITIVE_INFINITY : 0)
     apply()
     // plan edits while in photo mode create fresh entities with the default
     // always-on-top behavior -- re-apply whenever the collection changes
+    // (applyDepthTestDistance is idempotent, so the event can't loop)
     viewer.entities.collectionChanged.addEventListener(apply)
 
     return () => {
