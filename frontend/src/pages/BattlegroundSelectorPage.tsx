@@ -24,7 +24,7 @@ import { useBattleground } from '../state/battleground'
 import { analyzePlan } from '../lib/validate'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
-import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
+import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
 import { DEFAULT_LOADOUT, DEFAULT_MOVEMENT, type MovementLoadout, type MovementType } from '../types/movement'
 
 const NATO = [
@@ -32,15 +32,6 @@ const NATO = [
   'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango',
   'Uniform', 'Victor', 'Whiskey', 'X-ray', 'Yankee', 'Zulu',
 ]
-
-interface NewRouteInput {
-  side: PlacedRoute['side']
-  startUnitId: string
-  points: LonLat[]
-  endRef: PlacedRoute['endRef']
-  movementType: MovementType
-  loadout: MovementLoadout
-}
 
 export function BattlegroundSelectorPage() {
   const [toolMode, setToolMode] = useState<ToolMode>('navigate')
@@ -213,7 +204,19 @@ export function BattlegroundSelectorPage() {
       </div>
 
       {showTopo && grid && (
-        <TopoMapView grid={grid} features={features} units={units} objectives={objectives} routes={routes} />
+        <TopoMapView
+          grid={grid}
+          features={features}
+          units={units}
+          objectives={objectives}
+          routes={routes}
+          toolMode={toolMode}
+          movementType={movementType}
+          loadout={loadout}
+          onPlace={handlePlace}
+          onRouteComplete={handleRouteComplete}
+          onRouteDrawingChange={setIsDrawingRoute}
+        />
       )}
 
       {night && <div className="pointer-events-none absolute inset-0 z-10 bg-[#0a1026]/40" />}
@@ -316,7 +319,7 @@ export function BattlegroundSelectorPage() {
 
       {toolMode !== 'navigate' && (
         <div className="pointer-events-none absolute inset-x-60 top-24 z-30 flex justify-center">
-          <PlacementHint toolMode={toolMode} isDrawingRoute={isDrawingRoute} />
+          <PlacementHint toolMode={toolMode} isDrawingRoute={isDrawingRoute} topo={showTopo} />
         </div>
       )}
 

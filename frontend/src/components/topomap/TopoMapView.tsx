@@ -5,8 +5,17 @@ import { computeContourPlan } from '../../lib/contours'
 import { makeTopoProjection } from '../../lib/topoProjection'
 import { bearingRadians } from '../../lib/bearing'
 import { FRIENDLY_HEX, HOSTILE_HEX, ACCENT_HEX } from '../../lib/colors'
+import { TopoPlanOverlay } from './TopoPlanOverlay'
 import type { GridData, OsmFeatures, RoadClass } from '../../types/terrain'
-import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../../types/entities'
+import type {
+  LonLat,
+  NewRouteInput,
+  PlacedObjective,
+  PlacedRoute,
+  PlacedUnit,
+  ToolMode,
+} from '../../types/entities'
+import type { MovementLoadout, MovementType } from '../../types/movement'
 
 interface Props {
   grid: GridData
@@ -14,6 +23,12 @@ interface Props {
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
+  toolMode: ToolMode
+  movementType: MovementType
+  loadout: MovementLoadout
+  onPlace: (mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) => void
+  onRouteComplete: (route: NewRouteInput) => void
+  onRouteDrawingChange?: (isDrawing: boolean) => void
 }
 
 const INK = '#2b2620'
@@ -32,10 +47,24 @@ const ROAD_DASHED: Record<RoadClass, boolean> = {
   path: true,
 }
 
-/** Read-only, Cesium-independent 2D contour-map rendering of the generated
- *  battlefield -- an alternate way to review terrain + plan, styled like a printed
- *  topographic map rather than the 3D satellite scene. */
-export function TopoMapView({ grid, features, units, objectives, routes }: Props) {
+/** Cesium-independent 2D contour-map rendering of the generated battlefield,
+ *  styled like a printed topographic map rather than the 3D satellite scene.
+ *  Not just for review: TopoPlanOverlay makes it a full planning surface --
+ *  routes can be sketched freehand and units/objectives placed directly on the
+ *  paper map, feeding the same plan state as the 3D globe tools. */
+export function TopoMapView({
+  grid,
+  features,
+  units,
+  objectives,
+  routes,
+  toolMode,
+  movementType,
+  loadout,
+  onPlace,
+  onRouteComplete,
+  onRouteDrawingChange,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -43,6 +72,11 @@ export function TopoMapView({ grid, features, units, objectives, routes }: Props
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    // Seed synchronously from layout: ResizeObserver's initial delivery waits for
+    // the next rendering opportunity, which leaves the map blank for a frame on
+    // mount (and indefinitely in a background tab, where rendering steps pause).
+    const rect = container.getBoundingClientRect()
+    setSize({ w: rect.width, h: rect.height })
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect
       setSize({ w: width, h: height })
@@ -66,6 +100,21 @@ export function TopoMapView({ grid, features, units, objectives, routes }: Props
   return (
     <div ref={containerRef} className="absolute inset-0">
       <canvas ref={canvasRef} className="h-full w-full" />
+      {size.w > 0 && size.h > 0 && (
+        <TopoPlanOverlay
+          grid={grid}
+          width={size.w}
+          height={size.h}
+          toolMode={toolMode}
+          units={units}
+          objectives={objectives}
+          movementType={movementType}
+          loadout={loadout}
+          onPlace={onPlace}
+          onRouteComplete={onRouteComplete}
+          onDrawingChange={onRouteDrawingChange}
+        />
+      )}
     </div>
   )
 }

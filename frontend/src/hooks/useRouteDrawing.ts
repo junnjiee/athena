@@ -1,19 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
-import type { ForceSide, LonLat, PlacedObjective, PlacedUnit, RouteEndpointRef } from '../types/entities'
+import type { ForceSide, LonLat, NewRouteInput, PlacedObjective, PlacedUnit, RouteEndpointRef } from '../types/entities'
 import type { MovementLoadout, MovementType } from '../types/movement'
 import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
 import { movementLineStyle } from '../lib/movementStyle'
 import { markerWorldPosition, pickGroundPosition } from '../lib/pickTerrain'
-
-interface NewRouteInput {
-  side: ForceSide
-  startUnitId: string
-  points: LonLat[]
-  endRef: RouteEndpointRef | null
-  movementType: MovementType
-  loadout: MovementLoadout
-}
 
 interface Args {
   viewer: Cesium.Viewer | undefined
