@@ -96,11 +96,16 @@ export interface MovementLoadout {
 
 export type LoadPreset = 'light' | 'fighting' | 'approach' | 'custom'
 
-/** Standard infantry load classifications (kg of carried equipment). */
-export const LOAD_PRESETS: Record<Exclude<LoadPreset, 'custom'>, { label: string; loadMassKg: number }> = {
-  light: { label: 'Light', loadMassKg: 14 },
-  fighting: { label: 'Fighting', loadMassKg: 25 },
-  approach: { label: 'Approach', loadMassKg: 35 },
+/** Standard infantry load classifications (kg of carried equipment), in SAF
+ *  battle-order terms. Preset ids stay stable ('light'/'fighting'/'approach')
+ *  so routes drawn before the rename keep working. */
+export const LOAD_PRESETS: Record<
+  Exclude<LoadPreset, 'custom'>,
+  { label: string; fullLabel: string; loadMassKg: number }
+> = {
+  light: { label: 'SBO', fullLabel: 'Skeletal Battle Order', loadMassKg: 14 },
+  fighting: { label: 'FBO', fullLabel: 'Full Battle Order', loadMassKg: 25 },
+  approach: { label: 'Full Pack', fullLabel: 'FBO with field pack', loadMassKg: 35 },
 }
 
 export const DEFAULT_BODY_MASS_KG = 75

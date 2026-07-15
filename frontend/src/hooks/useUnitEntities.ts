@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { syncEntities } from '../lib/entitySync'
-import { unitDiamondIcon, threatDiamondIcon } from '../lib/markerIcons'
-import { FRIENDLY_HEX, HOSTILE_HEX } from '../lib/colors'
+import { unitSymbol } from '../lib/milsymbols'
 import type { PlacedUnit } from '../types/entities'
 
 interface Args {
@@ -15,12 +14,14 @@ export function useUnitEntities({ viewer, units }: Args) {
 
   useEffect(() => {
     if (!viewer) return
-    syncEntities(viewer, units, entityMapRef, (unit) => ({
+    syncEntities(viewer, units, entityMapRef, (unit) => {
+      const symbol = unitSymbol(unit.side)
+      return {
       position: Cesium.Cartesian3.fromDegrees(unit.position.longitude, unit.position.latitude),
       billboard: {
-        image: unit.side === 'blue' ? unitDiamondIcon(FRIENDLY_HEX) : threatDiamondIcon(HOSTILE_HEX),
-        width: 28,
-        height: 28,
+        image: symbol.url,
+        width: symbol.width,
+        height: symbol.height,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
@@ -30,7 +31,7 @@ export function useUnitEntities({ viewer, units }: Args) {
               text: `${unit.name}\n${unit.typeLabel}`,
               showBackground: true,
               backgroundColor: Cesium.Color.fromCssColorString('#10151c').withAlpha(0.85),
-              pixelOffset: new Cesium.Cartesian2(22, 0),
+              pixelOffset: new Cesium.Cartesian2(symbol.width / 2 + 6, 0),
               horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
               heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -38,7 +39,8 @@ export function useUnitEntities({ viewer, units }: Args) {
             }
           : undefined,
       properties: { placementKind: 'unit', side: unit.side },
-    }))
+      }
+    })
   }, [viewer, units])
 
   useEffect(() => {

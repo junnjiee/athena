@@ -22,6 +22,7 @@ import { BottomBar } from '../components/layout/BottomBar'
 import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground } from '../state/battleground'
 import { analyzePlan } from '../lib/validate'
+import { toMGRS } from '../lib/coords'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
@@ -88,7 +89,7 @@ export function BattlegroundSelectorPage() {
   } = useMapControls()
 
   const centerLabel = selection
-    ? `${selection.stats.centerLatitude.toFixed(4)}° N, ${selection.stats.centerLongitude.toFixed(4)}° E`
+    ? toMGRS(selection.stats.centerLongitude, selection.stats.centerLatitude)
     : null
 
   function handleGenerate() {

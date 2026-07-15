@@ -1,5 +1,6 @@
-import { Mountain, TrendingUp, Shield, Eye, Leaf, Footprints, Info } from 'lucide-react'
+import { Mountain, TrendingUp, Shield, Eye, Leaf, Footprints, Info, Crosshair } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
+import { toGridRef } from '../../lib/coords'
 
 function grade(value: number, bands: [number, string][], fallback: string): string {
   for (const [min, label] of bands) {
@@ -24,6 +25,7 @@ export function TerrainInfoPanel() {
       </div>
       {cell ? (
         <dl className="flex flex-col gap-1.5">
+          <Row icon={Crosshair} label="Grid Ref" value={toGridRef(cell.longitude, cell.latitude)} />
           <Row icon={Mountain} label="Elevation" value={`${cell.elevation.toFixed(0)} m`} />
           <Row icon={TrendingUp} label="Slope" value={`${cell.slopeDeg}°`} />
           <Row

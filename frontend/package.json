@@ -14,6 +14,8 @@
     "cesium": "^1.143.0",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.23.0",
+    "mgrs": "^2.2.0",
+    "milsymbol": "^3.0.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "resium": "^1.23.0",

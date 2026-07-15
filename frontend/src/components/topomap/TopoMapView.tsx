@@ -5,6 +5,7 @@ import { computeContourPlan } from '../../lib/contours'
 import { makeTopoProjection } from '../../lib/topoProjection'
 import { bearingRadians } from '../../lib/bearing'
 import { FRIENDLY_HEX, HOSTILE_HEX, ACCENT_HEX } from '../../lib/colors'
+import { unitSymbol } from '../../lib/milsymbols'
 import { TopoPlanOverlay } from './TopoPlanOverlay'
 import type { GridData, OsmFeatures, RoadClass } from '../../types/terrain'
 import type {
@@ -269,17 +270,9 @@ function drawTopoMap(
 
   for (const unit of units) {
     const [x, y] = projectLonLat(unit.position.longitude, unit.position.latitude)
-    const color = unit.side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX
-    ctx.save()
-    ctx.translate(x, y)
-    ctx.rotate(Math.PI / 4)
-    ctx.fillStyle = color
-    ctx.strokeStyle = INK
-    ctx.lineWidth = 1
-    ctx.fillRect(-5, -5, 10, 10)
-    ctx.strokeRect(-5, -5, 10, 10)
-    ctx.restore()
-    drawLabel(ctx, `${unit.name} (${unit.typeLabel})`, x + 8, y)
+    const symbol = unitSymbol(unit.side)
+    ctx.drawImage(symbol.canvas, x - symbol.width / 2, y - symbol.height / 2, symbol.width, symbol.height)
+    drawLabel(ctx, `${unit.name} (${unit.typeLabel})`, x + symbol.width / 2 + 4, y)
   }
   ctx.restore()
 }
