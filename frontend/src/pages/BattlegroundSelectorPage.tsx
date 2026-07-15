@@ -23,6 +23,9 @@ import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground } from '../state/battleground'
 import { analyzePlan } from '../lib/validate'
 import { toMGRS } from '../lib/coords'
+import { photoSource } from '../lib/photoTiles'
+import { TileStatsHud } from '../components/panels/TileStatsHud'
+import { XRayToggle } from '../components/panels/XRayToggle'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
@@ -58,6 +61,8 @@ export function BattlegroundSelectorPage() {
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
 
   const showTopo = viewMode === 'topo' && phase === 'ready' && grid !== null
+  const photoAvailable = photoSource() !== null
+  const showHud = new URLSearchParams(window.location.search).has('hud')
 
   const planningMode = selection !== null && battlegroundName.trim() !== ''
   // Placement tools/roster need a fully generated battlefield, not just a name+
@@ -182,6 +187,7 @@ export function BattlegroundSelectorPage() {
       <div className="absolute inset-0" style={{ visibility: showTopo ? 'hidden' : 'visible' }}>
         <CesiumGlobe
           armed={toolMode === 'select-ground'}
+          viewMode={viewMode}
           resetToken={resetToken}
           onSelectionFinalize={(result) => {
             setSelection(result)
@@ -275,6 +281,7 @@ export function BattlegroundSelectorPage() {
                       onToggleSatellite={toggleSatellite}
                       elevationExaggerated={elevationExaggerated}
                       onToggleElevation={toggleElevation}
+                      photoActive={viewMode === 'photo'}
                     />
                   </>
                 )}
@@ -302,7 +309,14 @@ export function BattlegroundSelectorPage() {
                 )}
               </div>
               <div className="pointer-events-auto flex flex-col items-end gap-2">
-                <ViewModeToggle mode={viewMode} onChange={setViewMode} disabled={phase !== 'ready'} />
+                {showHud && <TileStatsHud />}
+                {viewMode === 'photo' && <XRayToggle />}
+                <ViewModeToggle
+                  mode={viewMode}
+                  onChange={setViewMode}
+                  disabled={phase !== 'ready'}
+                  photoAvailable={photoAvailable}
+                />
                 <MapControls
                   is3D={is3D}
                   onResetNorth={resetNorth}

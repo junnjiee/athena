@@ -15,6 +15,12 @@ export function pickGroundPosition(
   windowPosition: Cesium.Cartesian2,
 ): Cesium.Cartesian3 | undefined {
   if (viewer.scene.mode === Cesium.SceneMode.SCENE3D) {
+    // Photo mode hides the globe and renders the photoreal mesh instead --
+    // depth-buffer picking is the only pick that lands on that surface.
+    if (!viewer.scene.globe.show && viewer.scene.pickPositionSupported) {
+      const onMesh = viewer.scene.pickPosition(windowPosition)
+      if (onMesh) return onMesh
+    }
     const ray = viewer.camera.getPickRay(windowPosition)
     const onTerrain = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
     if (onTerrain) return onTerrain

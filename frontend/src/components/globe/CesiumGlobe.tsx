@@ -4,7 +4,9 @@ import { worldTerrain } from '../../lib/cesium-setup'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
+import { PhotoModeController } from './PhotoModeController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
+import type { ViewMode } from './ViewModeToggle'
 import type { SelectionResult } from '../../types/selection'
 import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
 import type { MovementLoadout, MovementType } from '../../types/movement'
@@ -14,6 +16,7 @@ interface Props {
   resetToken: number
   onSelectionFinalize: (result: SelectionResult) => void
   onViewerReady: (viewer: Cesium.Viewer) => void
+  viewMode: ViewMode
   toolMode: ToolMode
   units: PlacedUnit[]
   objectives: PlacedObjective[]
@@ -33,6 +36,7 @@ export function CesiumGlobe({
   resetToken,
   onSelectionFinalize,
   onViewerReady,
+  viewMode,
   toolMode,
   units,
   objectives,
@@ -76,7 +80,8 @@ export function CesiumGlobe({
         onRouteComplete={onRouteComplete}
         onRouteDrawingChange={onRouteDrawingChange}
       />
-      <BattlefieldController />
+      <BattlefieldController suppressed={viewMode === 'photo'} />
+      <PhotoModeController active={viewMode === 'photo'} />
     </Viewer>
   )
 }

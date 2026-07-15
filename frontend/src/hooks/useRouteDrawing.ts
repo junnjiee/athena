@@ -182,7 +182,8 @@ export function useRouteDrawing({
           width: style.width,
           material: style.material,
           clampToGround: true,
-          classificationType: Cesium.ClassificationType.TERRAIN,
+          // BOTH so the live preview drapes the photoreal mesh in RECON mode
+          classificationType: Cesium.ClassificationType.BOTH,
         },
       })
     }

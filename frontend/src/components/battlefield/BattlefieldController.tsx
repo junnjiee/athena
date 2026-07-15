@@ -49,10 +49,17 @@ function applyNightLighting(viewer: Cesium.Viewer, night: boolean, centerLonDeg:
   viewer.scene.requestRender()
 }
 
+interface Props {
+  /** RECON (photo) mode active: the photoreal mesh carries its own real
+   *  buildings/trees/roads, so the stylized battlefield layers and the
+   *  globe-draped heatmap are hidden until the mode exits. */
+  suppressed?: boolean
+}
+
 /** Lives inside <Viewer>. Renders the generated battlefield (buildings, roads,
  *  water, procedural trees, heatmap drape), runs the cinematic reveal, samples
  *  terrain under the cursor, and applies night lighting. */
-export function BattlefieldController() {
+export function BattlefieldController({ suppressed = false }: Props) {
   const { viewer } = useCesium()
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
@@ -171,11 +178,11 @@ export function BattlefieldController() {
 
   // --- layer visibility toggles -------------------------------------------
   useEffect(() => {
-    if (buildingsDsRef.current) buildingsDsRef.current.show = layers.buildings
-    if (roadsDsRef.current && revealTRef.current >= STAGE.roads) roadsDsRef.current.show = layers.roads
-    if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water
-    if (treesRef.current) treesRef.current.show = layers.trees
-  }, [layers, revealToken])
+    if (buildingsDsRef.current) buildingsDsRef.current.show = layers.buildings && !suppressed
+    if (roadsDsRef.current && revealTRef.current >= STAGE.roads) roadsDsRef.current.show = layers.roads && !suppressed
+    if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water && !suppressed
+    if (treesRef.current) treesRef.current.show = layers.trees && !suppressed
+  }, [layers, revealToken, suppressed])
 
   // --- heatmap drape --------------------------------------------------------
   useEffect(() => {
@@ -188,7 +195,7 @@ export function BattlefieldController() {
       viewer.imageryLayers.remove(previous, true)
       heatmapLayerRef.current = null
     }
-    if (heatmap === 'none' || phase !== 'ready') return
+    if (heatmap === 'none' || phase !== 'ready' || suppressed) return
 
     const rectangle = Cesium.Rectangle.fromDegrees(
       grid.bbox.west,
@@ -219,7 +226,7 @@ export function BattlefieldController() {
         heatmapLayerRef.current = null
       }
     }
-  }, [viewer, grid, heatmap, phase])
+  }, [viewer, grid, heatmap, phase, suppressed])
 
   // --- terrain hover sampling ----------------------------------------------
   useEffect(() => {
@@ -232,7 +239,12 @@ export function BattlefieldController() {
       if (now - last < 40) return
       last = now
       const ray = viewer.camera.getPickRay(movement.endPosition)
-      const cartesian = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
+      let cartesian = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
+      // Photo mode hides the globe -- depth-buffer picking against the
+      // photoreal mesh keeps the terrain-info hover (and its grid ref) alive.
+      if (!cartesian && !viewer.scene.globe.show && viewer.scene.pickPositionSupported) {
+        cartesian = viewer.scene.pickPosition(movement.endPosition)
+      }
       if (!cartesian) {
         setHoverCell(null)
         return

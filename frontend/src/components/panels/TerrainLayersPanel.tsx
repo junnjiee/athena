@@ -15,6 +15,9 @@ interface Props {
   onToggleSatellite: () => void
   elevationExaggerated: boolean
   onToggleElevation: () => void
+  /** RECON mode pins verticalExaggeration to 1.0 (it distorts the photoreal
+   *  mesh) -- lock the toggle while active. */
+  photoActive?: boolean
 }
 
 const BATTLEFIELD_LAYERS: { key: keyof BattlefieldLayerToggles; label: string; icon: typeof Mountain }[] = [
@@ -29,6 +32,7 @@ export function TerrainLayersPanel({
   onToggleSatellite,
   elevationExaggerated,
   onToggleElevation,
+  photoActive = false,
 }: Props) {
   const phase = useBattleground((s) => s.phase)
   const layers = useBattleground((s) => s.layers)
@@ -48,7 +52,8 @@ export function TerrainLayersPanel({
         <LayerRow
           label="Terrain Exaggeration"
           Icon={Mountain}
-          visible={elevationExaggerated}
+          visible={elevationExaggerated && !photoActive}
+          disabled={photoActive}
           onToggle={onToggleElevation}
         />
         {BATTLEFIELD_LAYERS.map(({ key, label, icon }) => (
