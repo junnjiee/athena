@@ -39,4 +39,16 @@ export interface PlacedRoute {
   loadout: MovementLoadout
 }
 
+/** A route as completed by a drawing surface (3D globe click-waypoints or topo
+ *  freehand sketch), before the page assigns it an id and stores it as a
+ *  PlacedRoute. */
+export interface NewRouteInput {
+  side: ForceSide
+  startUnitId: string
+  points: LonLat[]
+  endRef: RouteEndpointRef | null
+  movementType: MovementType
+  loadout: MovementLoadout
+}
+
 export type ToolMode = 'navigate' | 'select-ground' | 'place-blue' | 'place-red' | 'place-objective' | 'draw-route'

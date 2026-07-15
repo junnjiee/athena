@@ -3,9 +3,12 @@ import type { ToolMode } from '../../types/entities'
 interface Props {
   toolMode: ToolMode
   isDrawingRoute: boolean
+  /** Topo view active: route drawing is freehand press-drag there, not
+   *  click-waypoints like the 3D globe. */
+  topo?: boolean
 }
 
-function hintFor(toolMode: ToolMode, isDrawingRoute: boolean): string | null {
+function hintFor(toolMode: ToolMode, isDrawingRoute: boolean, topo: boolean): string | null {
   switch (toolMode) {
     case 'place-blue':
       return 'Click the map to place a blue-force unit'
@@ -14,6 +17,11 @@ function hintFor(toolMode: ToolMode, isDrawingRoute: boolean): string | null {
     case 'place-objective':
       return 'Click the map to place an objective'
     case 'draw-route':
+      if (topo) {
+        return isDrawingRoute
+          ? 'Release on a unit or objective to link the route end · Esc to cancel'
+          : 'Press and drag from a unit to sketch its route'
+      }
       return isDrawingRoute
         ? 'Click to add a waypoint · click a unit/objective or press Enter to finish · Esc to cancel'
         : 'Click an existing unit to start a movement route'
@@ -22,8 +30,8 @@ function hintFor(toolMode: ToolMode, isDrawingRoute: boolean): string | null {
   }
 }
 
-export function PlacementHint({ toolMode, isDrawingRoute }: Props) {
-  const hint = hintFor(toolMode, isDrawingRoute)
+export function PlacementHint({ toolMode, isDrawingRoute, topo = false }: Props) {
+  const hint = hintFor(toolMode, isDrawingRoute, topo)
   if (!hint) return null
 
   return (

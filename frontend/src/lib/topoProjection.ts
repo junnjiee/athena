@@ -6,6 +6,9 @@ export interface TopoProjection {
   /** Project a grid-cell-space coordinate (traceContour's output, 0..width-1/0..height-1
    *  floats) to canvas px. */
   projectCell: (cx: number, cy: number) => [number, number]
+  /** Inverse of projectLonLat: canvas px back to [lon, lat]. Lets the topo view's
+   *  drawing tools turn sketched pixels into plan coordinates. */
+  unprojectXY: (x: number, y: number) => [number, number]
   /** Meters-per-pixel along the horizontal axis, for converting radii (e.g. an
    *  objective's capture radius) into canvas pixels. Flat-earth approximation --
    *  fine at this <=3km selection scale. */
@@ -34,10 +37,16 @@ export function makeTopoProjection(grid: GridData, canvasWidth: number, canvasHe
     return [fx * canvasWidth, fy * canvasHeight]
   }
 
+  const unprojectXY = (x: number, y: number): [number, number] => {
+    const lon = bbox.west + (x / canvasWidth) * (bbox.east - bbox.west)
+    const lat = bbox.north - (y / canvasHeight) * (bbox.north - bbox.south)
+    return [lon, lat]
+  }
+
   const centerLatRadians = ((bbox.south + bbox.north) / 2) * (Math.PI / 180)
   const metersPerDegreeLon = 111_320 * Math.cos(centerLatRadians)
   const bboxWidthMeters = (bbox.east - bbox.west) * metersPerDegreeLon
   const metersPerPixelX = bboxWidthMeters / canvasWidth
 
-  return { projectLonLat, projectCell, metersPerPixelX }
+  return { projectLonLat, projectCell, unprojectXY, metersPerPixelX }
 }

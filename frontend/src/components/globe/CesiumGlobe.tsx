@@ -6,17 +6,8 @@ import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
 import type { SelectionResult } from '../../types/selection'
-import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
+import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
 import type { MovementLoadout, MovementType } from '../../types/movement'
-
-interface NewRouteInput {
-  side: PlacedRoute['side']
-  startUnitId: string
-  points: LonLat[]
-  endRef: PlacedRoute['endRef']
-  movementType: MovementType
-  loadout: MovementLoadout
-}
 
 interface Props {
   armed: boolean

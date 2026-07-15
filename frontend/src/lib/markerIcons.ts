@@ -4,20 +4,7 @@ function svgToDataUri(svg: string): string {
 
 const SIZE = 28
 
-export function unitDiamondIcon(colorHex: string): string {
-  return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 28 28">
-    <rect x="6" y="6" width="16" height="16" rx="2" transform="rotate(45 14 14)" fill="${colorHex}" stroke="rgba(10,13,18,0.85)" stroke-width="2"/>
-  </svg>`)
-}
-
-export function threatDiamondIcon(colorHex: string): string {
-  return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 28 28">
-    <rect x="6" y="6" width="16" height="16" rx="2" transform="rotate(45 14 14)" fill="${colorHex}" stroke="rgba(10,13,18,0.85)" stroke-width="2"/>
-    <path d="M14 10.3 L18.2 18.2 L9.8 18.2 Z" fill="none" stroke="#0a0d12" stroke-width="1.5" stroke-linejoin="round"/>
-    <rect x="13.35" y="12.6" width="1.3" height="2.6" rx="0.5" fill="#0a0d12"/>
-    <circle cx="14" cy="16.4" r="0.9" fill="#0a0d12"/>
-  </svg>`)
-}
+// Unit/threat markers moved to MIL-STD-2525 symbols -- see lib/milsymbols.ts.
 
 export function objectiveStarIcon(colorHex: string): string {
   const points = starPolygonPoints(14, 14, 5, 9, 4)

@@ -81,7 +81,7 @@ export function MovementModePanel({ movementType, onMovementTypeChange, loadout,
             <button
               key={preset}
               type="button"
-              title={`${LOAD_PRESETS[preset].label} — ${LOAD_PRESETS[preset].loadMassKg} kg`}
+              title={`${LOAD_PRESETS[preset].fullLabel} — ${LOAD_PRESETS[preset].loadMassKg} kg`}
               onClick={() => onLoadoutChange(loadoutFromPreset(preset))}
               className={`flex-1 rounded px-2 py-1 text-xs transition-colors ${
                 selected ? 'bg-white/10 text-(--text-h)' : 'text-(--text-dim) hover:text-(--text-h)'

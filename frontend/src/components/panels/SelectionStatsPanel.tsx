@@ -1,5 +1,6 @@
 import { MapPin, MoveHorizontal, MoveVertical, Square, Info, Loader2, Zap } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
+import { toMGRS } from '../../lib/coords'
 import type { SelectionResult } from '../../types/selection'
 
 interface Props {
@@ -22,7 +23,7 @@ export function SelectionStatsPanel({ selection, onClear, onGenerate }: Props) {
         GROUND SELECTION
       </div>
       <dl className="flex flex-col gap-1.5">
-        <Row icon={MapPin} label="Center" value={`${stats.centerLatitude.toFixed(4)}°, ${stats.centerLongitude.toFixed(4)}°`} />
+        <Row icon={MapPin} label="Center" value={toMGRS(stats.centerLongitude, stats.centerLatitude)} />
         <Row icon={MoveHorizontal} label="Width" value={`${stats.widthMeters.toFixed(0)} m`} />
         <Row icon={MoveVertical} label="Height" value={`${stats.heightMeters.toFixed(0)} m`} />
         <Row icon={Square} label="Area" value={`${stats.areaKm2.toFixed(2)} km²`} />
