@@ -4,23 +4,49 @@ from langchain_openrouter import ChatOpenRouter
 
 from athena.battlefield import Battlefield
 from athena.resolvers.movement import MovementResolver
+from athena.resolvers.shooting import ShootingResolver
 from athena.soldier import Soldier
-from athena.types import Action, ChosenAction, MoveAction, ObservedSoldier, ShootAction
+from athena.types import (
+    Action,
+    AgentContext,
+    ChosenAction,
+    MoveAction,
+    ObservedSoldier,
+    ShootAction,
+)
 
 # OpenRouter agent instructions.
 SYSTEM_PROMPT = (
     "You are a soldier-agent in a grid battlefield simulation. "
-    "Shooting is not implemented yet. Choose exactly one move "
-    "action. Return only the structured action."
+    "Choose exactly one action: move one grid cell or shoot. "
+    "The available_terrain cells describe "
+    "every grid cell in your local range, including elevation, cover, and "
+    "concealment; use them to navigate. The visibility_history contains up to "
+    "10 prior tick observations ordered from oldest to newest. Return only the "
+    "structured action."
+    "\n\nTeam objectives:"
+    "\n- Blue: advance toward the right/east side of the battlefield."
+    "\n- Red: advance toward the left/west side of the battlefield."
+    "\n\nIllegal actions:"
+    "\n- Moving outside the battlefield."
+    "\n- Moving more than one grid cell."
+    "\n- Moving into a cover cell."
+    "\n- Moving to a cell whose elevation differs by more than one level."
+    "\n- Moving into a cell occupied by a casualty or dead soldier."
+    "\n- Moving into a cell occupied by a stationary living soldier."
+    "\n- Shooting a friendly, casualty, dead, or non-visible soldier."
+    "\n- Shooting coordinates other than the visible living enemy's exact x, y, and z."
 )
 
 
-# Call propose() up to max_attempts times, returning the first legal move.
+# Call propose() up to max_attempts times, returning the first legal action.
 async def _resolve_action(
     propose: Callable[[], Awaitable[ChosenAction]],
+    observed_soldier: ObservedSoldier,
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
+    shooting_resolver: ShootingResolver,
     max_attempts: int,
 ) -> Action | None:
     for _ in range(max_attempts):
@@ -31,26 +57,36 @@ async def _resolve_action(
                 return action
 
         if isinstance(action, ShootAction):
-            continue
+            if shooting_resolver.verify_shoot_action(
+                observed_soldier,
+                soldier,
+                action,
+            ):
+                return action
 
     return None
 
 
+# Cloud-hosted (OpenRouter) backend.
 async def choose_action(
-    observed_soldier: ObservedSoldier,
+    agent_context: AgentContext,
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
     max_attempts: int = 3,
     model: str = "deepseek/deepseek-v4-flash",
+    shooting_resolver: ShootingResolver | None = None,
 ) -> Action | None:
+    if shooting_resolver is None:
+        shooting_resolver = ShootingResolver()
+
     llm = ChatOpenRouter(model=model)
     # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
     structured_llm = llm.with_structured_output(ChosenAction, method="json_schema")
 
     async def propose() -> ChosenAction:
         chosen = await structured_llm.ainvoke(
-            [("system", SYSTEM_PROMPT), ("human", observed_soldier.model_dump_json())]
+            [("system", SYSTEM_PROMPT), ("human", agent_context.model_dump_json())]
         )
         # LangChain types structured output as BaseModel | dict, even when a
         # Pydantic schema is provided. Keep the external LLM boundary explicit
@@ -60,5 +96,11 @@ async def choose_action(
         return chosen
 
     return await _resolve_action(
-        propose, battlefield, soldier, movement_resolver, max_attempts
+        propose,
+        agent_context.current_observation,
+        battlefield,
+        soldier,
+        movement_resolver,
+        shooting_resolver,
+        max_attempts,
     )
