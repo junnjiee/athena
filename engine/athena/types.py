@@ -64,6 +64,34 @@ class ShootAction(BaseModel):
 Action: TypeAlias = MoveAction | ShootAction
 
 
+class SoldierSnapshot(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    soldier_index: int
+    team: Team
+    position: Position
+    survival_status: SurvivalState
+    vision_range: float
+
+
+class BattlefieldSnapshot(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    width: int
+    height: int
+    soldiers: tuple[SoldierSnapshot, ...]
+    cover: frozenset[Position]
+    concealment: frozenset[Position]
+
+
+class ExecutionResult(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    actions: tuple[Action | None, ...]
+    before: BattlefieldSnapshot
+    after: BattlefieldSnapshot
+
+
 class ChosenAction(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 

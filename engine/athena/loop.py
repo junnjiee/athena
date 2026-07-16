@@ -4,11 +4,14 @@ from typing import Awaitable, Callable
 from athena.agent import choose_action
 from athena.battlefield import Battlefield
 from athena.resolvers.movement import MovementResolver
+from athena.resolvers.shooting import ShootingResolver
 from athena.soldier import Soldier
 from athena.resolvers.vision import VisionResolver
 from athena.types import (
     Action,
     AvailableTerrain,
+    BattlefieldSnapshot,
+    ExecutionResult,
     MoveAction,
     ObservedSoldier,
     Position,
@@ -29,11 +32,13 @@ class LoopEngine:
         vision_resolver: VisionResolver,
         movement_resolver: MovementResolver,
         action_chooser: ActionChooser = choose_action,
+        shooting_resolver: ShootingResolver | None = None,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
         self.action_chooser = action_chooser
+        self.shooting_resolver = shooting_resolver or ShootingResolver()
 
     def visible_soldiers_map(self) -> list[VisibleSoldiers]:
         """
@@ -122,31 +127,99 @@ class LoopEngine:
             ]
         )
 
-    async def tick(self, max_attempts: int = 3) -> None:
+    async def tick(self, max_attempts: int = 3) -> ExecutionResult:
         actions = await self.collect_valid_actions(max_attempts=max_attempts)
-        self.execute_actions(actions)
+        return self.execute_actions(actions)
 
-    def execute_actions(self, actions: list[Action | None]) -> None:
+    def execute_actions(self, actions: list[Action | None]) -> ExecutionResult:
         """
-        Execute collected actions sequentially. Index is mapped to
-        battlefield.soldiers.
+        Resolve every action from the same before snapshot, then commit all effects.
+
+        Action indices map to battlefield.soldiers. Movement and rifle casualties
+        are resolved independently, so a soldier shot during this tick still
+        completes an accepted move selected while it was alive.
         """
-        for soldier_index, action in enumerate(actions):
-            if action is None:
-                continue
-
-            soldier = self.battlefield.soldiers[soldier_index]
-
-            if isinstance(action, MoveAction):
-                new_position = self.movement_resolver.resolve_move_position(
-                    soldier,
+        before = self.battlefield.snapshot()
+        accepted_moves = self._resolve_move_destinations(actions, before)
+        casualty_targets = {
+            target_index
+            for soldier_index, action in enumerate(actions)
+            if isinstance(action, ShootAction)
+            and (
+                target_index := self.shooting_resolver.resolve_shoot_target(
+                    before,
+                    soldier_index,
                     action,
                 )
-                soldier.move_to(new_position)
-                continue
+            )
+            is not None
+        }
 
-            if isinstance(action, ShootAction):
-                raise NotImplementedError("ShootAction execution is not implemented yet.")
+        for soldier_index, new_position in accepted_moves.items():
+            self.battlefield.soldiers[soldier_index].move_to(new_position)
+
+        for target_index in casualty_targets:
+            self.battlefield.soldiers[target_index].become_casualty()
+
+        return ExecutionResult(
+            actions=tuple(actions),
+            before=before,
+            after=self.battlefield.snapshot(),
+        )
+
+    def _resolve_move_destinations(
+        self,
+        actions: list[Action | None],
+        before: BattlefieldSnapshot,
+    ) -> dict[int, Position]:
+        proposed_moves = {
+            soldier_index: self.movement_resolver.resolve_move_position(
+                self.battlefield.soldiers[soldier_index],
+                action,
+            )
+            for soldier_index, action in enumerate(actions)
+            if isinstance(action, MoveAction)
+        }
+
+        movers_by_destination: dict[Position, list[int]] = {}
+        for soldier_index, destination in proposed_moves.items():
+            movers_by_destination.setdefault(destination, []).append(soldier_index)
+
+        rejected_movers = {
+            soldier_index
+            for mover_indices in movers_by_destination.values()
+            if len(mover_indices) > 1
+            for soldier_index in mover_indices
+        }
+
+        occupants_by_position: dict[Position, list[int]] = {}
+        for soldier in before.soldiers:
+            occupants_by_position.setdefault(soldier.position, []).append(
+                soldier.soldier_index
+            )
+
+        # Rejections cascade backward through movement chains. If B cannot vacate
+        # its cell, A cannot move into it; swaps and fully moving cycles remain valid.
+        while True:
+            newly_rejected = {
+                soldier_index
+                for soldier_index, destination in proposed_moves.items()
+                if soldier_index not in rejected_movers
+                and any(
+                    occupant_index not in proposed_moves
+                    or occupant_index in rejected_movers
+                    for occupant_index in occupants_by_position.get(destination, [])
+                )
+            }
+            if not newly_rejected:
+                break
+            rejected_movers.update(newly_rejected)
+
+        return {
+            soldier_index: destination
+            for soldier_index, destination in proposed_moves.items()
+            if soldier_index not in rejected_movers
+        }
 
     def _nearby_positions(
         self,
