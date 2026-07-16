@@ -5,9 +5,9 @@ from functools import partial
 
 from dotenv import load_dotenv
 
-from athena.agent import (
+from athena.agent import choose_action
+from athena.ollama_agent import (
     OllamaUnavailable,
-    choose_action,
     choose_action_local,
     resolve_local_model,
 )
