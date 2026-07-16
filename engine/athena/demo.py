@@ -19,6 +19,7 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.soldier import Soldier
 from athena.types import (
+    AgentContext,
     ExecutionResult,
     MoveAction,
     ObservedSoldier,
@@ -36,6 +37,28 @@ ELEVATION_COLORS = {
 }
 
 
+def adapt_local_action_chooser(model: str) -> ActionChooser:
+    """Keep Ollama on its current-observation-only request contract."""
+
+    async def choose_from_current_observation(
+        agent_context: AgentContext,
+        battlefield: Battlefield,
+        soldier: Soldier,
+        movement_resolver: MovementResolver,
+        max_attempts: int = 3,
+    ):
+        return await choose_action_local(
+            observed_soldier=agent_context.current_observation,
+            battlefield=battlefield,
+            soldier=soldier,
+            movement_resolver=movement_resolver,
+            max_attempts=max_attempts,
+            model=model,
+        )
+
+    return choose_from_current_observation
+
+
 # Map a --model spec to an action chooser: None=hosted default, ollama:*=local, else an OpenRouter id; logs the choice.
 def build_action_chooser(model_spec: str | None) -> ActionChooser:
     if model_spec is None:
@@ -46,7 +69,7 @@ def build_action_chooser(model_spec: str | None) -> ActionChooser:
         name = model_spec[len(OLLAMA_PREFIX):]
         resolved = resolve_local_model(None if name == "auto" else name)
         print(f"[athena] agent: Ollama local model '{resolved}'", file=sys.stderr)
-        return partial(choose_action_local, model=resolved)
+        return adapt_local_action_chooser(resolved)
 
     print(f"[athena] agent: OpenRouter model '{model_spec}'", file=sys.stderr)
     return partial(choose_action, model=model_spec)

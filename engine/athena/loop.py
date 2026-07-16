@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 from typing import Awaitable, Callable
 
 from athena.agent import choose_action
@@ -9,6 +10,7 @@ from athena.soldier import Soldier
 from athena.resolvers.vision import VisionResolver
 from athena.types import (
     Action,
+    AgentContext,
     AvailableTerrain,
     BattlefieldSnapshot,
     ExecutionResult,
@@ -19,6 +21,7 @@ from athena.types import (
     TerrainCell,
     VisibleSoldier,
     VisibleSoldiers,
+    VisibilityObservation,
 )
 
 # An action chooser turns one soldier's local observation into a validated action
@@ -34,12 +37,18 @@ class LoopEngine:
         movement_resolver: MovementResolver,
         action_chooser: ActionChooser = choose_action,
         shooting_resolver: ShootingResolver | None = None,
+        visibility_history_limit: int = 10,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
         self.action_chooser = action_chooser
         self.shooting_resolver = shooting_resolver or ShootingResolver()
+        self.tick_number = 0
+        self.visibility_history = [
+            deque[VisibilityObservation](maxlen=visibility_history_limit)
+            for _ in battlefield.soldiers
+        ]
 
     def visible_soldiers_map(self) -> list[VisibleSoldiers]:
         """
@@ -117,12 +126,17 @@ class LoopEngine:
             for index, soldier in enumerate(self.battlefield.soldiers)
         ]
 
-    async def collect_valid_actions(self, max_attempts: int = 3) -> list[Action | None]:
+    async def collect_valid_actions(
+        self,
+        max_attempts: int = 3,
+        observed_soldiers: list[ObservedSoldier] | None = None,
+    ) -> list[Action | None]:
         """
         Ask every soldier-agent for a valid action. Index is mapped to
         battlefield.soldiers.
         """
-        observed_soldiers = self.observed_soldiers_map()
+        if observed_soldiers is None:
+            observed_soldiers = self.observed_soldiers_map()
 
         # asyncio.gather preserves input order, so each result stays aligned with
         # battlefield.soldiers. It also raises if any soldier task raises, which
@@ -130,7 +144,12 @@ class LoopEngine:
         return await asyncio.gather(
             *[
                 self.action_chooser(
-                    observed_soldier=observed_soldier,
+                    agent_context=AgentContext(
+                        current_observation=observed_soldier,
+                        visibility_history=tuple(
+                            self.visibility_history[soldier_index]
+                        ),
+                    ),
                     battlefield=self.battlefield,
                     soldier=self.battlefield.soldiers[soldier_index],
                     movement_resolver=self.movement_resolver,
@@ -141,10 +160,18 @@ class LoopEngine:
         )
 
     async def tick(self, max_attempts: int = 3) -> ExecutionResult:
-        actions = await self.collect_valid_actions(max_attempts=max_attempts)
-        return self.execute_actions(actions)
+        observed_soldiers = self.observed_soldiers_map()
+        actions = await self.collect_valid_actions(
+            max_attempts=max_attempts,
+            observed_soldiers=observed_soldiers,
+        )
+        return self.execute_actions(actions, observed_soldiers=observed_soldiers)
 
-    def execute_actions(self, actions: list[Action | None]) -> ExecutionResult:
+    def execute_actions(
+        self,
+        actions: list[Action | None],
+        observed_soldiers: list[ObservedSoldier] | None = None,
+    ) -> ExecutionResult:
         """
         Resolve every action from the same before snapshot, then commit all effects.
 
@@ -152,6 +179,9 @@ class LoopEngine:
         are resolved independently, so a soldier shot during this tick still
         completes an accepted move selected while it was alive.
         """
+        if observed_soldiers is None:
+            observed_soldiers = self.observed_soldiers_map()
+
         before = self.battlefield.snapshot()
         accepted_moves = self._resolve_move_destinations(actions, before)
         shot_outcomes = tuple(
@@ -177,9 +207,25 @@ class LoopEngine:
         for target_index in casualty_targets:
             self.battlefield.soldiers[target_index].become_casualty()
 
+        # Retain the exact local information that informed this execution. Taking
+        # another observation after resolution could reroll probabilistic visibility
+        # and give history that differs from what the agent actually acted on.
+        self.tick_number += 1
+        observations = tuple(
+            VisibilityObservation(
+                tick=self.tick_number,
+                visible_soldiers=observed_soldier.visible_soldiers,
+                available_terrain=observed_soldier.available_terrain,
+            )
+            for observed_soldier in observed_soldiers
+        )
+        for soldier_index, observation in enumerate(observations):
+            self.visibility_history[soldier_index].append(observation)
+
         return ExecutionResult(
             actions=tuple(actions),
             shot_outcomes=shot_outcomes,
+            observations=observations,
             before=before,
             after=self.battlefield.snapshot(),
         )

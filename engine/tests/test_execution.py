@@ -8,6 +8,7 @@ from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
 from athena.soldier import Soldier
 from athena.types import (
+    AgentContext,
     ExecutionResult,
     MoveAction,
     MoveDirection,
@@ -204,4 +205,76 @@ def test_tick_returns_execution_result() -> None:
     assert isinstance(result, ExecutionResult)
     assert result.actions == (None,)
     assert result.shot_outcomes == ()
+    assert result.observations[0].tick == 1
     assert result.before == result.after
+
+
+def test_tick_supplies_each_soldier_with_its_own_visibility_history() -> None:
+    received_contexts: list[tuple[Soldier, AgentContext]] = []
+
+    async def record_context(
+        agent_context: AgentContext,
+        soldier: Soldier,
+        **_: object,
+    ) -> None:
+        received_contexts.append((soldier, agent_context))
+        return None
+
+    blue = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        vision_range=3,
+    )
+    red = Soldier(
+        Team.RED,
+        Position(x=2, y=0, z=0),
+        vision_range=1,
+    )
+    loop = LoopEngine(
+        battlefield=Battlefield(width=3, height=1, soldiers=[blue, red]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=record_context,
+    )
+
+    first_result = asyncio.run(loop.tick())
+    asyncio.run(loop.tick())
+
+    first_tick_contexts = received_contexts[:2]
+    second_tick_contexts = received_contexts[2:]
+
+    assert all(context.visibility_history == () for _, context in first_tick_contexts)
+    assert second_tick_contexts[0][0] is blue
+    assert second_tick_contexts[0][1].visibility_history == (
+        first_result.observations[0],
+    )
+    assert second_tick_contexts[1][0] is red
+    assert second_tick_contexts[1][1].visibility_history == (
+        first_result.observations[1],
+    )
+    assert len(first_result.observations[0].visible_soldiers.soldiers) == 1
+    assert first_result.observations[1].visible_soldiers.soldiers == []
+
+
+def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:
+    received_contexts: list[AgentContext] = []
+
+    async def record_context(agent_context: AgentContext, **_: object) -> None:
+        received_contexts.append(agent_context)
+        return None
+
+    soldier = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    loop = LoopEngine(
+        battlefield=Battlefield(width=1, height=1, soldiers=[soldier]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=record_context,
+    )
+
+    for _ in range(12):
+        asyncio.run(loop.tick())
+
+    assert [
+        observation.tick
+        for observation in received_contexts[-1].visibility_history
+    ] == list(range(2, 12))

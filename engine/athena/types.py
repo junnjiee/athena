@@ -96,15 +96,6 @@ class ShotOutcome(BaseModel):
     hit: bool
 
 
-class ExecutionResult(BaseModel):
-    model_config = IMMUTABLE_MODEL_CONFIG
-
-    actions: tuple[Action | None, ...]
-    shot_outcomes: tuple[ShotOutcome, ...]
-    before: BattlefieldSnapshot
-    after: BattlefieldSnapshot
-
-
 class ChosenAction(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
@@ -174,3 +165,32 @@ class ObservedSoldier(BaseModel):
     survival_status: SurvivalState
     visible_soldiers: VisibleSoldiers
     available_terrain: AvailableTerrain
+
+
+class VisibilityObservation(BaseModel):
+    """The local visibility used to choose actions in one completed tick."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    tick: int
+    visible_soldiers: VisibleSoldiers
+    available_terrain: AvailableTerrain
+
+
+class AgentContext(BaseModel):
+    """The current local state and bounded visibility history sent to an agent."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    current_observation: ObservedSoldier
+    visibility_history: tuple[VisibilityObservation, ...]
+
+
+class ExecutionResult(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    actions: tuple[Action | None, ...]
+    shot_outcomes: tuple[ShotOutcome, ...]
+    observations: tuple[VisibilityObservation, ...]
+    before: BattlefieldSnapshot
+    after: BattlefieldSnapshot

@@ -6,7 +6,14 @@ from athena.battlefield import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.soldier import Soldier
-from athena.types import Action, ChosenAction, MoveAction, ObservedSoldier, ShootAction
+from athena.types import (
+    Action,
+    AgentContext,
+    ChosenAction,
+    MoveAction,
+    ObservedSoldier,
+    ShootAction,
+)
 
 # OpenRouter agent instructions.
 SYSTEM_PROMPT = (
@@ -14,7 +21,9 @@ SYSTEM_PROMPT = (
     "Choose exactly one action: move one grid cell or shoot. "
     "The available_terrain cells describe "
     "every grid cell in your local range, including elevation, cover, and "
-    "concealment; use them to navigate. Return only the structured action."
+    "concealment; use them to navigate. The visibility_history contains up to "
+    "10 prior tick observations ordered from oldest to newest. Return only the "
+    "structured action."
     "\n\nTeam objectives:"
     "\n- Blue: advance toward the right/east side of the battlefield."
     "\n- Red: advance toward the left/west side of the battlefield."
@@ -60,7 +69,7 @@ async def _resolve_action(
 
 # Cloud-hosted (OpenRouter) backend.
 async def choose_action(
-    observed_soldier: ObservedSoldier,
+    agent_context: AgentContext,
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
@@ -77,7 +86,7 @@ async def choose_action(
 
     async def propose() -> ChosenAction:
         chosen = await structured_llm.ainvoke(
-            [("system", SYSTEM_PROMPT), ("human", observed_soldier.model_dump_json())]
+            [("system", SYSTEM_PROMPT), ("human", agent_context.model_dump_json())]
         )
         # LangChain types structured output as BaseModel | dict, even when a
         # Pydantic schema is provided. Keep the external LLM boundary explicit
@@ -88,7 +97,7 @@ async def choose_action(
 
     return await _resolve_action(
         propose,
-        observed_soldier,
+        agent_context.current_observation,
         battlefield,
         soldier,
         movement_resolver,
