@@ -16,7 +16,15 @@ from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.soldier import Soldier
-from athena.types import ObservedSoldier, Position, Team
+from athena.types import (
+    ExecutionResult,
+    MoveAction,
+    ObservedSoldier,
+    Position,
+    ShootAction,
+    SurvivalState,
+    Team,
+)
 
 OLLAMA_PREFIX = "ollama:"
 
@@ -44,10 +52,73 @@ def format_positions(positions: list[Position]) -> str:
     return ", ".join(f"({position.x},{position.y})" for position in positions)
 
 
+def soldier_symbol(soldier: Soldier) -> str:
+    if soldier.survival_status == SurvivalState.DEAD:
+        return "x"
+
+    symbol = "B" if soldier.team == Team.BLUE else "R"
+    if soldier.survival_status == SurvivalState.CASUALTY:
+        return symbol.lower()
+
+    return symbol
+
+
+def render_execution_result(result: ExecutionResult) -> None:
+    print("Actions")
+    for soldier_index, action in enumerate(result.actions):
+        soldier_before = result.before.soldiers[soldier_index]
+        soldier_after = result.after.soldiers[soldier_index]
+        prefix = f"  soldier {soldier_index} {soldier_before.team.value}:"
+
+        if action is None:
+            print(f"{prefix} none")
+        elif isinstance(action, MoveAction):
+            outcome = (
+                "accepted"
+                if soldier_before.position != soldier_after.position
+                else "rejected"
+            )
+            print(f"{prefix} move {action.direction.value} ({outcome})")
+        elif isinstance(action, ShootAction):
+            target = action.target_position
+            print(f"{prefix} shoot ({target.x},{target.y})")
+
+    print()
+    print("State changes")
+    changes: list[str] = []
+    for soldier_before, soldier_after in zip(
+        result.before.soldiers,
+        result.after.soldiers,
+    ):
+        change_parts: list[str] = []
+        if soldier_before.position != soldier_after.position:
+            change_parts.append(
+                f"position ({soldier_before.position.x},{soldier_before.position.y})"
+                f" -> ({soldier_after.position.x},{soldier_after.position.y})"
+            )
+        if soldier_before.survival_status != soldier_after.survival_status:
+            change_parts.append(
+                f"status {soldier_before.survival_status.value}"
+                f" -> {soldier_after.survival_status.value}"
+            )
+        if change_parts:
+            changes.append(
+                f"  soldier {soldier_before.soldier_index} "
+                f"{soldier_before.team.value}: " + "; ".join(change_parts)
+            )
+
+    if changes:
+        print("\n".join(changes))
+    else:
+        print("  none")
+    print()
+
+
 def render_demo_frame(
     label: str,
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
+    execution_result: ExecutionResult | None = None,
 ) -> None:
     print("\033[2J\033[H", end="")
     print(label)
@@ -65,7 +136,7 @@ def render_demo_frame(
             if len(soldiers) > 1:
                 row.append("*")
             elif len(soldiers) == 1:
-                row.append("B" if soldiers[0].team == Team.BLUE else "R")
+                row.append(soldier_symbol(soldiers[0]))
             elif position in battlefield.cover:
                 row.append("#")
             elif position in battlefield.concealment:
@@ -75,8 +146,14 @@ def render_demo_frame(
 
         print(" ".join(row))
 
-    print("B=blue R=red #=cover !=concealment *=multiple")
+    print(
+        "B/R=living blue/red b/r=blue/red casualty "
+        "x=dead #=cover !=concealment *=multiple"
+    )
     print()
+    if execution_result is not None:
+        render_execution_result(execution_result)
+
     print("Visible information")
     for index, observation in enumerate(observations):
         visible_soldiers = [
@@ -88,7 +165,8 @@ def render_demo_frame(
         print(
             f"  soldier {index} "
             f"{observation.team.value}@"
-            f"({observation.position.x},{observation.position.y})"
+            f"({observation.position.x},{observation.position.y}) "
+            f"[{observation.survival_status.value}]"
         )
         print(f"    soldiers: {visible_soldiers_text}")
         print(f"    cover: {format_positions(observation.available_terrain.cover)}")
@@ -100,7 +178,16 @@ def render_demo_frame(
     print()
 
 
-async def run_demo(model_spec: str | None = None) -> None:
+def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
+    living_teams = {
+        soldier.team
+        for soldier in battlefield.soldiers
+        if soldier.survival_status == SurvivalState.ALIVE
+    }
+    return Team.BLUE in living_teams and Team.RED in living_teams
+
+
+async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
     load_dotenv()
     action_chooser = build_action_chooser(model_spec)
 
@@ -154,13 +241,21 @@ async def run_demo(model_spec: str | None = None) -> None:
     )
 
     render_demo_frame("Initial", battlefield, loop.observed_soldiers_map())
-    for tick_index in range(60):
-        await loop.tick()
+    for tick_index in range(ticks):
+        result = await loop.tick()
+        battle_finished = not both_teams_have_living_soldiers(battlefield)
         render_demo_frame(
-            f"After tick {tick_index + 1}",
+            (
+                f"After tick {tick_index + 1} - battle finished"
+                if battle_finished
+                else f"After tick {tick_index + 1}"
+            ),
             battlefield,
             loop.observed_soldiers_map(),
+            execution_result=result,
         )
+        if battle_finished:
+            break
 
 
 def main() -> None:
@@ -169,9 +264,15 @@ def main() -> None:
         "--model",
         default=None,
     )
+    parser.add_argument(
+        "--ticks",
+        type=int,
+        default=60,
+        help="maximum simulation ticks to run (default: 60)",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(run_demo(model_spec=args.model))
+        asyncio.run(run_demo(model_spec=args.model, ticks=args.ticks))
     except OllamaUnavailable as exc:
         raise SystemExit(f"error: {exc}")
 

@@ -21,3 +21,8 @@ class Soldier:
 
     def move_to(self, position: Position) -> None:
         self.position = position
+
+    def become_casualty(self) -> None:
+        """Apply a rifle casualty without reviving dead or existing casualties."""
+        if self.survival_status == SurvivalState.ALIVE:
+            self.survival_status = SurvivalState.CASUALTY
