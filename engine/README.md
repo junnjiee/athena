@@ -1,9 +1,24 @@
 # Athena Engine
 
-Minimal Python 2D grid simulation where one agent moves inside an environment.
+Minimal Python height-field grid simulation where soldiers occupy XYZ positions on
+the battlefield surface.
 Each soldier-agent chooses actions through an LLM — a hosted model via LangChain using
 OpenRouter, or a local model via Ollama — and the resolvers validate whether each
 movement is legal.
+
+## Elevation Rules
+
+- Every `(x, y)` battlefield cell has exactly one ground `z` elevation.
+- A soldier can move one horizontal grid cell when the elevation changes by at most
+  one level.
+- Effective vision range changes by one cell per level of relative elevation: higher
+  observers see farther downhill, while lower observers see less far uphill.
+- Terrain at or above the interpolated eye-to-eye sightline blocks visibility for
+  both friendly and opposing soldiers.
+- Rifle shots have a 90% base hit probability, adjusted by two percentage points per
+  relative elevation level and clamped between 50% and 99%.
+- Each soldier observation contains every elevation-adjusted in-range terrain cell,
+  including its XYZ position and cover/concealment flags, for local navigation.
 
 ## Setup
 

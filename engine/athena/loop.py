@@ -16,6 +16,7 @@ from athena.types import (
     ObservedSoldier,
     Position,
     ShootAction,
+    TerrainCell,
     VisibleSoldier,
     VisibleSoldiers,
 )
@@ -69,18 +70,30 @@ class LoopEngine:
 
     def nearby_terrain_map(self) -> list[AvailableTerrain]:
         """
-        This array shows range-based nearby cover and concealment
-        for the current soldier. Index is mapped to battlefield.soldiers.
+        Show every battlefield cell within each soldier's elevation-adjusted
+        range. Terrain knowledge is range-based so agents can navigate local
+        topology even when a ridge blocks soldier-to-soldier line of sight.
 
-        NOTE: might be slow at scale, this is a O(n*(2)m) operation
+        NOTE: might be slow at scale, this is an O(n*m) operation.
         """
         return [
             AvailableTerrain(
-                cover=self._nearby_positions(observer, self.battlefield.cover),
-                concealment=self._nearby_positions(
-                    observer,
-                    self.battlefield.concealment,
-                ),
+                cells=[
+                    TerrainCell(
+                        position=position,
+                        has_cover=position in self.battlefield.cover,
+                        has_concealment=position in self.battlefield.concealment,
+                    )
+                    for position in sorted(
+                        self.battlefield.surface,
+                        key=lambda position: (position.y, position.x),
+                    )
+                    if self.vision_resolver.is_in_vision_range(
+                        observer.position,
+                        position,
+                        observer.vision_range,
+                    )
+                ]
             )
             for observer in self.battlefield.soldiers
         ]
@@ -141,18 +154,21 @@ class LoopEngine:
         """
         before = self.battlefield.snapshot()
         accepted_moves = self._resolve_move_destinations(actions, before)
-        casualty_targets = {
-            target_index
+        shot_outcomes = tuple(
+            outcome
             for soldier_index, action in enumerate(actions)
             if isinstance(action, ShootAction)
             and (
-                target_index := self.shooting_resolver.resolve_shoot_target(
+                outcome := self.shooting_resolver.resolve_shot(
                     before,
                     soldier_index,
                     action,
                 )
             )
             is not None
+        )
+        casualty_targets = {
+            outcome.target_index for outcome in shot_outcomes if outcome.hit
         }
 
         for soldier_index, new_position in accepted_moves.items():
@@ -163,6 +179,7 @@ class LoopEngine:
 
         return ExecutionResult(
             actions=tuple(actions),
+            shot_outcomes=shot_outcomes,
             before=before,
             after=self.battlefield.snapshot(),
         )
@@ -172,25 +189,41 @@ class LoopEngine:
         actions: list[Action | None],
         before: BattlefieldSnapshot,
     ) -> dict[int, Position]:
-        proposed_moves = {
-            soldier_index: self.movement_resolver.resolve_move_position(
-                self.battlefield.soldiers[soldier_index],
+        proposed_moves: dict[int, Position] = {}
+        for soldier_index, action in enumerate(actions):
+            soldier = self.battlefield.soldiers[soldier_index]
+            if not isinstance(action, MoveAction):
+                continue
+            if not self.movement_resolver.verify_move_action(
+                self.battlefield,
+                soldier,
+                action,
+            ):
+                continue
+
+            destination = self.movement_resolver.resolve_move_position(
+                self.battlefield,
+                soldier,
                 action,
             )
-            for soldier_index, action in enumerate(actions)
-            if isinstance(action, MoveAction)
-        }
+            if destination is not None:
+                proposed_moves[soldier_index] = destination
 
         movers_by_destination: dict[Position, list[int]] = {}
         for soldier_index, destination in proposed_moves.items():
             movers_by_destination.setdefault(destination, []).append(soldier_index)
 
-        rejected_movers = {
-            soldier_index
-            for mover_indices in movers_by_destination.values()
-            if len(mover_indices) > 1
-            for soldier_index in mover_indices
-        }
+        rejected_movers: set[int] = set()
+        for mover_indices in movers_by_destination.values():
+            if len(mover_indices) <= 1:
+                continue
+
+            winner = self.movement_resolver.select_competing_mover(mover_indices)
+            rejected_movers.update(
+                soldier_index
+                for soldier_index in mover_indices
+                if soldier_index != winner
+            )
 
         occupants_by_position: dict[Position, list[int]] = {}
         for soldier in before.soldiers:
@@ -220,18 +253,3 @@ class LoopEngine:
             for soldier_index, destination in proposed_moves.items()
             if soldier_index not in rejected_movers
         }
-
-    def _nearby_positions(
-        self,
-        observer: Soldier,
-        positions: set[Position],
-    ) -> list[Position]:
-        return [
-            position
-            for position in positions
-            if self.vision_resolver.is_in_vision_range(
-                observer.position,
-                position,
-                observer.vision_range,
-            )
-        ]

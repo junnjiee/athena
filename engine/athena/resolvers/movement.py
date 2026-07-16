@@ -1,3 +1,5 @@
+from random import Random
+
 from athena.battlefield import Battlefield
 from athena.soldier import Soldier
 from athena.types import MoveAction, MoveDirection, Position, SurvivalState
@@ -16,15 +18,29 @@ MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {
 
 
 class MovementResolver:
+    def __init__(
+        self,
+        max_elevation_change: int = 1,
+        rng: Random | None = None,
+    ) -> None:
+        """Treat elevation as terrain, not as a separate vertical move action."""
+        self.max_elevation_change = max_elevation_change
+        self.rng = rng or Random()
+
+    def select_competing_mover(self, soldier_indices: list[int]) -> int:
+        """Select one uniformly random winner for a contested destination."""
+        return self.rng.choice(soldier_indices)
+
     def resolve_move_position(
         self,
+        battlefield: Battlefield,
         soldier: Soldier,
         action: MoveAction,
-    ) -> Position:
+    ) -> Position | None:
         x_delta, y_delta = MOVE_DIRECTION_DELTAS[action.direction]
-        return Position(
-            x=soldier.position.x + x_delta,
-            y=soldier.position.y + y_delta,
+        return battlefield.position_at(
+            soldier.position.x + x_delta,
+            soldier.position.y + y_delta,
         )
 
     def verify_move_action(
@@ -33,10 +49,9 @@ class MovementResolver:
         soldier: Soldier,
         action: MoveAction,
     ) -> bool:
-        return self.verify_move(
-            battlefield,
-            soldier,
-            self.resolve_move_position(soldier, action),
+        new_position = self.resolve_move_position(battlefield, soldier, action)
+        return new_position is not None and self.verify_move(
+            battlefield, soldier, new_position
         )
 
     def verify_move(
@@ -55,7 +70,16 @@ class MovementResolver:
         if not battlefield.in_bounds(new_position):
             return False
 
+        if not battlefield.is_surface_position(new_position):
+            return False
+
         if not self._is_single_step(soldier.position, new_position):
+            return False
+
+        if (
+            abs(new_position.z - soldier.position.z)
+            > self.max_elevation_change
+        ):
             return False
 
         if new_position in battlefield.cover:
