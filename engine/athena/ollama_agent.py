@@ -15,8 +15,20 @@ _CHOSEN_ACTION_SCHEMA = ChosenAction.model_json_schema()
 
 SYSTEM_PROMPT = (
     "You are a soldier-agent in a grid battlefield simulation. "
-    "Shooting is not implemented yet. Choose exactly one move "
-    "action. Return only the structured action."
+    "Choose exactly one move action. The available_terrain cells describe every grid cell in your local "
+    "range, including elevation, cover, and concealment; use them to navigate. "
+    "Return only the structured action."
+    "\n\nTeam objectives:"
+    "\n- Blue: advance toward the right/east side of the battlefield."
+    "\n- Red: advance toward the left/west side of the battlefield."
+    "\n\nIllegal actions:"
+    "\n- Shooting; this backend supports movement only."
+    "\n- Moving outside the battlefield."
+    "\n- Moving more than one grid cell."
+    "\n- Moving into a cover cell."
+    "\n- Moving to a cell whose elevation differs by more than one level."
+    "\n- Moving into a cell occupied by a casualty or dead soldier."
+    "\n- Moving into a cell occupied by a stationary living soldier."
 )
 
 

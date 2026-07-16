@@ -1,13 +1,36 @@
+from random import Random
+
 from athena.soldier import Soldier
 from athena.types import (
     BattlefieldSnapshot,
     ObservedSoldier,
+    Position,
+    ShotOutcome,
     ShootAction,
     SurvivalState,
 )
 
 
 class ShootingResolver:
+    def __init__(
+        self,
+        base_hit_probability: float = 0.90,
+        elevation_modifier_per_level: float = 0.02,
+        minimum_hit_probability: float = 0.50,
+        maximum_hit_probability: float = 0.99,
+        rng: Random | None = None,
+    ) -> None:
+        """Configure explicit simulation assumptions for rifle hit resolution.
+
+        These probabilities make elevation effects inspectable and tunable; they
+        are not claims about real-world combat accuracy.
+        """
+        self.base_hit_probability = base_hit_probability
+        self.elevation_modifier_per_level = elevation_modifier_per_level
+        self.minimum_hit_probability = minimum_hit_probability
+        self.maximum_hit_probability = maximum_hit_probability
+        self.rng = rng or Random()
+
     def verify_shoot_action(
         self,
         observed_soldier: ObservedSoldier,
@@ -55,3 +78,40 @@ class ShootingResolver:
             return None
 
         return eligible_targets[0]
+
+    def hit_probability(
+        self,
+        shooter_position: Position,
+        target_position: Position,
+    ) -> float:
+        elevation_difference = shooter_position.z - target_position.z
+        probability = (
+            self.base_hit_probability
+            + self.elevation_modifier_per_level * elevation_difference
+        )
+        return max(
+            self.minimum_hit_probability,
+            min(self.maximum_hit_probability, probability),
+        )
+
+    def resolve_shot(
+        self,
+        snapshot: BattlefieldSnapshot,
+        shooter_index: int,
+        action: ShootAction,
+    ) -> ShotOutcome | None:
+        target_index = self.resolve_shoot_target(snapshot, shooter_index, action)
+        if target_index is None:
+            return None
+
+        shooter = snapshot.soldiers[shooter_index]
+        target = snapshot.soldiers[target_index]
+        hit_probability = self.hit_probability(shooter.position, target.position)
+        roll = self.rng.random()
+        return ShotOutcome(
+            shooter_index=shooter_index,
+            target_index=target_index,
+            hit_probability=hit_probability,
+            roll=roll,
+            hit=roll < hit_probability,
+        )

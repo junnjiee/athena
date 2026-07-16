@@ -18,6 +18,7 @@ class Position(BaseModel):
 
     x: int
     y: int
+    z: int
 
 
 class SurvivalState(StrEnum):
@@ -79,15 +80,27 @@ class BattlefieldSnapshot(BaseModel):
 
     width: int
     height: int
+    surface: frozenset[Position]
     soldiers: tuple[SoldierSnapshot, ...]
     cover: frozenset[Position]
     concealment: frozenset[Position]
+
+
+class ShotOutcome(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    shooter_index: int
+    target_index: int
+    hit_probability: float
+    roll: float
+    hit: bool
 
 
 class ExecutionResult(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     actions: tuple[Action | None, ...]
+    shot_outcomes: tuple[ShotOutcome, ...]
     before: BattlefieldSnapshot
     after: BattlefieldSnapshot
 
@@ -134,11 +147,18 @@ class VisibleSoldiers(BaseModel):
     soldiers: list[VisibleSoldier]
 
 
+class TerrainCell(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    position: Position
+    has_cover: bool
+    has_concealment: bool
+
+
 class AvailableTerrain(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
-    cover: list[Position]
-    concealment: list[Position]
+    cells: list[TerrainCell]
 
 
 class ObservedSoldier(BaseModel):
