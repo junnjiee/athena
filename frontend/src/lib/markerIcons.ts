@@ -4,8 +4,6 @@ function svgToDataUri(svg: string): string {
 
 const SIZE = 28
 
-// Unit/threat markers moved to MIL-STD-2525 symbols -- see lib/milsymbols.ts.
-
 export function objectiveStarIcon(colorHex: string): string {
   const points = starPolygonPoints(14, 14, 5, 9, 4)
   return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 28 28">

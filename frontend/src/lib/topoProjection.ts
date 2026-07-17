@@ -13,6 +13,12 @@ export interface TopoProjection {
    *  objective's capture radius) into canvas pixels. Flat-earth approximation --
    *  fine at this <=3km selection scale. */
   metersPerPixelX: number
+  /** Meters-per-pixel along the vertical axis -- kept separate from
+   *  metersPerPixelX since the canvas's pixel aspect ratio isn't necessarily
+   *  the same as the selection bbox's real aspect ratio, so a shape drawn from
+   *  real ground dimensions (a section/platoon footprint, a trench span) needs
+   *  its own per-axis scale to avoid stretching. */
+  metersPerPixelY: number
 }
 
 /** Grid-cell space is already an affine reparameterization of the same bbox as raw
@@ -45,8 +51,11 @@ export function makeTopoProjection(grid: GridData, canvasWidth: number, canvasHe
 
   const centerLatRadians = ((bbox.south + bbox.north) / 2) * (Math.PI / 180)
   const metersPerDegreeLon = 111_320 * Math.cos(centerLatRadians)
+  const metersPerDegreeLat = 111_320
   const bboxWidthMeters = (bbox.east - bbox.west) * metersPerDegreeLon
+  const bboxHeightMeters = (bbox.north - bbox.south) * metersPerDegreeLat
   const metersPerPixelX = bboxWidthMeters / canvasWidth
+  const metersPerPixelY = bboxHeightMeters / canvasHeight
 
-  return { projectLonLat, projectCell, unprojectXY, metersPerPixelX }
+  return { projectLonLat, projectCell, unprojectXY, metersPerPixelX, metersPerPixelY }
 }

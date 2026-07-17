@@ -1,4 +1,6 @@
-import { MousePointer2, Pencil, Square, Star, Users, Diamond } from 'lucide-react'
+import { Pencil, Star } from 'lucide-react'
+import { areaPositionSymbol, blueAreaSymbol, trenchSymbol } from '../../lib/tacticalSymbols'
+import { FRIENDLY_HEX, HOSTILE_HEX } from '../../lib/colors'
 import type { ToolMode } from '../../types/entities'
 
 interface Props {
@@ -16,73 +18,97 @@ export function DrawPlanToolbar({ toolMode, onSetToolMode, planningMode, battlef
   }
 
   const canPlace = planningMode && battlefieldReady
-  const placementTitle = (label: string) =>
-    !planningMode ? 'Name the battleground to begin planning' : !battlefieldReady ? 'Generate the battlefield first' : label
+  const placementReason = !planningMode
+    ? 'Name the battleground to begin planning'
+    : !battlefieldReady
+      ? 'Generate the battlefield first'
+      : ''
 
   return (
-    <div className="glass w-44 rounded-xl p-3">
+    <div className="glass flex w-56 flex-col rounded-xl p-3">
       <div className="mb-2 text-xs tracking-wide text-(--text-dim)">DRAW / PLAN</div>
-      <div className="grid grid-cols-4 gap-1.5">
-        <ToolButton
-          title="Pointer"
-          active={toolMode === 'navigate'}
-          disabled={false}
-          onClick={() => onSetToolMode('navigate')}
-        >
-          <MousePointer2 className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
-        <ToolButton
-          title={placementTitle('Draw movement route (click a unit to start)')}
+      <div className="flex max-h-[calc(100vh-19rem)] flex-col gap-1 overflow-y-auto pr-1">
+        <ToolRow
+          label="Draw Route"
+          reason={placementReason}
           active={toolMode === 'draw-route'}
           disabled={!canPlace}
           onClick={() => toggle('draw-route')}
         >
-          <Pencil className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
-        <ToolButton
-          title={planningMode ? 'Ground already selected for this battleground' : 'Select ground (drag a rectangle)'}
-          active={toolMode === 'select-ground'}
-          disabled={planningMode}
-          onClick={() => toggle('select-ground')}
-        >
-          <Square className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
-        <ToolButton
-          title={placementTitle('Place objective')}
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </ToolRow>
+        <ToolRow
+          label="Objective"
+          reason={placementReason}
           active={toolMode === 'place-objective'}
           disabled={!canPlace}
           onClick={() => toggle('place-objective')}
         >
-          <Star className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
-      </div>
-
-      <div className="mt-2 flex gap-1.5">
-        <ToolButton
-          title={placementTitle('Place blue-force unit')}
-          active={toolMode === 'place-blue'}
+          <Star className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </ToolRow>
+        <ToolRow
+          label="Blue Force Section"
+          reason={placementReason}
+          active={toolMode === 'place-blue-section'}
           disabled={!canPlace}
-          onClick={() => toggle('place-blue')}
-          colorClass="text-(--friendly)"
+          onClick={() => toggle('place-blue-section')}
         >
-          <Users className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
-        <ToolButton
-          title={placementTitle('Place red-force threat')}
-          active={toolMode === 'place-red'}
+          <img src={blueAreaSymbol(2, FRIENDLY_HEX).url} alt="" className="h-4 w-6" />
+        </ToolRow>
+        <ToolRow
+          label="Blue Force Platoon"
+          reason={placementReason}
+          active={toolMode === 'place-blue-platoon'}
           disabled={!canPlace}
-          onClick={() => toggle('place-red')}
-          colorClass="text-(--hostile)"
+          onClick={() => toggle('place-blue-platoon')}
         >
-          <Diamond className="h-4 w-4" strokeWidth={1.75} />
-        </ToolButton>
+          <img src={blueAreaSymbol(3, FRIENDLY_HEX).url} alt="" className="h-4 w-6" />
+        </ToolRow>
+        <ToolRow
+          label="Red Force Section"
+          reason={placementReason}
+          active={toolMode === 'place-red-section'}
+          disabled={!canPlace}
+          onClick={() => toggle('place-red-section')}
+        >
+          <img src={areaPositionSymbol(2, HOSTILE_HEX).url} alt="" className="h-4 w-6" />
+        </ToolRow>
+        <ToolRow
+          label="Red Force Platoon"
+          reason={placementReason}
+          active={toolMode === 'place-red-platoon'}
+          disabled={!canPlace}
+          onClick={() => toggle('place-red-platoon')}
+        >
+          <img src={areaPositionSymbol(3, HOSTILE_HEX).url} alt="" className="h-4 w-6" />
+        </ToolRow>
+        <ToolRow
+          label="Trench Position"
+          reason={placementReason}
+          active={toolMode === 'place-trench'}
+          disabled={!canPlace}
+          onClick={() => toggle('place-trench')}
+        >
+          <img src={trenchSymbol(false).url} alt="" className="h-4 w-5" />
+        </ToolRow>
+        <ToolRow
+          label="Prepared Trench"
+          reason={placementReason}
+          active={toolMode === 'place-prepared-trench'}
+          disabled={!canPlace}
+          onClick={() => toggle('place-prepared-trench')}
+        >
+          <img src={trenchSymbol(true).url} alt="" className="h-4 w-5" />
+        </ToolRow>
       </div>
     </div>
   )
 }
 
-interface ToolButtonProps {
-  title: string
+interface ToolRowProps {
+  label: string
+  /** disabled-state reason, shown as a native tooltip */
+  reason: string
   active: boolean
   disabled: boolean
   onClick: () => void
@@ -90,22 +116,23 @@ interface ToolButtonProps {
   children: React.ReactNode
 }
 
-function ToolButton({ title, active, disabled, onClick, colorClass, children }: ToolButtonProps) {
+function ToolRow({ label, reason, active, disabled, onClick, colorClass, children }: ToolRowProps) {
   return (
     <button
       type="button"
-      title={title}
+      title={disabled ? reason : undefined}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-8 w-8 items-center justify-center rounded-md border ${
+      className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm transition-colors ${
         disabled
-          ? `border-(--border) opacity-40 ${colorClass ?? 'text-(--text-dim)'}`
+          ? `border-transparent opacity-40 ${colorClass ?? 'text-(--text-dim)'}`
           : active
             ? 'border-(--accent-border) bg-(--accent-bg) text-(--accent)'
-            : `border-(--border) hover:text-(--text-h) ${colorClass ?? 'text-(--text)'}`
+            : `border-transparent hover:bg-white/5 hover:text-(--text-h) ${colorClass ?? 'text-(--text)'}`
       }`}
     >
-      {children}
+      <span className="flex h-5 w-6 shrink-0 items-center justify-center">{children}</span>
+      {label}
     </button>
   )
 }

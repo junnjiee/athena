@@ -6,7 +6,15 @@ import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
 import type { SelectionResult } from '../../types/selection'
-import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
+import type {
+  LonLat,
+  NewRouteInput,
+  PlaceableMode,
+  PlacedObjective,
+  PlacedRoute,
+  PlacedUnit,
+  ToolMode,
+} from '../../types/entities'
 import type { MovementLoadout, MovementType } from '../../types/movement'
 
 interface Props {
@@ -20,7 +28,13 @@ interface Props {
   routes: PlacedRoute[]
   movementType: MovementType
   loadout: MovementLoadout
-  onPlace: (mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) => void
+  selectedUnitId: string | null
+  onSelectUnit: (id: string | null) => void
+  onMoveUnit: (id: string, position: LonLat) => void
+  onMoveObjective: (id: string, position: LonLat) => void
+  onRotateUnit: (id: string, rotationRadians: number) => void
+  onSetToolMode: (mode: ToolMode) => void
+  onPlace: (mode: PlaceableMode, position: LonLat) => void
   onRouteComplete: (route: NewRouteInput) => void
   onRouteDrawingChange?: (isDrawing: boolean) => void
 }
@@ -39,6 +53,12 @@ export function CesiumGlobe({
   routes,
   movementType,
   loadout,
+  selectedUnitId,
+  onSelectUnit,
+  onMoveUnit,
+  onMoveObjective,
+  onRotateUnit,
+  onSetToolMode,
   onPlace,
   onRouteComplete,
   onRouteDrawingChange,
@@ -72,6 +92,12 @@ export function CesiumGlobe({
         routes={routes}
         movementType={movementType}
         loadout={loadout}
+        selectedUnitId={selectedUnitId}
+        onSelectUnit={onSelectUnit}
+        onMoveUnit={onMoveUnit}
+        onMoveObjective={onMoveObjective}
+        onRotateUnit={onRotateUnit}
+        onSetToolMode={onSetToolMode}
         onPlace={onPlace}
         onRouteComplete={onRouteComplete}
         onRouteDrawingChange={onRouteDrawingChange}
