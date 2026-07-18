@@ -13,9 +13,9 @@ import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
+import { SimulationExportModal } from '../components/panels/SimulationExportModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
-import { ValidationPanel } from '../components/panels/ValidationPanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
@@ -72,6 +72,7 @@ export function BattlegroundSelectorPage() {
   const [loadout, setLoadout] = useState<MovementLoadout>(DEFAULT_LOADOUT)
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [showSimulationExport, setShowSimulationExport] = useState(false)
 
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
@@ -376,7 +377,6 @@ export function BattlegroundSelectorPage() {
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {phase === 'ready' ? (
                   <>
-                    <ValidationPanel onLocate={flyToPositions} />
                     <TerrainInfoPanel />
                     <button
                       type="button"
@@ -416,8 +416,20 @@ export function BattlegroundSelectorPage() {
       )}
 
       <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
-        <BottomBar canRunSimulation={selection !== null} planName={battlegroundName} />
+        <BottomBar
+          canRunSimulation={selection !== null}
+          planName={battlegroundName}
+          onRunSimulation={() => setShowSimulationExport(true)}
+        />
       </div>
+
+      <SimulationExportModal
+        open={showSimulationExport}
+        onClose={() => setShowSimulationExport(false)}
+        units={units}
+        objectives={objectives}
+        routes={routes}
+      />
     </div>
   )
 }

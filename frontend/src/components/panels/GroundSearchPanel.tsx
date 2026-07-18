@@ -102,7 +102,7 @@ export function GroundSearchPanel({ getViewer, toolMode, onSetToolMode }: Props)
       )}
 
       <div className="mt-3 border-t border-(--border) pt-3">
-        <div className="mb-1.5 text-xs text-(--text-dim)">Or drag a rectangle on the map</div>
+        <div className="mb-1.5 text-xs text-(--text-dim)">and drag a rectangle on the map</div>
         <button
           type="button"
           onClick={toggleSelectGround}
