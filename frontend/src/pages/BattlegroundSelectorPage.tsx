@@ -417,7 +417,7 @@ export function BattlegroundSelectorPage() {
 
       <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
         <BottomBar
-          canRunSimulation={selection !== null}
+          canRunSimulation={phase === 'ready'}
           planName={battlegroundName}
           onRunSimulation={() => setShowSimulationExport(true)}
         />
