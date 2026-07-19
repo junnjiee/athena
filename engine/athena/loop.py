@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from math import ceil
 from typing import Awaitable, Callable
 
 from athena.agent import choose_action
@@ -79,33 +80,49 @@ class LoopEngine:
 
     def nearby_terrain_map(self) -> list[AvailableTerrain]:
         """
-        Show every battlefield cell within each soldier's elevation-adjusted
-        range. Terrain knowledge is range-based so agents can navigate local
-        topology even when a ridge blocks soldier-to-soldier line of sight.
+        Cells each soldier has line of sight to: within elevation-adjusted range
+        and not hidden behind intervening terrain.
 
-        NOTE: might be slow at scale, this is an O(n*m) operation.
+        Only the local vision window is scanned, widened by the drop to the map's
+        lowest elevation so high ground's extended downhill range still fits.
+        Iterating y-then-x yields cells in (y, x) order.
         """
-        return [
-            AvailableTerrain(
-                cells=[
-                    TerrainCell(
-                        position=position,
-                        has_cover=position in self.battlefield.cover,
-                        has_concealment=position in self.battlefield.concealment,
-                    )
-                    for position in sorted(
-                        self.battlefield.surface,
-                        key=lambda position: (position.y, position.x),
-                    )
-                    if self.vision_resolver.is_in_vision_range(
+        terrain_by_soldier: list[AvailableTerrain] = []
+
+        for observer in self.battlefield.soldiers:
+            max_effective_range = (
+                observer.vision_range
+                + observer.position.z
+                - self.battlefield.min_elevation
+            )
+            radius = max(1, ceil(max_effective_range))
+            origin_x = observer.position.x
+            origin_y = observer.position.y
+
+            cells: list[TerrainCell] = []
+            for y in range(origin_y - radius, origin_y + radius + 1):
+                for x in range(origin_x - radius, origin_x + radius + 1):
+                    position = self.battlefield.position_at(x, y)
+                    if position is None:
+                        continue
+                    if not self.vision_resolver.verify_terrain_los(
+                        self.battlefield,
                         observer.position,
                         position,
                         observer.vision_range,
+                    ):
+                        continue
+                    cells.append(
+                        TerrainCell(
+                            position=position,
+                            has_cover=position in self.battlefield.cover,
+                            has_concealment=position in self.battlefield.concealment,
+                        )
                     )
-                ]
-            )
-            for observer in self.battlefield.soldiers
-        ]
+
+            terrain_by_soldier.append(AvailableTerrain(cells=cells))
+
+        return terrain_by_soldier
 
     def observed_soldiers_map(self) -> list[ObservedSoldier]:
         """

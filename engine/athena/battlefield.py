@@ -9,6 +9,7 @@ class Battlefield:
     soldiers: list[Soldier]
     cover: set[Position]
     concealment: set[Position]
+    min_elevation: int #cached value for calculating soldier's vision of terrain and other soldiers
 
     def __init__(
         self,
@@ -33,6 +34,7 @@ class Battlefield:
         self.soldiers = soldiers
         self.cover = cover or set()
         self.concealment = concealment or set()
+        self.min_elevation = min((position.z for position in self.surface), default=0)
         self._surface_by_xy = self._validate_surface()
         self._validate_occupants()
 

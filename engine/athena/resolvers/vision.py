@@ -69,6 +69,27 @@ class VisionResolver:
 
         return True
 
+    def verify_terrain_los(
+        self,
+        battlefield: Battlefield,
+        observer_position: Position,
+        cell_position: Position,
+        observer_vision_range: float,
+    ) -> bool:
+        """Whether an observer can perceive a terrain cell: in range and not hidden behind intervening terrain."""
+        if not self.is_in_vision_range(
+            observer_position,
+            cell_position,
+            observer_vision_range,
+        ):
+            return False
+
+        return not self._terrain_blocks_los(
+            battlefield,
+            observer_position,
+            cell_position,
+        )
+
     def _terrain_blocks_los(
         self,
         battlefield: Battlefield,
