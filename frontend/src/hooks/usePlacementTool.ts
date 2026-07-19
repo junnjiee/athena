@@ -1,27 +1,50 @@
 import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { pickGroundPosition } from '../lib/pickTerrain'
-import type { LonLat, ToolMode } from '../types/entities'
-
-type PlaceableMode = 'place-blue' | 'place-red' | 'place-objective'
+import { findNearestUnit, findNearestObjective } from '../lib/nearestMarker3D'
+import type { LonLat, PlaceableMode, PlacedObjective, PlacedUnit, ToolMode } from '../types/entities'
 
 interface Args {
   viewer: Cesium.Viewer | undefined
   mode: ToolMode
+  units: PlacedUnit[]
+  objectives: PlacedObjective[]
+  onSelectUnit: (id: string | null) => void
+  onSetToolMode: (mode: ToolMode) => void
   onPlace: (mode: PlaceableMode, position: LonLat) => void
 }
 
 function isPlaceableMode(mode: ToolMode): mode is PlaceableMode {
-  return mode === 'place-blue' || mode === 'place-red' || mode === 'place-objective'
+  return mode !== 'navigate' && mode !== 'select-ground' && mode !== 'draw-route'
 }
 
-/** Click-to-place tool shared by the three simple point-placement modes (units,
- *  threats, objectives). Deliberately does not disable camera rotate/translate --
- *  a plain click doesn't fight drag-navigation the way the rectangle tool's drag
- *  does -- and deliberately stays armed after each placement, since a commander
- *  typically stamps down several units of the same type in a row. */
-export function usePlacementTool({ viewer, mode, onPlace }: Args) {
+/** Click-to-place tool shared by every simple point-placement mode (sections,
+ *  platoons, trenches, objectives). Deliberately does not disable camera
+ *  rotate/translate -- a plain click doesn't fight drag-navigation the way the
+ *  rectangle tool's drag does -- and deliberately stays armed after each
+ *  placement, since a commander typically stamps down several units of the
+ *  same type in a row. A click that lands on an *existing* unit/objective
+ *  selects it instead of stamping a duplicate on top -- selection takes
+ *  priority over placement. */
+export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit, onSetToolMode, onPlace }: Args) {
+  const unitsRef = useRef(units)
+  const objectivesRef = useRef(objectives)
+  const onSelectUnitRef = useRef(onSelectUnit)
+  const onSetToolModeRef = useRef(onSetToolMode)
   const onPlaceRef = useRef(onPlace)
+
+  useEffect(() => {
+    unitsRef.current = units
+  }, [units])
+  useEffect(() => {
+    objectivesRef.current = objectives
+  }, [objectives])
+  useEffect(() => {
+    onSelectUnitRef.current = onSelectUnit
+  }, [onSelectUnit])
+  useEffect(() => {
+    onSetToolModeRef.current = onSetToolMode
+  }, [onSetToolMode])
   useEffect(() => {
     onPlaceRef.current = onPlace
   }, [onPlace])
@@ -33,6 +56,18 @@ export function usePlacementTool({ viewer, mode, onPlace }: Args) {
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
 
     handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+      const nearestUnit = findNearestUnit(viewer, click.position, unitsRef.current)
+      if (nearestUnit) {
+        onSetToolModeRef.current('navigate')
+        onSelectUnitRef.current(nearestUnit.id)
+        return
+      }
+      const nearestObjective = findNearestObjective(viewer, click.position, objectivesRef.current)
+      if (nearestObjective) {
+        onSetToolModeRef.current('navigate')
+        return
+      }
+
       // Terrain-accurate pick: on a hillside the ellipsoid intersection lands
       // meters away from where the cursor visibly points.
       const cartesian = pickGroundPosition(viewer, click.position)

@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { makeTopoProjection } from '../../lib/topoProjection'
+import { makeTopoProjection, type TopoProjection } from '../../lib/topoProjection'
 import { polylineLength, simplifyPolyline, type XY } from '../../lib/simplify'
 import { FRIENDLY_HEX, HOSTILE_HEX, ACCENT_HEX } from '../../lib/colors'
+import { halfDepthMeters, HANDLE_GAP_METERS, rotateOffset } from '../../lib/tacticalGeometry'
+import { bearingRadians } from '../../lib/bearing'
 import type {
   ForceSide,
   LonLat,
   NewRouteInput,
+  PlaceableMode,
   PlacedObjective,
   PlacedUnit,
+  SymbolKind,
   ToolMode,
 } from '../../types/entities'
 import type { MovementLoadout, MovementType } from '../../types/movement'
 import type { GridData } from '../../types/terrain'
 
-type PlaceableMode = 'place-blue' | 'place-red' | 'place-objective'
-
 function isPlaceableMode(mode: ToolMode): mode is PlaceableMode {
-  return mode === 'place-blue' || mode === 'place-red' || mode === 'place-objective'
+  return mode !== 'navigate' && mode !== 'select-ground' && mode !== 'draw-route'
 }
 
 interface Props {
@@ -29,6 +31,12 @@ interface Props {
   /** gait/loadout to stamp on a sketched route, mirroring the 3D route tool */
   movementType: MovementType
   loadout: MovementLoadout
+  selectedUnitId: string | null
+  onSelectUnit: (id: string | null) => void
+  onMoveUnit: (id: string, position: LonLat) => void
+  onMoveObjective: (id: string, position: LonLat) => void
+  onRotateUnit: (id: string, rotationRadians: number) => void
+  onSetToolMode: (mode: ToolMode) => void
   onPlace: (mode: PlaceableMode, position: LonLat) => void
   onRouteComplete: (route: NewRouteInput) => void
   onDrawingChange?: (isDrawing: boolean) => void
@@ -38,6 +46,7 @@ interface TopoMarker {
   kind: 'unit' | 'objective'
   id: string
   side?: ForceSide
+  symbolKind?: SymbolKind
   x: number
   y: number
   position: LonLat
@@ -56,8 +65,18 @@ interface Stroke {
   escapedStart: boolean
 }
 
+type Edit =
+  | { kind: 'unit'; id: string; pressed: XY; moved: boolean }
+  | { kind: 'objective'; id: string; pressed: XY; moved: boolean }
+  | { kind: 'rotate'; id: string; center: LonLat }
+
 /** Same screen-space marker tolerance as the 3D view's route tool. */
 const HIT_RADIUS_PX = 26
+/** Trenches are a ~20m bracket, much smaller than a 60-100m section/platoon --
+ *  give the smallest placeable shapes a bit more click tolerance (mirrors
+ *  lib/nearestMarker3D.ts's TRENCH_HIT_RADIUS_PX). */
+const TRENCH_HIT_RADIUS_PX = 36
+const HANDLE_HIT_RADIUS_PX = 14
 /** Don't record a new freehand sample until the pointer has moved this far. */
 const MIN_SAMPLE_PX = 3
 /** RDP tolerance for committing a sketch -- keeps squiggles squiggly while
@@ -74,10 +93,23 @@ function markerColor(marker: TopoMarker): string {
   return marker.side === 'blue' ? FRIENDLY_HEX : HOSTILE_HEX
 }
 
+/** Pixel position of a unit's rotate handle -- same real-meter offset math as
+ *  the 3D view's handleWorldPosition (lib/unitHandle.ts), converted via the
+ *  topo projection's per-axis meters-per-pixel instead of an ENU frame, so the
+ *  handle sits in the same relative spot in both views. */
+function handlePixelPosition(unit: PlacedUnit, projection: TopoProjection): XY {
+  const [ux, uy] = projection.projectLonLat(unit.position.longitude, unit.position.latitude)
+  const halfDepth = halfDepthMeters(unit.symbolKind)
+  const [east, north] = rotateOffset(0, halfDepth + HANDLE_GAP_METERS, unit.rotationRadians)
+  return [ux + east / projection.metersPerPixelX, uy - north / projection.metersPerPixelY]
+}
+
 /** Interactive layer over the topo map: freehand route sketching (press-drag from
- *  a unit, release on empty ground or snap onto a unit/objective) and click-to-place
- *  for units/objectives. Commits into the same plan state as the 3D globe tools --
- *  a sketch here is a PlacedRoute everywhere. */
+ *  a unit, release on empty ground or snap onto a unit/objective), click-to-place
+ *  for units/objectives, and (in navigate mode) click-to-select plus drag-to-move
+ *  and drag-the-handle-to-rotate an existing unit/objective -- the 2D counterpart
+ *  to useUnitEditing.ts's same three gestures on the 3D globe. Commits into the
+ *  same plan state as the 3D globe tools either way. */
 export function TopoPlanOverlay({
   grid,
   width,
@@ -87,6 +119,12 @@ export function TopoPlanOverlay({
   objectives,
   movementType,
   loadout,
+  selectedUnitId,
+  onSelectUnit,
+  onMoveUnit,
+  onMoveObjective,
+  onRotateUnit,
+  onSetToolMode,
   onPlace,
   onRouteComplete,
   onDrawingChange,
@@ -94,6 +132,7 @@ export function TopoPlanOverlay({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const strokeRef = useRef<Stroke | null>(null)
   const pressRef = useRef<XY | null>(null)
+  const editRef = useRef<Edit | null>(null)
   const onDrawingChangeRef = useRef(onDrawingChange)
 
   useEffect(() => {
@@ -103,12 +142,18 @@ export function TopoPlanOverlay({
   const projection = useMemo(() => makeTopoProjection(grid, width, height), [grid, width, height])
 
   const markers = useMemo<TopoMarker[]>(() => {
-    const toMarker = (kind: TopoMarker['kind'], id: string, position: LonLat, side?: ForceSide): TopoMarker => {
+    const toMarker = (
+      kind: TopoMarker['kind'],
+      id: string,
+      position: LonLat,
+      side?: ForceSide,
+      symbolKind?: SymbolKind,
+    ): TopoMarker => {
       const [x, y] = projection.projectLonLat(position.longitude, position.latitude)
-      return { kind, id, side, x, y, position }
+      return { kind, id, side, symbolKind, x, y, position }
     }
     return [
-      ...units.map((u) => toMarker('unit', u.id, u.position, u.side)),
+      ...units.map((u) => toMarker('unit', u.id, u.position, u.side, u.symbolKind)),
       ...objectives.map((o) => toMarker('objective', o.id, o.position)),
     ]
   }, [projection, units, objectives])
@@ -153,11 +198,12 @@ export function TopoPlanOverlay({
 
   function nearestMarker(point: XY, kind?: TopoMarker['kind']): TopoMarker | null {
     let best: TopoMarker | null = null
-    let bestDistance = HIT_RADIUS_PX
+    let bestDistance = Infinity
     for (const marker of markers) {
       if (kind && marker.kind !== kind) continue
+      const radius = marker.symbolKind === 'trench' || marker.symbolKind === 'preparedTrench' ? TRENCH_HIT_RADIUS_PX : HIT_RADIUS_PX
       const distance = Math.hypot(marker.x - point[0], marker.y - point[1])
-      if (distance <= bestDistance) {
+      if (distance <= radius && distance <= bestDistance) {
         best = marker
         bestDistance = distance
       }
@@ -254,12 +300,68 @@ export function TopoPlanOverlay({
     })
   }
 
+  function handleEditPointerDown(point: XY) {
+    if (selectedUnitId) {
+      const selectedUnit = units.find((u) => u.id === selectedUnitId)
+      if (selectedUnit) {
+        const handlePos = handlePixelPosition(selectedUnit, projection)
+        if (Math.hypot(handlePos[0] - point[0], handlePos[1] - point[1]) <= HANDLE_HIT_RADIUS_PX) {
+          editRef.current = { kind: 'rotate', id: selectedUnit.id, center: selectedUnit.position }
+          return
+        }
+      }
+    }
+
+    const nearestUnit = nearestMarker(point, 'unit')
+    if (nearestUnit) {
+      editRef.current = { kind: 'unit', id: nearestUnit.id, pressed: point, moved: false }
+      return
+    }
+    const nearestObjective = nearestMarker(point, 'objective')
+    if (nearestObjective) {
+      editRef.current = { kind: 'objective', id: nearestObjective.id, pressed: point, moved: false }
+      return
+    }
+    if (selectedUnitId) onSelectUnit(null)
+  }
+
+  function handleEditPointerMove(point: XY) {
+    const edit = editRef.current
+    if (!edit) return
+
+    if (edit.kind === 'rotate') {
+      const [longitude, latitude] = projection.unprojectXY(point[0], point[1])
+      const angle = bearingRadians(edit.center, { longitude, latitude })
+      onRotateUnit(edit.id, angle)
+      return
+    }
+
+    if (!edit.moved && Math.hypot(point[0] - edit.pressed[0], point[1] - edit.pressed[1]) > CLICK_SLOP_PX) {
+      edit.moved = true
+    }
+    if (!edit.moved) return
+
+    const [longitude, latitude] = projection.unprojectXY(point[0], point[1])
+    if (edit.kind === 'unit') onMoveUnit(edit.id, { longitude, latitude })
+    else onMoveObjective(edit.id, { longitude, latitude })
+  }
+
+  function handleEditPointerUp() {
+    const edit = editRef.current
+    editRef.current = null
+    if (edit && edit.kind === 'unit' && !edit.moved) onSelectUnit(edit.id)
+  }
+
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.button !== 0) return
     const point = localPoint(e)
 
     if (isPlaceableMode(toolMode)) {
       pressRef.current = point
+      return
+    }
+    if (toolMode === 'navigate') {
+      handleEditPointerDown(point)
       return
     }
     if (toolMode !== 'draw-route') return
@@ -287,6 +389,10 @@ export function TopoPlanOverlay({
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     const point = localPoint(e)
+    if (toolMode === 'navigate') {
+      handleEditPointerMove(point)
+      return
+    }
     const stroke = strokeRef.current
     if (stroke) {
       const last = stroke.points[stroke.points.length - 1]
@@ -310,8 +416,22 @@ export function TopoPlanOverlay({
       const press = pressRef.current
       pressRef.current = null
       if (!press || Math.hypot(point[0] - press[0], point[1] - press[1]) > CLICK_SLOP_PX) return
+
+      // Selection takes priority over placement: a click landing on an
+      // existing unit/objective selects it instead of stamping a duplicate.
+      const existing = nearestMarker(point)
+      if (existing) {
+        onSetToolMode('navigate')
+        if (existing.kind === 'unit') onSelectUnit(existing.id)
+        return
+      }
+
       const [longitude, latitude] = projection.unprojectXY(point[0], point[1])
       onPlace(toolMode, { longitude, latitude })
+      return
+    }
+    if (toolMode === 'navigate') {
+      handleEditPointerUp()
       return
     }
     finishStroke(point)
@@ -323,12 +443,13 @@ export function TopoPlanOverlay({
     if (!strokeRef.current) clearPreview()
   }
 
-  const interactive = toolMode === 'draw-route' || isPlaceableMode(toolMode)
+  const interactive = toolMode !== 'select-ground'
+  const cursorClass = !interactive ? 'pointer-events-none' : toolMode === 'navigate' ? 'cursor-default' : 'cursor-crosshair'
 
   return (
     <canvas
       ref={canvasRef}
-      className={`absolute inset-0 h-full w-full ${interactive ? 'cursor-crosshair' : 'pointer-events-none'}`}
+      className={`absolute inset-0 h-full w-full ${cursorClass}`}
       style={{ touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

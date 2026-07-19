@@ -5,12 +5,21 @@ import { computeContourPlan } from '../../lib/contours'
 import { makeTopoProjection } from '../../lib/topoProjection'
 import { bearingRadians } from '../../lib/bearing'
 import { FRIENDLY_HEX, HOSTILE_HEX, ACCENT_HEX } from '../../lib/colors'
-import { unitSymbol } from '../../lib/milsymbols'
+import {
+  AREA_SIZE_METERS,
+  TRENCH_POINTS_METERS,
+  DOT_SPACING_METERS,
+  DOT_OFFSET_METERS,
+  HANDLE_GAP_METERS,
+  halfDepthMeters,
+  rotateOffset,
+} from '../../lib/tacticalGeometry'
 import { TopoPlanOverlay } from './TopoPlanOverlay'
 import type { GridData, OsmFeatures, RoadClass } from '../../types/terrain'
 import type {
   LonLat,
   NewRouteInput,
+  PlaceableMode,
   PlacedObjective,
   PlacedRoute,
   PlacedUnit,
@@ -27,7 +36,13 @@ interface Props {
   toolMode: ToolMode
   movementType: MovementType
   loadout: MovementLoadout
-  onPlace: (mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) => void
+  selectedUnitId: string | null
+  onSelectUnit: (id: string | null) => void
+  onMoveUnit: (id: string, position: LonLat) => void
+  onMoveObjective: (id: string, position: LonLat) => void
+  onRotateUnit: (id: string, rotationRadians: number) => void
+  onSetToolMode: (mode: ToolMode) => void
+  onPlace: (mode: PlaceableMode, position: LonLat) => void
   onRouteComplete: (route: NewRouteInput) => void
   onRouteDrawingChange?: (isDrawing: boolean) => void
 }
@@ -62,6 +77,12 @@ export function TopoMapView({
   toolMode,
   movementType,
   loadout,
+  selectedUnitId,
+  onSelectUnit,
+  onMoveUnit,
+  onMoveObjective,
+  onRotateUnit,
+  onSetToolMode,
   onPlace,
   onRouteComplete,
   onRouteDrawingChange,
@@ -95,8 +116,8 @@ export function TopoMapView({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.scale(dpr, dpr)
-    drawTopoMap(ctx, grid, features, units, objectives, routes, size.w, size.h)
-  }, [grid, features, units, objectives, routes, size.w, size.h])
+    drawTopoMap(ctx, grid, features, units, objectives, routes, size.w, size.h, selectedUnitId)
+  }, [grid, features, units, objectives, routes, size.w, size.h, selectedUnitId])
 
   return (
     <div ref={containerRef} className="absolute inset-0">
@@ -111,6 +132,12 @@ export function TopoMapView({
           objectives={objectives}
           movementType={movementType}
           loadout={loadout}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={onSelectUnit}
+          onMoveUnit={onMoveUnit}
+          onMoveObjective={onMoveObjective}
+          onRotateUnit={onRotateUnit}
+          onSetToolMode={onSetToolMode}
           onPlace={onPlace}
           onRouteComplete={onRouteComplete}
           onDrawingChange={onRouteDrawingChange}
@@ -129,9 +156,10 @@ function drawTopoMap(
   routes: PlacedRoute[],
   w: number,
   h: number,
+  selectedUnitId: string | null,
 ): void {
   const projection = makeTopoProjection(grid, w, h)
-  const { projectLonLat, projectCell, metersPerPixelX } = projection
+  const { projectLonLat, projectCell, metersPerPixelX, metersPerPixelY } = projection
 
   // 1. Background
   ctx.fillStyle = PAPER
@@ -270,11 +298,161 @@ function drawTopoMap(
 
   for (const unit of units) {
     const [x, y] = projectLonLat(unit.position.longitude, unit.position.latitude)
-    const symbol = unitSymbol(unit.side)
-    ctx.drawImage(symbol.canvas, x - symbol.width / 2, y - symbol.height / 2, symbol.width, symbol.height)
-    drawLabel(ctx, `${unit.name} (${unit.typeLabel})`, x + symbol.width / 2 + 4, y)
+    const halfWidthPx = drawUnit(ctx, unit, x, y, metersPerPixelX, metersPerPixelY)
+    drawLabel(ctx, `${unit.name} (${unit.typeLabel})`, x + halfWidthPx + 4, y)
+  }
+
+  const selectedUnit = selectedUnitId ? units.find((u) => u.id === selectedUnitId) : undefined
+  if (selectedUnit) drawSelectionHandle(ctx, selectedUnit, projectLonLat, metersPerPixelX, metersPerPixelY)
+
+  ctx.restore()
+}
+
+/** Rotate-handle affordance for the selected unit -- same real-meter offset as
+ *  the 3D view's handle (lib/unitHandle.ts), just projected via the topo
+ *  view's per-axis meters-per-pixel instead of an ENU frame, so it sits in the
+ *  same relative spot in both views. */
+function drawSelectionHandle(
+  ctx: CanvasRenderingContext2D,
+  unit: PlacedUnit,
+  projectLonLat: (lon: number, lat: number) => [number, number],
+  mppX: number,
+  mppY: number,
+): void {
+  const [cx, cy] = projectLonLat(unit.position.longitude, unit.position.latitude)
+  const halfDepth = halfDepthMeters(unit.symbolKind)
+  const [east, north] = rotateOffset(0, halfDepth + HANDLE_GAP_METERS, unit.rotationRadians)
+  const hx = cx + east / mppX
+  const hy = cy - north / mppY
+
+  ctx.save()
+  ctx.strokeStyle = ACCENT_HEX
+  ctx.lineWidth = 1.5
+  ctx.setLineDash([4, 3])
+  ctx.beginPath()
+  ctx.moveTo(cx, cy)
+  ctx.lineTo(hx, hy)
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  ctx.beginPath()
+  ctx.arc(hx, hy, 5, 0, Math.PI * 2)
+  ctx.fillStyle = ACCENT_HEX
+  ctx.fill()
+  ctx.strokeStyle = '#10151c'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.restore()
+}
+
+/** Draws the unit's ground-truth-sized graphic (real meters -> pixels via the
+ *  projection's per-axis scale, so it shrinks/grows correctly as the topo
+ *  view's own scale changes) and returns its half-width in pixels, for label
+ *  placement. Mirrors useUnitEntities.ts's 3D ground-vector shapes so both
+ *  views show the same relative sizes. `unit.rotationRadians` is applied via
+ *  ctx.translate+ctx.rotate around the shape's own center -- verified to match
+ *  the 3D view's clockwise-from-north rotateOffset convention exactly (canvas
+ *  rotate() is a standard rotation matrix, and this app's local coordinate
+ *  convention of "north = -y" makes the two mathematically identical, so the
+ *  same rotationRadians value looks the same in both views). */
+function drawUnit(
+  ctx: CanvasRenderingContext2D,
+  unit: PlacedUnit,
+  cx: number,
+  cy: number,
+  mppX: number,
+  mppY: number,
+): number {
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(unit.rotationRadians)
+  let halfWidthPx: number
+  switch (unit.symbolKind) {
+    case 'blueSection':
+      halfWidthPx = drawAreaRect(ctx, 2, FRIENDLY_HEX, mppX, mppY)
+      break
+    case 'bluePlatoon':
+      halfWidthPx = drawAreaRect(ctx, 3, FRIENDLY_HEX, mppX, mppY)
+      break
+    case 'redSection':
+      halfWidthPx = drawAreaOval(ctx, 2, HOSTILE_HEX, mppX, mppY)
+      break
+    case 'redPlatoon':
+      halfWidthPx = drawAreaOval(ctx, 3, HOSTILE_HEX, mppX, mppY)
+      break
+    case 'trench':
+      halfWidthPx = drawTrench(ctx, false, mppX, mppY)
+      break
+    case 'preparedTrench':
+      halfWidthPx = drawTrench(ctx, true, mppX, mppY)
+      break
   }
   ctx.restore()
+  return halfWidthPx
+}
+
+/** All draw*() helpers below assume the context is already translated to the
+ *  unit's center and rotated by its rotationRadians (see drawUnit) -- they draw
+ *  in local (0,0)-centered coordinates, where -y is north (matching this app's
+ *  established lon/lat -> pixel convention elsewhere in this file). */
+
+function drawDots(ctx: CanvasRenderingContext2D, localY: number, count: 2 | 3, color: string, mppX: number): void {
+  const spacingPx = DOT_SPACING_METERS / mppX
+  const startX = -((count - 1) * spacingPx) / 2
+  ctx.fillStyle = color
+  for (let i = 0; i < count; i++) {
+    ctx.beginPath()
+    ctx.arc(startX + i * spacingPx, localY, 3, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+function drawAreaOval(ctx: CanvasRenderingContext2D, dots: 2 | 3, color: string, mppX: number, mppY: number): number {
+  const { width, depth } = AREA_SIZE_METERS[dots]
+  const rx = width / 2 / mppX
+  const ry = depth / 2 / mppY
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
+  ctx.stroke()
+  drawDots(ctx, -ry - DOT_OFFSET_METERS / mppY, dots, color, mppX)
+  return rx
+}
+
+function drawAreaRect(ctx: CanvasRenderingContext2D, dots: 2 | 3, color: string, mppX: number, mppY: number): number {
+  const { width, depth } = AREA_SIZE_METERS[dots]
+  const rx = width / 2 / mppX
+  const ry = depth / 2 / mppY
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2
+  ctx.strokeRect(-rx, -ry, rx * 2, ry * 2)
+  ctx.beginPath()
+  ctx.moveTo(-rx, -ry)
+  ctx.lineTo(rx, ry)
+  ctx.moveTo(rx, -ry)
+  ctx.lineTo(-rx, ry)
+  ctx.stroke()
+  drawDots(ctx, -ry - DOT_OFFSET_METERS / mppY, dots, color, mppX)
+  return rx
+}
+
+function drawTrench(ctx: CanvasRenderingContext2D, prepared: boolean, mppX: number, mppY: number): number {
+  ctx.strokeStyle = HOSTILE_HEX
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.setLineDash(prepared ? [4, 3] : [])
+  ctx.beginPath()
+  TRENCH_POINTS_METERS.forEach(([east, north], i) => {
+    const x = east / mppX
+    const y = -north / mppY
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  })
+  ctx.stroke()
+  ctx.setLineDash([])
+  return 10 / mppX
 }
 
 function drawLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {

@@ -13,9 +13,9 @@ import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
+import { SimulationExportModal } from '../components/panels/SimulationExportModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
-import { ValidationPanel } from '../components/panels/ValidationPanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
@@ -25,7 +25,17 @@ import { analyzePlan } from '../lib/validate'
 import { toMGRS } from '../lib/coords'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
-import type { LonLat, NewRouteInput, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../types/entities'
+import type {
+  ForceSide,
+  LonLat,
+  NewRouteInput,
+  PlaceableMode,
+  PlacedObjective,
+  PlacedRoute,
+  PlacedUnit,
+  SymbolKind,
+  ToolMode,
+} from '../types/entities'
 import { DEFAULT_LOADOUT, DEFAULT_MOVEMENT, type MovementLoadout, type MovementType } from '../types/movement'
 
 const NATO = [
@@ -33,6 +43,19 @@ const NATO = [
   'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango',
   'Uniform', 'Victor', 'Whiskey', 'X-ray', 'Yankee', 'Zulu',
 ]
+
+/** Every non-objective placeable tool -> the unit fields it stamps down. */
+const UNIT_PLACEMENT: Record<
+  Exclude<PlaceableMode, 'place-objective'>,
+  { side: ForceSide; symbolKind: SymbolKind; typeLabel: string }
+> = {
+  'place-blue-section': { side: 'blue', symbolKind: 'blueSection', typeLabel: 'Blue Force Section' },
+  'place-blue-platoon': { side: 'blue', symbolKind: 'bluePlatoon', typeLabel: 'Blue Force Platoon' },
+  'place-red-section': { side: 'red', symbolKind: 'redSection', typeLabel: 'Red Force Section' },
+  'place-red-platoon': { side: 'red', symbolKind: 'redPlatoon', typeLabel: 'Red Force Platoon' },
+  'place-trench': { side: 'red', symbolKind: 'trench', typeLabel: 'Trench Position' },
+  'place-prepared-trench': { side: 'red', symbolKind: 'preparedTrench', typeLabel: 'Prepared Trench' },
+}
 
 export function BattlegroundSelectorPage() {
   const [toolMode, setToolMode] = useState<ToolMode>('navigate')
@@ -48,6 +71,8 @@ export function BattlegroundSelectorPage() {
   const [movementType, setMovementType] = useState<MovementType>(DEFAULT_MOVEMENT)
   const [loadout, setLoadout] = useState<MovementLoadout>(DEFAULT_LOADOUT)
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [showSimulationExport, setShowSimulationExport] = useState(false)
 
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
@@ -70,6 +95,28 @@ export function BattlegroundSelectorPage() {
   useEffect(() => {
     setPlanAnalysis(analyzePlan(routes, grid))
   }, [routes, grid, setPlanAnalysis])
+
+  // Escape deselects, mirroring the Escape-cancels convention already used by
+  // both route-drawing surfaces (useRouteDrawing.ts, TopoPlanOverlay.tsx).
+  // Delete/Backspace removes the selection outright -- guarded against firing
+  // while focus is in a text field (e.g. renaming the battleground), where
+  // Backspace is just normal text editing, not a delete-element shortcut.
+  useEffect(() => {
+    if (!selectedUnitId) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Escape') {
+        setSelectedUnitId(null)
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const id = selectedUnitId
+        setUnits((prev) => prev.filter((u) => u.id !== id))
+        setRoutes((prev) => prev.filter((r) => r.startUnitId !== id && !(r.endRef?.kind === 'unit' && r.endRef.id === id)))
+        setSelectedUnitId(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedUnitId])
 
   const {
     handleViewerReady,
@@ -112,7 +159,7 @@ export function BattlegroundSelectorPage() {
     )
   }
 
-  function handlePlace(mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) {
+  function handlePlace(mode: PlaceableMode, position: LonLat) {
     if (mode === 'place-objective') {
       setObjectives((prev) => [
         ...prev,
@@ -126,10 +173,13 @@ export function BattlegroundSelectorPage() {
       ])
       return
     }
-    const side = mode === 'place-blue' ? 'blue' : 'red'
+    const { side, symbolKind, typeLabel } = UNIT_PLACEMENT[mode]
     setUnits((prev) => {
       const sideCount = prev.filter((u) => u.side === side).length
-      return [...prev, { id: crypto.randomUUID(), side, name: NATO[sideCount % 26], typeLabel: 'PLT', position }]
+      return [
+        ...prev,
+        { id: crypto.randomUUID(), side, symbolKind, name: NATO[sideCount % 26], typeLabel, position, rotationRadians: 0 },
+      ]
     })
   }
 
@@ -137,14 +187,32 @@ export function BattlegroundSelectorPage() {
     setRoutes((prev) => [...prev, { id: crypto.randomUUID(), ...input }])
   }
 
+  function handleSelectUnit(id: string | null) {
+    setSelectedUnitId(id)
+  }
+
+  function handleMoveUnit(id: string, position: LonLat) {
+    setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, position } : u)))
+  }
+
+  function handleMoveObjective(id: string, position: LonLat) {
+    setObjectives((prev) => prev.map((o) => (o.id === id ? { ...o, position } : o)))
+  }
+
+  function handleRotateUnit(id: string, rotationRadians: number) {
+    setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, rotationRadians } : u)))
+  }
+
   function handleDeleteUnit(id: string) {
     setUnits((prev) => prev.filter((u) => u.id !== id))
     setRoutes((prev) => prev.filter((r) => r.startUnitId !== id && !(r.endRef?.kind === 'unit' && r.endRef.id === id)))
+    if (selectedUnitId === id) setSelectedUnitId(null)
   }
 
   function handleDeleteObjective(id: string) {
     setObjectives((prev) => prev.filter((o) => o.id !== id))
     setRoutes((prev) => prev.filter((r) => !(r.endRef?.kind === 'objective' && r.endRef.id === id)))
+    if (selectedUnitId === id) setSelectedUnitId(null)
   }
 
   function handleDeleteRoute(id: string) {
@@ -170,6 +238,7 @@ export function BattlegroundSelectorPage() {
       setRoutes([])
       setToolMode('navigate')
       setViewMode('globe')
+      setSelectedUnitId(null)
     }
   }
 
@@ -198,6 +267,12 @@ export function BattlegroundSelectorPage() {
           routes={routes}
           movementType={movementType}
           loadout={loadout}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={handleSelectUnit}
+          onMoveUnit={handleMoveUnit}
+          onMoveObjective={handleMoveObjective}
+          onRotateUnit={handleRotateUnit}
+          onSetToolMode={setToolMode}
           onPlace={handlePlace}
           onRouteComplete={handleRouteComplete}
           onRouteDrawingChange={setIsDrawingRoute}
@@ -214,6 +289,12 @@ export function BattlegroundSelectorPage() {
           toolMode={toolMode}
           movementType={movementType}
           loadout={loadout}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={handleSelectUnit}
+          onMoveUnit={handleMoveUnit}
+          onMoveObjective={handleMoveObjective}
+          onRotateUnit={handleRotateUnit}
+          onSetToolMode={setToolMode}
           onPlace={handlePlace}
           onRouteComplete={handleRouteComplete}
           onRouteDrawingChange={setIsDrawingRoute}
@@ -236,9 +317,16 @@ export function BattlegroundSelectorPage() {
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-24 pr-4 pb-30 pl-60">
-            <div className="flex items-start justify-between gap-3">
-              <div className="pointer-events-auto">
+      {/* Top and bottom rows are independently pinned via absolute positioning
+          (rather than flex-col + justify-between) so a tall top row (toolbar +
+          movement panel + terrain layers) can never push the bottom row past the
+          visible viewport -- justify-between only distributes space when the
+          combined content fits; once it doesn't, it degrades to stacking items
+          back-to-back from the top, which is exactly what sent TerrainInfoPanel
+          sinking off the bottom edge on shorter viewports. */}
+      <div className="pointer-events-none absolute inset-0 z-20">
+            <div className="pointer-events-none absolute top-24 right-4 left-60 flex items-start justify-between gap-3">
+              <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {canPlan && (
                   <PlanRosterPanel
                     units={units}
@@ -250,7 +338,15 @@ export function BattlegroundSelectorPage() {
                     onDeleteRoute={handleDeleteRoute}
                   />
                 )}
-                {selection === null && <GroundSearchPanel getViewer={getViewer} />}
+                {selection === null && (
+                  <GroundSearchPanel getViewer={getViewer} toolMode={toolMode} onSetToolMode={setToolMode} />
+                )}
+                <TerrainLayersPanel
+                  satelliteVisible={satelliteVisible}
+                  onToggleSatellite={toggleSatellite}
+                  elevationExaggerated={elevationExaggerated}
+                  onToggleElevation={toggleElevation}
+                />
               </div>
               <div className="pointer-events-auto flex flex-col gap-3">
                 {activeTab === 'layers' && (
@@ -261,7 +357,7 @@ export function BattlegroundSelectorPage() {
                       planningMode={planningMode}
                       battlefieldReady={phase === 'ready'}
                     />
-                    {canPlan && (
+                    {canPlan && toolMode === 'draw-route' && (
                       <MovementModePanel
                         movementType={movementType}
                         onMovementTypeChange={setMovementType}
@@ -270,12 +366,6 @@ export function BattlegroundSelectorPage() {
                         active={toolMode === 'draw-route'}
                       />
                     )}
-                    <TerrainLayersPanel
-                      satelliteVisible={satelliteVisible}
-                      onToggleSatellite={toggleSatellite}
-                      elevationExaggerated={elevationExaggerated}
-                      onToggleElevation={toggleElevation}
-                    />
                   </>
                 )}
                 {activeTab === 'heatmaps' && <HeatmapsPanel />}
@@ -283,11 +373,10 @@ export function BattlegroundSelectorPage() {
               </div>
             </div>
 
-            <div className="flex items-end justify-between">
-              <div className="pointer-events-auto flex flex-col gap-3">
+            <div className="pointer-events-none absolute right-4 bottom-30 left-60 flex items-end justify-between">
+              <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {phase === 'ready' ? (
                   <>
-                    <ValidationPanel onLocate={flyToPositions} />
                     <TerrainInfoPanel />
                     <button
                       type="button"
@@ -309,6 +398,8 @@ export function BattlegroundSelectorPage() {
                   onToggleSceneMode={toggleSceneMode}
                   onZoomIn={zoomIn}
                   onZoomOut={zoomOut}
+                  toolMode={toolMode}
+                  onSetToolMode={setToolMode}
                 />
               </div>
             </div>
@@ -325,8 +416,20 @@ export function BattlegroundSelectorPage() {
       )}
 
       <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
-        <BottomBar canRunSimulation={selection !== null} planName={battlegroundName} />
+        <BottomBar
+          canRunSimulation={phase === 'ready'}
+          planName={battlegroundName}
+          onRunSimulation={() => setShowSimulationExport(true)}
+        />
       </div>
+
+      <SimulationExportModal
+        open={showSimulationExport}
+        onClose={() => setShowSimulationExport(false)}
+        units={units}
+        objectives={objectives}
+        routes={routes}
+      />
     </div>
   )
 }

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
 import { Play, TrendingUp } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 
 interface Props {
   canRunSimulation: boolean
   planName: string
+  onRunSimulation: () => void
 }
 
 function etaRange(minutes: number): string {
@@ -13,16 +13,9 @@ function etaRange(minutes: number): string {
   return `${low} – ${high} min`
 }
 
-export function BottomBar({ canRunSimulation, planName }: Props) {
+export function BottomBar({ canRunSimulation, planName, onRunSimulation }: Props) {
   const phase = useBattleground((s) => s.phase)
   const analysis = useBattleground((s) => s.planAnalysis)
-  const [toast, setToast] = useState(false)
-
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(false), 2600)
-    return () => clearTimeout(timer)
-  }, [toast])
 
   const criticals = analysis?.warnings.filter((w) => w.severity === 'critical').length ?? 0
   const confidence =
@@ -84,15 +77,10 @@ export function BottomBar({ canRunSimulation, planName }: Props) {
       </div>
 
       <div className="relative">
-        {toast && (
-          <div className="glass absolute -top-13 right-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs text-(--text-h)">
-            Monte Carlo engine ships in Phase 2 — terrain &amp; planning only for now
-          </div>
-        )}
         <button
           type="button"
           disabled={!canRunSimulation}
-          onClick={() => setToast(true)}
+          onClick={onRunSimulation}
           className="flex items-center gap-2 rounded-xl bg-(--accent) px-5 py-2.5 text-sm font-medium text-(--panel-bg-solid) transition-colors hover:bg-(--accent-hover) disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-(--text-dim)"
         >
           <Play className="h-4 w-4" strokeWidth={2} />

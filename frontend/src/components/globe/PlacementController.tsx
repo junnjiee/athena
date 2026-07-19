@@ -4,7 +4,9 @@ import { useObjectiveEntities } from '../../hooks/useObjectiveEntities'
 import { useRouteEntities } from '../../hooks/useRouteEntities'
 import { usePlacementTool } from '../../hooks/usePlacementTool'
 import { useRouteDrawing } from '../../hooks/useRouteDrawing'
-import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
+import { useUnitEditing } from '../../hooks/useUnitEditing'
+import { useSelectionHandle } from '../../hooks/useSelectionHandle'
+import type { LonLat, PlaceableMode, PlacedObjective, PlacedRoute, PlacedUnit, ToolMode } from '../../types/entities'
 import type { MovementLoadout, MovementType } from '../../types/movement'
 
 interface NewRouteInput {
@@ -23,7 +25,13 @@ interface Props {
   routes: PlacedRoute[]
   movementType: MovementType
   loadout: MovementLoadout
-  onPlace: (mode: 'place-blue' | 'place-red' | 'place-objective', position: LonLat) => void
+  selectedUnitId: string | null
+  onSelectUnit: (id: string | null) => void
+  onMoveUnit: (id: string, position: LonLat) => void
+  onMoveObjective: (id: string, position: LonLat) => void
+  onRotateUnit: (id: string, rotationRadians: number) => void
+  onSetToolMode: (mode: ToolMode) => void
+  onPlace: (mode: PlaceableMode, position: LonLat) => void
   onRouteComplete: (route: NewRouteInput) => void
   onRouteDrawingChange?: (isDrawing: boolean) => void
 }
@@ -35,6 +43,12 @@ export function PlacementController({
   routes,
   movementType,
   loadout,
+  selectedUnitId,
+  onSelectUnit,
+  onMoveUnit,
+  onMoveObjective,
+  onRotateUnit,
+  onSetToolMode,
   onPlace,
   onRouteComplete,
   onRouteDrawingChange,
@@ -44,7 +58,7 @@ export function PlacementController({
   useUnitEntities({ viewer, units })
   useObjectiveEntities({ viewer, objectives })
   useRouteEntities({ viewer, routes })
-  usePlacementTool({ viewer, mode: toolMode, onPlace })
+  usePlacementTool({ viewer, mode: toolMode, units, objectives, onSelectUnit, onSetToolMode, onPlace })
   useRouteDrawing({
     viewer,
     active: toolMode === 'draw-route',
@@ -55,6 +69,18 @@ export function PlacementController({
     onRouteComplete,
     onDrawingChange: onRouteDrawingChange,
   })
+  useUnitEditing({
+    viewer,
+    active: toolMode === 'navigate',
+    units,
+    objectives,
+    selectedUnitId,
+    onSelectUnit,
+    onMoveUnit,
+    onMoveObjective,
+    onRotateUnit,
+  })
+  useSelectionHandle({ viewer, units, selectedUnitId })
 
   return null
 }
