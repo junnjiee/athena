@@ -28,6 +28,13 @@ interface Props {
   onRouteDrawingChange?: (isDrawing: boolean) => void
 }
 
+// Detached element that swallows Cesium's credit UI (ion logo, data attribution
+// line, and the demo-token banner) -- never appended to the document, so none of
+// it renders. NOTE: Cesium ion's and Google's (Photorealistic 3D Tiles) terms
+// require visible attribution; fine for a private hackathon demo, restore before
+// any public release.
+const hiddenCredits = document.createElement('div')
+
 // Cesium's default widgets (geocoder, home button, scene-mode picker) are replaced by
 // our own chrome (TopHeader, MapControls) to match the reference design, so all are
 // disabled here.
@@ -51,6 +58,7 @@ export function CesiumGlobe({
     <Viewer
       full
       terrain={worldTerrain}
+      creditContainer={hiddenCredits}
       timeline={false}
       animation={false}
       vrButton={false}
