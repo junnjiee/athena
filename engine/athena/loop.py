@@ -53,25 +53,60 @@ class LoopEngine:
 
     def visible_soldiers_map(self) -> list[VisibleSoldiers]:
         """
-        This array shows other soldiers that are visible to the
-        current soldier. Index is mapped to battlefield.soldiers.
+        Visible soldiers per observer, index-mapped to battlefield.soldiers.
 
-        NOTE: might be slow at scale, this is a O(n^2) operation
+        Soldiers are bucketed into a grid sized to the farthest any soldier can
+        see, so each observer only tests the 3x3 block around its bucket instead
+        of every soldier: ~O(n * c) rather than O(n^2).
         """
-        visible_by_soldier: list[VisibleSoldiers] = []
+        soldiers = self.battlefield.soldiers
+        min_elevation = self.battlefield.min_elevation
+        # Farthest any soldier could ever see: range is extended downhill, so the
+        # widest reach is toward the map's lowest cell.
+        max_reach = max(
+            (
+                soldier.vision_range + soldier.position.z - min_elevation
+                for soldier in soldiers
+            ),
+            default=1.0,
+        )
+        bucket_size = max(1, ceil(max_reach))
 
-        for observer in self.battlefield.soldiers:
+        # Bucket soldier indices by cell. Iterating in index order keeps each
+        # bucket's list sorted, which preserves the original per-observer output
+        # order once neighboring buckets are merged.
+        buckets: dict[tuple[int, int], list[int]] = {}
+        for index, soldier in enumerate(soldiers):
+            key = (
+                soldier.position.x // bucket_size,
+                soldier.position.y // bucket_size,
+            )
+            buckets.setdefault(key, []).append(index)
+
+        visible_by_soldier: list[VisibleSoldiers] = []
+        for observer in soldiers:
+            bucket_x = observer.position.x // bucket_size
+            bucket_y = observer.position.y // bucket_size
+
+            candidate_indices: list[int] = []
+            for neighbor_x in (bucket_x - 1, bucket_x, bucket_x + 1):
+                for neighbor_y in (bucket_y - 1, bucket_y, bucket_y + 1):
+                    candidate_indices.extend(
+                        buckets.get((neighbor_x, neighbor_y), ())
+                    )
+            candidate_indices.sort()
+
             visible_soldiers = [
                 VisibleSoldier(
-                    team=target.team,
-                    position=target.position,
-                    survival_status=target.survival_status,
+                    team=soldiers[index].team,
+                    position=soldiers[index].position,
+                    survival_status=soldiers[index].survival_status,
                 )
-                for target in self.battlefield.soldiers
+                for index in candidate_indices
                 if self.vision_resolver.verify_los(
                     self.battlefield,
                     observer,
-                    target,
+                    soldiers[index],
                 )
             ]
             visible_by_soldier.append(VisibleSoldiers(soldiers=visible_soldiers))

@@ -7,11 +7,77 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.soldier import Soldier
-from athena.types import Position, SurvivalState, Team
+from athena.types import (
+    Position,
+    SurvivalState,
+    Team,
+    VisibleSoldier,
+    VisibleSoldiers,
+)
 
 
 def surface_for(*positions: Position) -> set[Position]:
     return set(positions)
+
+
+def test_bucketed_visibility_matches_pairwise_scan() -> None:
+    width = height = 45
+    rng = Random(1234)
+
+    def elevation(x: int, _y: int) -> int:
+        # A raised ridge so high-ground soldiers see farther downhill, exercising
+        # the elevation-widened bucket sizing.
+        return 2 if 20 <= x <= 24 else (1 if x % 6 == 0 else 0)
+
+    surface = {
+        Position(x=x, y=y, z=elevation(x, y))
+        for x in range(width)
+        for y in range(height)
+    }
+    surface_by_xy = {(p.x, p.y): p for p in surface}
+
+    soldiers: list[Soldier] = []
+    used: set[tuple[int, int]] = set()
+    while len(soldiers) < 60:
+        cell = (rng.randrange(width), rng.randrange(height))
+        if cell in used:
+            continue
+        used.add(cell)
+        soldiers.append(
+            Soldier(
+                team=Team.BLUE if len(soldiers) % 2 == 0 else Team.RED,
+                position=surface_by_xy[cell],
+                survival_status=rng.choices(
+                    list(SurvivalState), weights=[6, 2, 1]
+                )[0],
+                vision_range=rng.choice([5, 6, 8]),
+            )
+        )
+
+    battlefield = Battlefield(width, height, soldiers, surface=surface)
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    def pairwise_reference() -> list[VisibleSoldiers]:
+        return [
+            VisibleSoldiers(
+                soldiers=[
+                    VisibleSoldier(
+                        team=target.team,
+                        position=target.position,
+                        survival_status=target.survival_status,
+                    )
+                    for target in soldiers
+                    if loop.vision_resolver.verify_los(battlefield, observer, target)
+                ]
+            )
+            for observer in soldiers
+        ]
+
+    assert loop.visible_soldiers_map() == pairwise_reference()
 
 
 def test_high_ground_extends_vision_and_low_ground_reduces_it() -> None:
