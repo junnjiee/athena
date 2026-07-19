@@ -1,20 +1,32 @@
 import asyncio
+from collections import deque
+from typing import Awaitable, Callable
 
 from athena.agent import choose_action
 from athena.battlefield import Battlefield
 from athena.resolvers.movement import MovementResolver
+from athena.resolvers.shooting import ShootingResolver
 from athena.soldier import Soldier
 from athena.resolvers.vision import VisionResolver
 from athena.types import (
     Action,
+    AgentContext,
     AvailableTerrain,
+    BattlefieldSnapshot,
+    ExecutionResult,
     MoveAction,
     ObservedSoldier,
     Position,
     ShootAction,
+    TerrainCell,
     VisibleSoldier,
     VisibleSoldiers,
+    VisibilityObservation,
 )
+
+# An action chooser turns one soldier's local observation into a validated action
+# (or None). choose_action drives OpenRouter; choose_action_local drives Ollama.
+ActionChooser = Callable[..., Awaitable[Action | None]]
 
 
 class LoopEngine:
@@ -23,10 +35,20 @@ class LoopEngine:
         battlefield: Battlefield,
         vision_resolver: VisionResolver,
         movement_resolver: MovementResolver,
+        action_chooser: ActionChooser = choose_action,
+        shooting_resolver: ShootingResolver | None = None,
+        visibility_history_limit: int = 10,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
+        self.action_chooser = action_chooser
+        self.shooting_resolver = shooting_resolver or ShootingResolver()
+        self.tick_number = 0
+        self.visibility_history = [
+            deque[VisibilityObservation](maxlen=visibility_history_limit)
+            for _ in battlefield.soldiers
+        ]
 
     def visible_soldiers_map(self) -> list[VisibleSoldiers]:
         """
@@ -57,18 +79,30 @@ class LoopEngine:
 
     def nearby_terrain_map(self) -> list[AvailableTerrain]:
         """
-        This array shows range-based nearby cover and concealment
-        for the current soldier. Index is mapped to battlefield.soldiers.
+        Show every battlefield cell within each soldier's elevation-adjusted
+        range. Terrain knowledge is range-based so agents can navigate local
+        topology even when a ridge blocks soldier-to-soldier line of sight.
 
-        NOTE: might be slow at scale, this is a O(n*(2)m) operation
+        NOTE: might be slow at scale, this is an O(n*m) operation.
         """
         return [
             AvailableTerrain(
-                cover=self._nearby_positions(observer, self.battlefield.cover),
-                concealment=self._nearby_positions(
-                    observer,
-                    self.battlefield.concealment,
-                ),
+                cells=[
+                    TerrainCell(
+                        position=position,
+                        has_cover=position in self.battlefield.cover,
+                        has_concealment=position in self.battlefield.concealment,
+                    )
+                    for position in sorted(
+                        self.battlefield.surface,
+                        key=lambda position: (position.y, position.x),
+                    )
+                    if self.vision_resolver.is_in_vision_range(
+                        observer.position,
+                        position,
+                        observer.vision_range,
+                    )
+                ]
             )
             for observer in self.battlefield.soldiers
         ]
@@ -92,20 +126,30 @@ class LoopEngine:
             for index, soldier in enumerate(self.battlefield.soldiers)
         ]
 
-    async def collect_valid_actions(self, max_attempts: int = 3) -> list[Action | None]:
+    async def collect_valid_actions(
+        self,
+        max_attempts: int = 3,
+        observed_soldiers: list[ObservedSoldier] | None = None,
+    ) -> list[Action | None]:
         """
         Ask every soldier-agent for a valid action. Index is mapped to
         battlefield.soldiers.
         """
-        observed_soldiers = self.observed_soldiers_map()
+        if observed_soldiers is None:
+            observed_soldiers = self.observed_soldiers_map()
 
         # asyncio.gather preserves input order, so each result stays aligned with
         # battlefield.soldiers. It also raises if any soldier task raises, which
         # keeps this collection phase fail-fast while the engine is still small.
         return await asyncio.gather(
             *[
-                choose_action(
-                    observed_soldier=observed_soldier,
+                self.action_chooser(
+                    agent_context=AgentContext(
+                        current_observation=observed_soldier,
+                        visibility_history=tuple(
+                            self.visibility_history[soldier_index]
+                        ),
+                    ),
                     battlefield=self.battlefield,
                     soldier=self.battlefield.soldiers[soldier_index],
                     movement_resolver=self.movement_resolver,
@@ -115,43 +159,143 @@ class LoopEngine:
             ]
         )
 
-    async def tick(self, max_attempts: int = 3) -> None:
-        actions = await self.collect_valid_actions(max_attempts=max_attempts)
-        self.execute_actions(actions)
+    async def tick(self, max_attempts: int = 3) -> ExecutionResult:
+        observed_soldiers = self.observed_soldiers_map()
+        actions = await self.collect_valid_actions(
+            max_attempts=max_attempts,
+            observed_soldiers=observed_soldiers,
+        )
+        return self.execute_actions(actions, observed_soldiers=observed_soldiers)
 
-    def execute_actions(self, actions: list[Action | None]) -> None:
+    def execute_actions(
+        self,
+        actions: list[Action | None],
+        observed_soldiers: list[ObservedSoldier] | None = None,
+    ) -> ExecutionResult:
         """
-        Execute collected actions sequentially. Index is mapped to
-        battlefield.soldiers.
+        Resolve every action from the same before snapshot, then commit all effects.
+
+        Action indices map to battlefield.soldiers. Movement and rifle casualties
+        are resolved independently, so a soldier shot during this tick still
+        completes an accepted move selected while it was alive.
         """
-        for soldier_index, action in enumerate(actions):
-            if action is None:
-                continue
+        if observed_soldiers is None:
+            observed_soldiers = self.observed_soldiers_map()
 
-            soldier = self.battlefield.soldiers[soldier_index]
-
-            if isinstance(action, MoveAction):
-                new_position = self.movement_resolver.resolve_move_position(
-                    soldier,
+        before = self.battlefield.snapshot()
+        accepted_moves = self._resolve_move_destinations(actions, before)
+        shot_outcomes = tuple(
+            outcome
+            for soldier_index, action in enumerate(actions)
+            if isinstance(action, ShootAction)
+            and (
+                outcome := self.shooting_resolver.resolve_shot(
+                    before,
+                    soldier_index,
                     action,
                 )
-                soldier.move_to(new_position)
+            )
+            is not None
+        )
+        casualty_targets = {
+            outcome.target_index for outcome in shot_outcomes if outcome.hit
+        }
+
+        for soldier_index, new_position in accepted_moves.items():
+            self.battlefield.soldiers[soldier_index].move_to(new_position)
+
+        for target_index in casualty_targets:
+            self.battlefield.soldiers[target_index].become_casualty()
+
+        # Retain the exact local information that informed this execution. Taking
+        # another observation after resolution could reroll probabilistic visibility
+        # and give history that differs from what the agent actually acted on.
+        self.tick_number += 1
+        observations = tuple(
+            VisibilityObservation(
+                tick=self.tick_number,
+                visible_soldiers=observed_soldier.visible_soldiers,
+                available_terrain=observed_soldier.available_terrain,
+            )
+            for observed_soldier in observed_soldiers
+        )
+        for soldier_index, observation in enumerate(observations):
+            self.visibility_history[soldier_index].append(observation)
+
+        return ExecutionResult(
+            actions=tuple(actions),
+            shot_outcomes=shot_outcomes,
+            observations=observations,
+            before=before,
+            after=self.battlefield.snapshot(),
+        )
+
+    def _resolve_move_destinations(
+        self,
+        actions: list[Action | None],
+        before: BattlefieldSnapshot,
+    ) -> dict[int, Position]:
+        proposed_moves: dict[int, Position] = {}
+        for soldier_index, action in enumerate(actions):
+            soldier = self.battlefield.soldiers[soldier_index]
+            if not isinstance(action, MoveAction):
+                continue
+            if not self.movement_resolver.verify_move_action(
+                self.battlefield,
+                soldier,
+                action,
+            ):
                 continue
 
-            if isinstance(action, ShootAction):
-                raise NotImplementedError("ShootAction execution is not implemented yet.")
-
-    def _nearby_positions(
-        self,
-        observer: Soldier,
-        positions: set[Position],
-    ) -> list[Position]:
-        return [
-            position
-            for position in positions
-            if self.vision_resolver.is_in_vision_range(
-                observer.position,
-                position,
-                observer.vision_range,
+            destination = self.movement_resolver.resolve_move_position(
+                self.battlefield,
+                soldier,
+                action,
             )
-        ]
+            if destination is not None:
+                proposed_moves[soldier_index] = destination
+
+        movers_by_destination: dict[Position, list[int]] = {}
+        for soldier_index, destination in proposed_moves.items():
+            movers_by_destination.setdefault(destination, []).append(soldier_index)
+
+        rejected_movers: set[int] = set()
+        for mover_indices in movers_by_destination.values():
+            if len(mover_indices) <= 1:
+                continue
+
+            winner = self.movement_resolver.select_competing_mover(mover_indices)
+            rejected_movers.update(
+                soldier_index
+                for soldier_index in mover_indices
+                if soldier_index != winner
+            )
+
+        occupants_by_position: dict[Position, list[int]] = {}
+        for soldier in before.soldiers:
+            occupants_by_position.setdefault(soldier.position, []).append(
+                soldier.soldier_index
+            )
+
+        # Rejections cascade backward through movement chains. If B cannot vacate
+        # its cell, A cannot move into it; swaps and fully moving cycles remain valid.
+        while True:
+            newly_rejected = {
+                soldier_index
+                for soldier_index, destination in proposed_moves.items()
+                if soldier_index not in rejected_movers
+                and any(
+                    occupant_index not in proposed_moves
+                    or occupant_index in rejected_movers
+                    for occupant_index in occupants_by_position.get(destination, [])
+                )
+            }
+            if not newly_rejected:
+                break
+            rejected_movers.update(newly_rejected)
+
+        return {
+            soldier_index: destination
+            for soldier_index, destination in proposed_moves.items()
+            if soldier_index not in rejected_movers
+        }

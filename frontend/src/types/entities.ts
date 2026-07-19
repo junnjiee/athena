@@ -7,12 +7,20 @@ export interface LonLat {
 
 export type ForceSide = 'blue' | 'red'
 
+/** Which symbol to render for a placed unit -- the SAF-requested tactical
+ *  position graphics (section/platoon area positions, trench fortifications). */
+export type SymbolKind = 'blueSection' | 'bluePlatoon' | 'redSection' | 'redPlatoon' | 'trench' | 'preparedTrench'
+
 export interface PlacedUnit {
   id: string
   side: ForceSide
   name: string
   typeLabel: string
   position: LonLat
+  symbolKind: SymbolKind
+  /** Facing of the shape, clockwise-from-north radians (0 = default
+   *  orientation) -- same convention as lib/bearing.ts's bearingRadians. */
+  rotationRadians: number
 }
 
 export interface PlacedObjective {
@@ -51,4 +59,19 @@ export interface NewRouteInput {
   loadout: MovementLoadout
 }
 
-export type ToolMode = 'navigate' | 'select-ground' | 'place-blue' | 'place-red' | 'place-objective' | 'draw-route'
+export type ToolMode =
+  | 'navigate'
+  | 'select-ground'
+  | 'place-objective'
+  | 'draw-route'
+  | 'place-blue-section'
+  | 'place-blue-platoon'
+  | 'place-red-section'
+  | 'place-red-platoon'
+  | 'place-trench'
+  | 'place-prepared-trench'
+
+/** Every ToolMode that places a point marker via a plain click, on both the 3D
+ *  globe and the 2D topo view -- everything except the general navigation modes
+ *  and the multi-click/drag route-drawing mode. */
+export type PlaceableMode = Exclude<ToolMode, 'navigate' | 'select-ground' | 'draw-route'>

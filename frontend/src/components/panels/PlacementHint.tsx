@@ -10,12 +10,20 @@ interface Props {
 
 function hintFor(toolMode: ToolMode, isDrawingRoute: boolean, topo: boolean): string | null {
   switch (toolMode) {
-    case 'place-blue':
-      return 'Click the map to place a blue-force unit'
-    case 'place-red':
-      return 'Click the map to place a red-force threat'
     case 'place-objective':
       return 'Click the map to place an objective'
+    case 'place-blue-section':
+      return 'Click the map to place a blue force section'
+    case 'place-blue-platoon':
+      return 'Click the map to place a blue force platoon'
+    case 'place-red-section':
+      return 'Click the map to place a red force section'
+    case 'place-red-platoon':
+      return 'Click the map to place a red force platoon'
+    case 'place-trench':
+      return 'Click the map to place a trench position'
+    case 'place-prepared-trench':
+      return 'Click the map to place a prepared trench position'
     case 'draw-route':
       if (topo) {
         return isDrawingRoute

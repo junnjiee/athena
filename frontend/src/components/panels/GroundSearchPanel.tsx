@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
-import { Search, Loader2 } from 'lucide-react'
+import { Search, Loader2, Square } from 'lucide-react'
+import type { ToolMode } from '../../types/entities'
 
 interface Props {
   getViewer: () => Cesium.Viewer | undefined
+  toolMode: ToolMode
+  onSetToolMode: (mode: ToolMode) => void
 }
 
 type RequestState =
@@ -12,7 +15,7 @@ type RequestState =
   | { kind: 'empty' }
   | { kind: 'error' }
 
-export function GroundSearchPanel({ getViewer }: Props) {
+export function GroundSearchPanel({ getViewer, toolMode, onSetToolMode }: Props) {
   const [query, setQuery] = useState('')
   const [requestState, setRequestState] = useState<RequestState | null>(null)
   const requestIdRef = useRef(0)
@@ -56,6 +59,12 @@ export function GroundSearchPanel({ getViewer }: Props) {
     setRequestState(null)
   }
 
+  function toggleSelectGround() {
+    onSetToolMode(toolMode === 'select-ground' ? 'navigate' : 'select-ground')
+  }
+
+  const selectGroundArmed = toolMode === 'select-ground'
+
   return (
     <div className="glass w-64 rounded-xl p-3">
       <div className="mb-2 flex items-center gap-1.5 text-xs tracking-wide text-(--text-dim)">
@@ -91,6 +100,22 @@ export function GroundSearchPanel({ getViewer }: Props) {
           ))}
         </ul>
       )}
+
+      <div className="mt-3 border-t border-(--border) pt-3">
+        <div className="mb-1.5 text-xs text-(--text-dim)">and drag a rectangle on the map</div>
+        <button
+          type="button"
+          onClick={toggleSelectGround}
+          className={`flex w-full items-center justify-center gap-2 rounded-md border py-1.5 text-sm transition-colors ${
+            selectGroundArmed
+              ? 'border-(--accent-border) bg-(--accent-bg) text-(--accent)'
+              : 'border-(--border) text-(--text) hover:border-(--border-strong) hover:text-(--text-h)'
+          }`}
+        >
+          <Square className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {selectGroundArmed ? 'Drag on the map…' : 'Select Ground'}
+        </button>
+      </div>
     </div>
   )
 }

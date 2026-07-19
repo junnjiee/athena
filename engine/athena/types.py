@@ -18,6 +18,7 @@ class Position(BaseModel):
 
     x: int
     y: int
+    z: int
 
 
 class SurvivalState(StrEnum):
@@ -64,6 +65,37 @@ class ShootAction(BaseModel):
 Action: TypeAlias = MoveAction | ShootAction
 
 
+class SoldierSnapshot(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    soldier_index: int
+    team: Team
+    position: Position
+    survival_status: SurvivalState
+    vision_range: float
+
+
+class BattlefieldSnapshot(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    width: int
+    height: int
+    surface: frozenset[Position]
+    soldiers: tuple[SoldierSnapshot, ...]
+    cover: frozenset[Position]
+    concealment: frozenset[Position]
+
+
+class ShotOutcome(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    shooter_index: int
+    target_index: int
+    hit_probability: float
+    roll: float
+    hit: bool
+
+
 class ChosenAction(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
@@ -106,11 +138,18 @@ class VisibleSoldiers(BaseModel):
     soldiers: list[VisibleSoldier]
 
 
+class TerrainCell(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    position: Position
+    has_cover: bool
+    has_concealment: bool
+
+
 class AvailableTerrain(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
-    cover: list[Position]
-    concealment: list[Position]
+    cells: list[TerrainCell]
 
 
 class ObservedSoldier(BaseModel):
@@ -126,3 +165,32 @@ class ObservedSoldier(BaseModel):
     survival_status: SurvivalState
     visible_soldiers: VisibleSoldiers
     available_terrain: AvailableTerrain
+
+
+class VisibilityObservation(BaseModel):
+    """The local visibility used to choose actions in one completed tick."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    tick: int
+    visible_soldiers: VisibleSoldiers
+    available_terrain: AvailableTerrain
+
+
+class AgentContext(BaseModel):
+    """The current local state and bounded visibility history sent to an agent."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    current_observation: ObservedSoldier
+    visibility_history: tuple[VisibilityObservation, ...]
+
+
+class ExecutionResult(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    actions: tuple[Action | None, ...]
+    shot_outcomes: tuple[ShotOutcome, ...]
+    observations: tuple[VisibilityObservation, ...]
+    before: BattlefieldSnapshot
+    after: BattlefieldSnapshot

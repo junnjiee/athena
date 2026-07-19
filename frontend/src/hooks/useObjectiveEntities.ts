@@ -11,7 +11,7 @@ interface Args {
 }
 
 export function useObjectiveEntities({ viewer, objectives }: Args) {
-  const entityMapRef = useRef(new Map<string, Cesium.Entity>())
+  const entityMapRef = useRef(new Map<string, { item: PlacedObjective; entity: Cesium.Entity }>())
 
   useEffect(() => {
     if (!viewer) return
@@ -49,7 +49,7 @@ export function useObjectiveEntities({ viewer, objectives }: Args) {
     const entityMap = entityMapRef.current
     return () => {
       if (!viewer) return
-      for (const entity of entityMap.values()) viewer.entities.remove(entity)
+      for (const { entity } of entityMap.values()) viewer.entities.remove(entity)
       entityMap.clear()
     }
   }, [viewer])
