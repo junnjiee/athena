@@ -262,7 +262,7 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
     assert not cells[4].has_concealment
 
 
-def test_in_range_terrain_behind_hill_remains_available_for_navigation() -> None:
+def test_in_range_terrain_behind_hill_is_hidden() -> None:
     observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=5)
     behind_hill = Position(x=2, y=0, z=0)
     battlefield = Battlefield(
@@ -281,6 +281,51 @@ def test_in_range_terrain_behind_hill_remains_available_for_navigation() -> None
         movement_resolver=MovementResolver(),
     )
 
-    assert behind_hill in {
+    assert behind_hill not in {
         cell.position for cell in loop.nearby_terrain_map()[0].cells
     }
+
+
+def test_high_observer_sees_terrain_beyond_lower_rise() -> None:
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=2), vision_range=5)
+    beyond_rise = Position(x=2, y=0, z=0)
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[observer],
+        surface={
+            observer.position,
+            Position(x=1, y=0, z=1),
+            beyond_rise,
+        },
+    )
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    assert beyond_rise in {
+        cell.position for cell in loop.nearby_terrain_map()[0].cells
+    }
+
+
+def test_terrain_los_blocked_by_tall_wall() -> None:
+    resolver = VisionResolver()
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[],
+        surface={
+            Position(x=0, y=0, z=1),
+            Position(x=1, y=0, z=10),
+            Position(x=2, y=0, z=1),
+        },
+    )
+
+    assert not resolver.verify_terrain_los(
+        battlefield,
+        Position(x=0, y=0, z=1),
+        Position(x=2, y=0, z=1),
+        observer_vision_range=6,
+    )
