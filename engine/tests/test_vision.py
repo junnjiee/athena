@@ -14,7 +14,9 @@ def surface_for(*positions: Position) -> set[Position]:
     return set(positions)
 
 
-def test_high_ground_extends_vision_and_low_ground_reduces_it() -> None:
+def test_elevation_does_not_extend_vision_range() -> None:
+    # High ground no longer sees farther: a low target 7 away and 2 down is
+    # sqrt(49 + 4) ~= 7.3 away in 3D, beyond a range of 5, from either side.
     high = Soldier(Team.BLUE, Position(x=0, y=0, z=2), vision_range=5)
     low = Soldier(Team.RED, Position(x=7, y=0, z=0), vision_range=5)
     battlefield = Battlefield(
@@ -28,7 +30,7 @@ def test_high_ground_extends_vision_and_low_ground_reduces_it() -> None:
     )
     resolver = VisionResolver()
 
-    assert resolver.verify_los(battlefield, high, low)
+    assert not resolver.verify_los(battlefield, high, low)
     assert not resolver.verify_los(battlefield, low, high)
 
 
@@ -164,18 +166,64 @@ def test_equal_elevation_uses_base_vision_range() -> None:
     )
 
 
-def test_effective_vision_range_has_minimum_of_one_cell() -> None:
+def test_elevation_difference_counts_toward_distance() -> None:
     resolver = VisionResolver()
 
-    assert resolver.is_in_vision_range(
+    # One step away horizontally but 20 levels up is ~20 away in 3D: out of range.
+    assert not resolver.is_in_vision_range(
         Position(x=0, y=0, z=0),
         Position(x=1, y=0, z=20),
         observer_vision_range=5,
     )
+    # The same horizontal step at equal elevation is comfortably in range.
+    assert resolver.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=0),
+        observer_vision_range=5,
+    )
+
+
+def test_vision_range_is_capped() -> None:
+    resolver = VisionResolver()
+
+    # An enormous nominal vision range still cannot see past the cap of 100.
+    assert resolver.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=100, y=0, z=0),
+        observer_vision_range=10_000,
+    )
     assert not resolver.is_in_vision_range(
         Position(x=0, y=0, z=0),
-        Position(x=2, y=0, z=20),
-        observer_vision_range=5,
+        Position(x=101, y=0, z=0),
+        observer_vision_range=10_000,
+    )
+
+
+def test_max_vision_range_is_configurable() -> None:
+    # The cap is a resolver setting: lowering it shrinks how far a soldier sees.
+    tight = VisionResolver(max_vision_range=3)
+
+    assert tight.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=3, y=0, z=0),
+        observer_vision_range=50,
+    )
+    assert not tight.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=4, y=0, z=0),
+        observer_vision_range=50,
+    )
+
+
+def test_high_observer_cannot_see_cell_far_below_despite_adjacency() -> None:
+    resolver = VisionResolver()
+
+    # Standing on a 300-high peak, the ground cell one step away is ~300 away in
+    # 3D, so it is out of range even though horizontally adjacent.
+    assert not resolver.is_in_vision_range(
+        Position(x=0, y=0, z=300),
+        Position(x=1, y=0, z=0),
+        observer_vision_range=100,
     )
 
 
@@ -227,17 +275,14 @@ def test_concealment_detection_still_uses_xyz_target_position() -> None:
 
 
 def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
-    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=2), vision_range=2)
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=4)
     distant_cover = Position(x=4, y=0, z=0)
     concealed_position = Position(x=2, y=0, z=0)
     battlefield = Battlefield(
         width=6,
         height=1,
         soldiers=[observer],
-        surface={
-            Position(x=x, y=0, z=2 if x == 0 else 0)
-            for x in range(6)
-        },
+        surface={Position(x=x, y=0, z=0) for x in range(6)},
         cover={distant_cover},
         concealment={concealed_position},
     )
@@ -250,7 +295,7 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
     cells = loop.nearby_terrain_map()[0].cells
 
     assert [cell.position for cell in cells] == [
-        Position(x=0, y=0, z=2),
+        Position(x=0, y=0, z=0),
         Position(x=1, y=0, z=0),
         Position(x=2, y=0, z=0),
         Position(x=3, y=0, z=0),

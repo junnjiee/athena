@@ -80,22 +80,17 @@ class LoopEngine:
 
     def nearby_terrain_map(self) -> list[AvailableTerrain]:
         """
-        Cells each soldier has line of sight to: within elevation-adjusted range
-        and not hidden behind intervening terrain.
+        Cells each soldier has line of sight to: within (capped) vision range and
+        not hidden behind intervening terrain.
 
-        Only the local vision window is scanned, widened by the drop to the map's
-        lowest elevation so high ground's extended downhill range still fits.
+        Only the local vision window is scanned, sized by the capped range.
         Iterating y-then-x yields cells in (y, x) order.
         """
         terrain_by_soldier: list[AvailableTerrain] = []
 
+        cap = self.vision_resolver.max_vision_range
         for observer in self.battlefield.soldiers:
-            max_effective_range = (
-                observer.vision_range
-                + observer.position.z
-                - self.battlefield.min_elevation
-            )
-            radius = max(1, ceil(max_effective_range))
+            radius = max(1, ceil(min(observer.vision_range, cap)))
             origin_x = observer.position.x
             origin_y = observer.position.y
 
