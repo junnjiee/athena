@@ -46,14 +46,16 @@ export function georeferenceMatrix(center: Cesium.Cartesian3, placement: SplatPl
   return Cesium.Matrix4.multiply(scaled, toLocal, new Cesium.Matrix4())
 }
 
-/** Load one hero splat tileset, hidden + preloading (warmed alongside the
- *  Google tileset). These are OUR assets: the browser may cache them hard
- *  (server sends immutable cache headers), unlike Google tiles. */
+/** Load one hero splat tileset, hidden and idle -- PhotoModeController loads
+ *  these lazily on first RECON entry and distance-gates them, so splats never
+ *  cost anything in other modes or from far away. These are OUR assets: the
+ *  browser may cache them hard (server sends immutable cache headers), unlike
+ *  Google tiles. Coarse SSE: splat LOD (ion-tiled) stays cheap until close. */
 export async function loadSplatTileset(config: SplatConfig): Promise<Cesium.Cesium3DTileset | null> {
   const options: Cesium.Cesium3DTileset.ConstructorOptions = {
     show: false,
-    preloadWhenHidden: true,
-    maximumScreenSpaceError: 16,
+    preloadWhenHidden: false,
+    maximumScreenSpaceError: 24,
   }
   let tileset: Cesium.Cesium3DTileset
   if (config.ionAssetId) {

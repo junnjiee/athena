@@ -1,6 +1,7 @@
 import { Gauge } from 'lucide-react'
 import { usePhoto } from '../../state/photo'
 import { photoSource } from '../../lib/photoTiles'
+import { QUALITY_TIERS } from '../../lib/frameGovernor'
 
 /** Dev/demo HUD proving the RECON-mode latency story: tile stream state,
  *  time-to-first-photon on the mode toggle, current sharpening stage, and the
@@ -13,6 +14,7 @@ export function TileStatsHud() {
   const meshOffsetM = usePhoto((s) => s.meshOffsetM)
   const stats = usePhoto((s) => s.stats)
   const splatCount = usePhoto((s) => s.splatCount)
+  const tier = usePhoto((s) => s.tier)
 
   if (!active) return null
 
@@ -30,7 +32,11 @@ export function TileStatsHud() {
         <Row label="Stream" value={stream} />
         <Row label="First photon" value={toggleMs === null ? '…' : toggleMs === 0 ? 'warm (0 ms)' : `${toggleMs} ms`} />
         {stats && <Row label="Tiles" value={`${stats.loaded} loaded · ${stats.pending} pending`} />}
-        {stats && <Row label="Detail (SSE)" value={stats.sse <= 12 ? `sharp (${stats.sse})` : `coarse (${stats.sse})`} />}
+        <Row
+          label="Quality"
+          value={`T${tier} · SSE ${QUALITY_TIERS[tier].sse} · ${Math.round(QUALITY_TIERS[tier].resolutionScale * 100)}%`}
+        />
+        {stats && <Row label="Detail (SSE)" value={stats.sse <= 16 ? `sharp (${stats.sse})` : `coarse (${stats.sse})`} />}
         <Row label="Mesh vs DEM" value={meshOffsetM === null ? '…' : `${meshOffsetM >= 0 ? '+' : ''}${meshOffsetM.toFixed(1)} m`} />
         <Row label="Hero splats" value={String(splatCount)} />
       </dl>

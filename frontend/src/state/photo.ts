@@ -26,6 +26,8 @@ interface PhotoState {
   stats: PhotoTileStats | null
   /** number of gaussian-splat hero tilesets mounted */
   splatCount: number
+  /** current adaptive-quality tier (index into QUALITY_TIERS) */
+  tier: number
 
   setXray: (xray: boolean) => void
   patch: (partial: Partial<Omit<PhotoState, 'setXray' | 'patch'>>) => void
@@ -40,6 +42,7 @@ export const usePhoto = create<PhotoState>((set) => ({
   meshOffsetM: null,
   stats: null,
   splatCount: 0,
+  tier: 0,
 
   setXray: (xray) => set({ xray }),
   patch: (partial) => set(partial),

@@ -234,6 +234,16 @@ export function BattlefieldController({ suppressed = false }: Props) {
     const setHoverCell = useBattleground.getState().setHoverCell
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
     let last = 0
+    let lastMeshPick = 0
+    let cameraMoving = false
+    const onMoveStart = () => {
+      cameraMoving = true
+    }
+    const onMoveEnd = () => {
+      cameraMoving = false
+    }
+    viewer.camera.moveStart.addEventListener(onMoveStart)
+    viewer.camera.moveEnd.addEventListener(onMoveEnd)
     handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
       const now = performance.now()
       if (now - last < 40) return
@@ -242,7 +252,12 @@ export function BattlefieldController({ suppressed = false }: Props) {
       let cartesian = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
       // Photo mode hides the globe -- depth-buffer picking against the
       // photoreal mesh keeps the terrain-info hover (and its grid ref) alive.
+      // pickPosition is a full pick-buffer render pass, so it's rationed hard:
+      // never during camera movement, at most ~6/s, keeping the previous
+      // hover value in between instead of flickering it away.
       if (!cartesian && !viewer.scene.globe.show && viewer.scene.pickPositionSupported) {
+        if (cameraMoving || now - lastMeshPick < 150) return
+        lastMeshPick = now
         cartesian = viewer.scene.pickPosition(movement.endPosition)
       }
       if (!cartesian) {
@@ -257,6 +272,8 @@ export function BattlefieldController({ suppressed = false }: Props) {
 
     return () => {
       handler.destroy()
+      viewer.camera.moveStart.removeEventListener(onMoveStart)
+      viewer.camera.moveEnd.removeEventListener(onMoveEnd)
       setHoverCell(null)
     }
   }, [viewer, grid, phase])

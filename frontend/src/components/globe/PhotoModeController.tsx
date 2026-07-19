@@ -4,6 +4,7 @@ import { useCesium } from 'resium'
 import { useBattleground } from '../../state/battleground'
 import { usePhoto } from '../../state/photo'
 import { createPhotoTileset } from '../../lib/photoTiles'
+import { QUALITY_TIERS, initialGovernor, stepGovernor, type GovernorState } from '../../lib/frameGovernor'
 import { fetchSplatIndex, loadSplatTileset } from '../../lib/splats'
 import { measureMeshOffset, type MeshProbe } from '../../lib/photoHeights'
 import { sampleCell } from '../../lib/grid'
@@ -13,6 +14,13 @@ interface Props {
   /** viewMode === 'photo' */
   active: boolean
 }
+
+/** Background warm starts only after the cinematic reveal has settled, so the
+ *  two never compete for decode workers / GPU uploads. */
+const WARM_DELAY_MS = 8000
+/** Hero splats render only within this range of the camera -- wide views pay
+ *  zero splat sort/draw cost. */
+const SPLAT_RANGE_M = 2500
 
 function buildProbes(grid: GridData): MeshProbe[] {
   const { west, east, south, north } = grid.bbox
@@ -35,28 +43,60 @@ function buildProbes(grid: GridData): MeshProbe[] {
 }
 
 /** Swap the scene to photoreal: the Google mesh replaces the globe (hiding it
- *  avoids z-fighting between two disagreeing terrains), and vertical
- *  exaggeration is pinned to 1.0 -- it distorts 3D Tiles in cesium 1.143.
- *  Returns the exaggeration to restore on exit. */
-function enterPhotoScene(viewer: Cesium.Viewer): number {
+ *  avoids z-fighting between two disagreeing terrains), vertical exaggeration
+ *  is pinned to 1.0 (it distorts 3D Tiles in cesium 1.143), and MSAA drops to
+ *  1x -- photoreal textures hide aliasing well and 4x MSAA is pure GPU tax on
+ *  integrated graphics. Returns what to restore on exit. */
+function enterPhotoScene(viewer: Cesium.Viewer): { exaggeration: number; msaa: number } {
   const scene = viewer.scene
-  const saved = scene.verticalExaggeration
+  const saved = { exaggeration: scene.verticalExaggeration, msaa: scene.msaaSamples }
   scene.globe.show = false
   scene.verticalExaggeration = 1.0
+  scene.msaaSamples = 1
   scene.requestRender()
   return saved
 }
 
-function exitPhotoScene(viewer: Cesium.Viewer, savedExaggeration: number): void {
+function exitPhotoScene(viewer: Cesium.Viewer, saved: { exaggeration: number; msaa: number }): void {
   const scene = viewer.scene
   scene.globe.show = true
-  scene.verticalExaggeration = savedExaggeration
+  scene.verticalExaggeration = saved.exaggeration
+  scene.msaaSamples = saved.msaa
+  viewer.resolutionScale = 1.0
   scene.requestRender()
 }
 
 function showTilesets(tilesets: readonly (Cesium.Cesium3DTileset | null)[], show: boolean): void {
   for (const tileset of tilesets) {
     if (tileset) tileset.show = show
+  }
+}
+
+function setPreloadWhenHidden(tileset: Cesium.Cesium3DTileset, preload: boolean): void {
+  tileset.preloadWhenHidden = preload
+}
+
+/** Apply a quality tier: tile detail + render resolution. */
+function applyTier(viewer: Cesium.Viewer, tileset: Cesium.Cesium3DTileset | null, tierIndex: number): void {
+  const tier = QUALITY_TIERS[tierIndex]
+  if (tileset) tileset.maximumScreenSpaceError = tier.sse
+  viewer.resolutionScale = tier.resolutionScale
+  viewer.scene.requestRender()
+}
+
+/** Distance-gate hero splats: sorting/drawing gaussians only pays off when the
+ *  camera is close enough to see the fidelity. */
+function updateSplatVisibility(
+  viewer: Cesium.Viewer,
+  splats: readonly Cesium.Cesium3DTileset[],
+  active: boolean,
+  tierAllows: boolean,
+): void {
+  const cameraPosition = viewer.camera.positionWC
+  for (const splat of splats) {
+    const sphere = splat.boundingSphere
+    const distance = Cesium.Cartesian3.distance(cameraPosition, sphere.center) - sphere.radius
+    splat.show = active && tierAllows && distance < SPLAT_RANGE_M
   }
 }
 
@@ -88,12 +128,16 @@ function attachTileset(viewer: Cesium.Viewer, tileset: Cesium.Cesium3DTileset, s
   tileset.show = show
 }
 
-/** Lives inside <Viewer>. Owns the RECON-mode photoreal stack: the Google
- *  Photorealistic 3D Tiles diorama (created hidden + preloading the moment the
- *  battleground is ready, so the Photo toggle does no network on the critical
- *  path) and any gaussian-splat hero tilesets from the server's splat index.
- *  On activation it swaps the scene over and flips marker occlusion (the X-ray
- *  toggle restores see-through). */
+/** Lives inside <Viewer>. Owns the RECON-mode photoreal stack with a strict
+ *  "pay only for what's on screen" budget:
+ *
+ *  - the Google tileset is created idle; background warming is a one-shot
+ *    window (opens after the reveal settles, closes itself on
+ *    initialTilesLoaded) instead of a standing preload
+ *  - hero splats load lazily on first RECON entry and are distance-gated
+ *  - while active, an adaptive governor watches frame time and walks quality
+ *    tiers (tile detail -> resolution -> splats) so the mode converges to an
+ *    interactive framerate instead of lagging */
 export function PhotoModeController({ active }: Props) {
   const { viewer } = useCesium()
   const phase = useBattleground((s) => s.phase)
@@ -103,24 +147,25 @@ export function PhotoModeController({ active }: Props) {
 
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null)
   const splatsRef = useRef<Cesium.Cesium3DTileset[]>([])
+  const splatsRequestedRef = useRef(false)
   const tilesLoadedRef = useRef(0)
   const pendingRequestsRef = useRef(0)
+  const governorRef = useRef<GovernorState>(initialGovernor())
+  const lastFrameAtRef = useRef(0)
 
-  // --- tileset lifecycle: warm hidden as soon as the battleground is ready ---
+  // --- tileset lifecycle: create idle, warm in a bounded window --------------
   useEffect(() => {
     if (!viewer || viewer.isDestroyed() || phase !== 'ready' || !grid) return
     let cancelled = false
     const patch = usePhoto.getState().patch
     tilesLoadedRef.current = 0
     pendingRequestsRef.current = 0
-    patch({ warming: true, ready: false, toggleMs: null, meshOffsetM: null, stats: null, splatCount: 0 })
+    patch({ warming: false, ready: false, toggleMs: null, meshOffsetM: null, stats: null, splatCount: 0 })
 
+    const warmTimerRef = { id: 0 }
     void createPhotoTileset(grid.bbox)
       .then((tileset) => {
-        if (!tileset) {
-          patch({ warming: false })
-          return
-        }
+        if (!tileset) return
         if (cancelled || viewer.isDestroyed()) return
         attachTileset(viewer, tileset, usePhoto.getState().active)
         tilesetRef.current = tileset
@@ -131,32 +176,25 @@ export function PhotoModeController({ active }: Props) {
           pendingRequestsRef.current = numberOfPendingRequests
         })
         tileset.initialTilesLoaded.addEventListener(() => {
+          // warm complete: stop all background streaming; loaded tiles stay in
+          // the session cache, so the next RECON entry is still near-instant
+          setPreloadWhenHidden(tileset, false)
           if (!cancelled) usePhoto.getState().patch({ ready: true, warming: false })
         })
+        // one-shot warm window, after the cinematic reveal has settled
+        warmTimerRef.id = window.setTimeout(() => {
+          if (cancelled || viewer.isDestroyed() || usePhoto.getState().ready) return
+          setPreloadWhenHidden(tileset, true)
+          usePhoto.getState().patch({ warming: true })
+        }, WARM_DELAY_MS)
       })
       .catch((error: unknown) => {
-        patch({ warming: false })
         console.warn('[Athena] photoreal tileset failed to load', error)
       })
 
-    void fetchSplatIndex().then(async (configs) => {
-      for (const config of configs) {
-        if (cancelled) return
-        try {
-          const tileset = await loadSplatTileset(config)
-          if (!tileset) continue
-          if (cancelled || viewer.isDestroyed()) return
-          attachTileset(viewer, tileset, usePhoto.getState().active)
-          splatsRef.current = [...splatsRef.current, tileset]
-          usePhoto.getState().patch({ splatCount: splatsRef.current.length })
-        } catch (error: unknown) {
-          console.warn(`[Athena] splat "${config.name}" failed to load`, error)
-        }
-      }
-    })
-
     return () => {
       cancelled = true
+      window.clearTimeout(warmTimerRef.id)
       if (!viewer.isDestroyed()) {
         // primitives.remove destroys by default
         if (tilesetRef.current) viewer.scene.primitives.remove(tilesetRef.current)
@@ -164,9 +202,42 @@ export function PhotoModeController({ active }: Props) {
       }
       tilesetRef.current = null
       splatsRef.current = []
+      splatsRequestedRef.current = false
       usePhoto.getState().patch({ warming: false, ready: false, stats: null, splatCount: 0 })
     }
   }, [viewer, phase, grid])
+
+  // --- hero splats: lazy-load on first RECON entry only ----------------------
+  useEffect(() => {
+    if (!viewer || viewer.isDestroyed() || !active || phase !== 'ready' || splatsRequestedRef.current) return
+    splatsRequestedRef.current = true
+    let disposed = false
+    void fetchSplatIndex().then(async (configs) => {
+      for (const config of configs) {
+        if (disposed || viewer.isDestroyed()) return
+        try {
+          const tileset = await loadSplatTileset(config)
+          if (!tileset) continue
+          if (disposed || viewer.isDestroyed()) return
+          attachTileset(viewer, tileset, false)
+          splatsRef.current = [...splatsRef.current, tileset]
+          usePhoto.getState().patch({ splatCount: splatsRef.current.length })
+          updateSplatVisibility(
+            viewer,
+            splatsRef.current,
+            usePhoto.getState().active,
+            QUALITY_TIERS[governorRef.current.tier].splats,
+          )
+        } catch (error: unknown) {
+          console.warn(`[Athena] splat "${config.name}" failed to load`, error)
+        }
+      }
+    })
+    return () => {
+      // tilesets themselves are owned/removed by the lifecycle effect above
+      disposed = true
+    }
+  }, [viewer, active, phase])
 
   // --- activation: swap the scene over, measure time-to-first-photon ---------
   useEffect(() => {
@@ -175,9 +246,9 @@ export function PhotoModeController({ active }: Props) {
     patch({ active })
     if (!active) return
 
-    const savedExaggeration = enterPhotoScene(viewer)
+    const saved = enterPhotoScene(viewer)
     const tileset = tilesetRef.current
-    showTilesets([tileset, ...splatsRef.current], true)
+    showTilesets([tileset], true)
     if (tileset) {
       const t0 = performance.now()
       if (usePhoto.getState().ready) {
@@ -193,7 +264,43 @@ export function PhotoModeController({ active }: Props) {
     return () => {
       if (viewer.isDestroyed()) return
       showTilesets([tilesetRef.current, ...splatsRef.current], false)
-      exitPhotoScene(viewer, savedExaggeration)
+      exitPhotoScene(viewer, saved)
+    }
+  }, [viewer, active])
+
+  // --- adaptive quality governor: converge to interactive frame times --------
+  useEffect(() => {
+    if (!viewer || viewer.isDestroyed() || !active) return
+    const scene = viewer.scene
+    governorRef.current = initialGovernor()
+    lastFrameAtRef.current = performance.now()
+    usePhoto.getState().patch({ tier: governorRef.current.tier })
+    applyTier(viewer, tilesetRef.current, governorRef.current.tier)
+    updateSplatVisibility(viewer, splatsRef.current, true, QUALITY_TIERS[governorRef.current.tier].splats)
+
+    const onPostRender = () => {
+      const now = performance.now()
+      const frameMs = now - lastFrameAtRef.current
+      lastFrameAtRef.current = now
+      const next = stepGovernor(governorRef.current, frameMs)
+      const tierChanged = next.tier !== governorRef.current.tier
+      governorRef.current = next
+      if (tierChanged) {
+        applyTier(viewer, tilesetRef.current, next.tier)
+        updateSplatVisibility(viewer, splatsRef.current, true, QUALITY_TIERS[next.tier].splats)
+        usePhoto.getState().patch({ tier: next.tier })
+      }
+    }
+    scene.postRender.addEventListener(onPostRender)
+
+    const onMoveEnd = () => {
+      updateSplatVisibility(viewer, splatsRef.current, true, QUALITY_TIERS[governorRef.current.tier].splats)
+    }
+    viewer.camera.moveEnd.addEventListener(onMoveEnd)
+
+    return () => {
+      scene.postRender.removeEventListener(onPostRender)
+      viewer.camera.moveEnd.removeEventListener(onMoveEnd)
     }
   }, [viewer, active])
 
