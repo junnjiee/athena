@@ -7,15 +7,19 @@ from athena.types import Position, SurvivalState
 
 
 SOLDIER_EYE_HEIGHT = 1.0
+MAX_VISION_RANGE = 100.0
+"""Hard ceiling on how far any soldier can see, regardless of vision or elevation."""
 
 
 class VisionResolver:
     def __init__(
         self,
         concealment_detection_penalty: float = 0.0,
+        max_vision_range: float = MAX_VISION_RANGE,
         rng: Random | None = None,
     ) -> None:
         self.concealment_detection_penalty = concealment_detection_penalty
+        self.max_vision_range = max_vision_range
         self.rng = rng or Random()
 
     def verify_los(
@@ -134,19 +138,20 @@ class VisionResolver:
         target_position: Position,
         observer_vision_range: float,
     ) -> bool:
-        """Apply one cell of range per relative elevation level.
+        """Whether the target lies within the observer's spherical vision.
 
-        Distance remains horizontal because the battlefield is a single walkable
-        surface. Elevation changes the observer's range asymmetrically rather than
-        turning the grid into free-form voxel space.
+        Distance is full 3D Euclidean: horizontal offset plus elevation
+        difference. Elevation therefore never extends how far a soldier sees; it
+        only adds distance to a target above or below. High ground's advantage
+        comes solely from clearing line of sight (see verify_los and
+        _terrain_blocks_los), not from range. Range is capped at the resolver's
+        configurable max_vision_range.
         """
         dx = target_position.x - observer_position.x
         dy = target_position.y - observer_position.y
-        effective_range = max(
-            1.0,
-            observer_vision_range + observer_position.z - target_position.z,
-        )
-        return dx * dx + dy * dy <= effective_range * effective_range
+        dz = target_position.z - observer_position.z
+        effective_range = min(observer_vision_range, self.max_vision_range)
+        return dx * dx + dy * dy + dz * dz <= effective_range * effective_range
 
     def _hard_cover_blocks_los(
         self,
