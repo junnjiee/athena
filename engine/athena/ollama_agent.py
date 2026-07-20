@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from typing import Awaitable, Callable
 
+from athena.params import MAX_ACTION_ATTEMPTS, MAX_ELEVATION_CHANGE
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
@@ -13,23 +14,34 @@ from athena.models import Action, ChosenAction, MoveAction, ObservedSoldier, Sho
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 _CHOSEN_ACTION_SCHEMA = ChosenAction.model_json_schema()
 
-SYSTEM_PROMPT = (
-    "You are a soldier-agent in a grid battlefield simulation. "
-    "Choose exactly one move action. The available_terrain cells describe every grid cell in your local "
-    "range, including elevation, cover, and concealment; use them to navigate. "
-    "Return only the structured action."
-    "\n\nTeam objectives:"
-    "\n- Blue: advance toward the right/east side of the battlefield."
-    "\n- Red: advance toward the left/west side of the battlefield."
-    "\n\nIllegal actions:"
-    "\n- Shooting; this backend supports movement only."
-    "\n- Moving outside the battlefield."
-    "\n- Moving more than one grid cell."
-    "\n- Moving into a cover cell."
-    "\n- Moving to a cell whose elevation differs by more than one level."
-    "\n- Moving into a cell occupied by a casualty or dead soldier."
-    "\n- Moving into a cell occupied by a stationary living soldier."
-)
+def build_system_prompt(max_elevation_change: int) -> str:
+    """Describe the effective movement limit to the local agent."""
+    elevation_limit = (
+        "one level"
+        if max_elevation_change == 1
+        else f"{max_elevation_change} levels"
+    )
+    return (
+        "You are a soldier-agent in a grid battlefield simulation. "
+        "Choose exactly one move action. The available_terrain cells describe every grid cell in your local "
+        "range, including elevation, cover, and concealment; use them to navigate. "
+        "Return only the structured action."
+        "\n\nTeam objectives:"
+        "\n- Blue: advance toward the right/east side of the battlefield."
+        "\n- Red: advance toward the left/west side of the battlefield."
+        "\n\nIllegal actions:"
+        "\n- Shooting; this backend supports movement only."
+        "\n- Moving outside the battlefield."
+        "\n- Moving more than one grid cell."
+        "\n- Moving into a cover cell."
+        "\n- Moving to a cell whose elevation differs by more than "
+        f"{elevation_limit}."
+        "\n- Moving into a cell occupied by a casualty or dead soldier."
+        "\n- Moving into a cell occupied by a stationary living soldier."
+    )
+
+
+SYSTEM_PROMPT = build_system_prompt(MAX_ELEVATION_CHANGE)
 
 
 # Ollama base URL from $OLLAMA_HOST (localhost default, scheme optional); read lazily so .env is honored.
@@ -108,14 +120,19 @@ async def choose_action_local(
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
-    max_attempts: int = 3,
+    max_attempts: int = MAX_ACTION_ATTEMPTS,
     model: str | None = None,
 ) -> Action | None:
     if model is None:
         model = resolve_local_model()
 
     async def propose() -> ChosenAction:
-        return await asyncio.to_thread(_request_local_action, observed_soldier, model)
+        return await asyncio.to_thread(
+            _request_local_action,
+            observed_soldier,
+            model,
+            movement_resolver.max_elevation_change,
+        )
 
     return await _resolve_action(
         propose, battlefield, soldier, movement_resolver, max_attempts
@@ -126,11 +143,15 @@ async def choose_action_local(
 def _request_local_action(
     observed_soldier: ObservedSoldier,
     model: str,
+    max_elevation_change: int = MAX_ELEVATION_CHANGE,
 ) -> ChosenAction:
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": build_system_prompt(max_elevation_change),
+            },
             {"role": "user", "content": observed_soldier.model_dump_json()},
         ],
         "format": _CHOSEN_ACTION_SCHEMA,

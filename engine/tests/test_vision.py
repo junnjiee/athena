@@ -117,6 +117,19 @@ def test_hill_blocks_soldier_los_for_both_teams(target_team: Team) -> None:
     assert not VisionResolver().verify_los(battlefield, observer, target)
 
 
+def test_soldier_eye_height_is_configurable() -> None:
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=5)
+    target = Soldier(Team.RED, Position(x=2, y=0, z=0), vision_range=5)
+    battlefield = Battlefield(width=3, height=1, soldiers=[observer, target])
+
+    assert VisionResolver().verify_los(battlefield, observer, target)
+    assert not VisionResolver(soldier_eye_height=0).verify_los(
+        battlefield,
+        observer,
+        target,
+    )
+
+
 def test_high_observer_can_see_over_terrain_below_sightline() -> None:
     observer = Soldier(Team.BLUE, Position(x=0, y=0, z=2), vision_range=5)
     target = Soldier(Team.RED, Position(x=2, y=0, z=0), vision_range=5)
@@ -257,7 +270,7 @@ def test_friendly_soldier_still_ignores_hard_cover_below_sightline() -> None:
     assert VisionResolver().verify_los(battlefield, observer, target)
 
 
-def test_concealment_detection_still_uses_xyz_target_position() -> None:
+def test_concealment_hide_probability_uses_xyz_target_position() -> None:
     observer = Soldier(Team.BLUE, Position(x=0, y=0, z=1), vision_range=5)
     target = Soldier(Team.RED, Position(x=1, y=0, z=0), vision_range=5)
     battlefield = Battlefield(
@@ -268,8 +281,12 @@ def test_concealment_detection_still_uses_xyz_target_position() -> None:
         concealment={target.position},
     )
 
+    assert VisionResolver(
+        concealment_hide_probability=0.0,
+        rng=Random(0),
+    ).verify_los(battlefield, observer, target)
     assert not VisionResolver(
-        concealment_detection_penalty=1.0,
+        concealment_hide_probability=1.0,
         rng=Random(0),
     ).verify_los(battlefield, observer, target)
 

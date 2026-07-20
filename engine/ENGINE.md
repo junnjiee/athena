@@ -2,6 +2,7 @@
 
 TO AGENTS:
 
+- THIS IS A READ-ONLY FILE FOR AGENTS. YOU MUST OBTAIN EXPLICIT APPROVAL BEFORE WRITING TO THIS FILE
 - Always document the behaviour of new features here
 - If this document disagrees with actual implementation, it should always be brought up
 
@@ -18,6 +19,11 @@ The document distinguishes three kinds of values and behavior:
    rather than a universal engine rule.
 3. **Hardcoded rule** -> behavior is implemented directly and cannot yet be
    changed through configuration.
+
+Tunable engine defaults and the OpenRouter system-prompt template are centralized in
+`athena/params.py`. Constructors and function parameters may still override defaults
+for a particular simulation. Scenario data and provider-specific transport settings
+remain with their existing owners.
 
 ## Authority and information boundaries
 
@@ -87,10 +93,10 @@ custom collection of ground `Position` values are scenario inputs.
 
 A soldier currently has four properties:
 
-- team;
-- exact XYZ surface position;
-- survival state; and
-- vision range.
+- team
+- exact XYZ surface position
+- survival state
+- vision range
 
 The current soldier assumptions are:
 
@@ -150,15 +156,16 @@ the full 3D range and terrain line-of-sight checks.
 
 ### Tunable vision parameters
 
-| Parameter                     | Current default | Current owner                  |
-| ----------------------------- | --------------: | ------------------------------ |
-| Soldier vision range          |          `10.0` | `Soldier`                      |
-| Maximum vision range          |         `100.0` | `VisionResolver`               |
-| Soldier eye height            |           `1.0` | module constant in `vision.py` |
-| Concealment detection penalty |           `0.0` | `VisionResolver`               |
+| Parameter                    | Current default | Runtime owner    |
+| ---------------------------- | --------------: | ---------------- |
+| Soldier vision range         |          `10.0` | `Soldier`        |
+| Maximum vision range         |         `100.0` | `VisionResolver` |
+| Soldier eye height           |           `1.0` | `VisionResolver` |
+| Concealment hide probability |           `0.0` | `VisionResolver` |
 
-Soldier vision range, maximum vision range, and concealment penalty are configurable
-today. Eye height is currently a hardcoded constant.
+All defaults come from `athena/params.py`. Soldier vision range remains a per-soldier
+scenario input; the other values can be overridden when constructing a
+`VisionResolver`.
 
 ### Range
 
@@ -189,8 +196,8 @@ that assumption.
 
 ### Terrain line of sight
 
-- An observer's eye is one elevation level above its ground position.
-- The target sight point is also one elevation level above its ground position.
+- Observer and target sight points are the configured soldier eye height above
+  their ground positions. The current default is one elevation level.
 - The sightline runs between cell centers.
 - Only intervening grid cells are checked; observer and target cells are excluded.
 - At each intervening cell, terrain height is compared with the interpolated
@@ -221,16 +228,16 @@ The friendly-cover exception is a hardcoded information-model shortcut.
   cell.
 - Intervening concealment has no effect.
 - Friendly soldiers ignore concealment.
-- Concealed-enemy detection probability is:
+- The probability that concealment hides its occupant is:
 
 $$
-P(\text{detect}) = \operatorname{clamp}
-\left(1-p_{\text{concealment penalty}}, 0, 1\right).
+P(\text{hidden}) = \operatorname{clamp}
+\left(p_{\text{concealment hide}}, 0, 1\right).
 $$
 
-- Detection succeeds when `roll <= P(detect)`.
-- The default penalty is zero, so concealment has no practical effect unless a
-  non-zero value is configured.
+- The occupant stays hidden when `roll < P(hidden)`; otherwise detection succeeds.
+- The default hide probability is zero, so concealment has no practical effect
+  unless a non-zero value is configured.
 - Detection is rerolled whenever visibility is recomputed.
 - Detection is not remembered, shared between soldiers, or stored in battlefield
   snapshots.
@@ -242,13 +249,13 @@ The concealment resolver accepts an injectable random generator.
 
 ### Tunable movement parameters
 
-| Parameter                |     Current default | Current owner      |
+| Parameter                |     Current default | Runtime owner      |
 | ------------------------ | ------------------: | ------------------ |
 | Maximum elevation change |                 `1` | `MovementResolver` |
 | Conflict randomness      | unseeded `Random()` | `MovementResolver` |
 
-Both values can be injected today, although there is no central run-level random
-seed.
+The elevation default comes from `athena/params.py`. Both values can be injected
+today, although there is no central run-level random seed.
 
 ### Individual move legality
 
@@ -312,13 +319,16 @@ soldier casualty transition.
 
 ### Tunable rifle parameters
 
-| Parameter                    |     Current default | Current owner      |
+| Parameter                    |     Current default | Runtime owner      |
 | ---------------------------- | ------------------: | ------------------ |
 | Base hit probability         |              `0.90` | `ShootingResolver` |
 | Elevation modifier per level |              `0.02` | `ShootingResolver` |
 | Minimum hit probability      |              `0.50` | `ShootingResolver` |
 | Maximum hit probability      |              `0.99` | `ShootingResolver` |
 | Hit randomness               | unseeded `Random()` | `ShootingResolver` |
+
+The four probability defaults come from `athena/params.py` and can be overridden
+when constructing a `ShootingResolver`.
 
 ### Shoot-action legality
 
@@ -371,18 +381,22 @@ random roll in `[0, 1)` produces a hit when `roll < P(hit)`.
 
 ### Tunable loop and provider parameters
 
-| Parameter                |              Current default | Current owner                                 |
-| ------------------------ | ---------------------------: | --------------------------------------------- |
-| Maximum action attempts  |                          `3` | `LoopEngine`, OpenRouter and Ollama functions |
-| Visibility history limit |                         `10` | `LoopEngine`                                  |
-| Hosted model             | `deepseek/deepseek-v4-flash` | `agent.py`                                    |
-| Ollama host              |     `http://localhost:11434` | `ollama_agent.py` or `OLLAMA_HOST`            |
-| Ollama discovery timeout |                 `10` seconds | `ollama_agent.py`                             |
-| Ollama action timeout    |                `120` seconds | `ollama_agent.py`                             |
+| Parameter                  |              Current default | Runtime owner                      |
+| -------------------------- | ---------------------------: | ---------------------------------- |
+| Maximum action attempts    |                          `3` | `LoopEngine` and agent functions   |
+| Visibility history limit   |                         `10` | `LoopEngine`                       |
+| OpenRouter prompt template |             tunable template | `params.py`                        |
+| Hosted model               | `deepseek/deepseek-v4-flash` | `agent.py`                         |
+| Ollama host                |     `http://localhost:11434` | `ollama_agent.py` or `OLLAMA_HOST` |
+| Ollama discovery timeout   |                 `10` seconds | `ollama_agent.py`                  |
+| Ollama action timeout      |                `120` seconds | `ollama_agent.py`                  |
 
-Maximum attempts is duplicated across multiple function defaults. History length is
-also stated literally in the OpenRouter prompt, so either value can drift from the
-behavior described to the model.
+The action-attempt and history defaults come from `athena/params.py`. The OpenRouter
+prompt is rendered from the effective history limit and movement resolver, so
+constructor overrides remain aligned with the behavior described to the model.
+The OpenRouter prompt template is tunable in `params.py`; Ollama retains its separate
+movement-only prompt in `ollama_agent.py`. Provider model, host, and timeout defaults
+remain in their provider modules.
 
 ### Action schema and retries
 
@@ -404,31 +418,27 @@ Both prompts currently embed scenario and engine rules directly:
 
 - Blue advances east and Red advances west.
 - Movement is one cell.
-- Maximum elevation change is one level.
+- Maximum elevation change is rendered from the active movement resolver.
 - Cover is impassable.
 - Occupied stationary cells are unavailable.
 - OpenRouter may shoot visible living enemies.
 - Ollama may not shoot.
-- The OpenRouter history description says the limit is ten.
+- The OpenRouter history description is rendered from the active loop limit.
 
-The team objectives are scenario assumptions, while the movement, shooting, and
-history statements duplicate engine behavior. Changing the engine parameters without
-updating the prompt can mislead the agent.
+The team objectives remain scenario assumptions embedded in the prompts. Structural
+movement and shooting statements still mirror hardcoded engine behavior, while the
+tunable elevation and history values are inserted from the effective runtime values.
 
 ### Scheduling and failure behavior
 
 - `LoopEngine` schedules one action-chooser call for every soldier, including
   casualties and dead soldiers.
 - All chooser calls run concurrently through `asyncio.gather`.
-- Concurrency is not capped.
 - Result order remains aligned with soldier order.
 - If any chooser raises, action collection raises and execution does not commit a
   state change for that tick.
 - OpenRouter has no explicit request timeout in Athena's code.
 - There is no retry policy for transport failures distinct from invalid actions.
-
-Scheduling non-alive soldiers, unbounded concurrency, fail-the-tick behavior, and the
-absence of an OpenRouter timeout are current operational assumptions.
 
 ### Visibility history
 

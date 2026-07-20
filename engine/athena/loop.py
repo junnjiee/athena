@@ -4,6 +4,7 @@ from math import ceil
 from typing import Awaitable, Callable
 
 from athena.agent import choose_action
+from athena.params import MAX_ACTION_ATTEMPTS, VISIBILITY_HISTORY_LIMIT
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -36,13 +37,14 @@ class LoopEngine:
         movement_resolver: MovementResolver,
         action_chooser: ActionChooser = choose_action,
         shooting_resolver: ShootingResolver | None = None,
-        visibility_history_limit: int = 10,
+        visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
         self.action_chooser = action_chooser
         self.shooting_resolver = shooting_resolver or ShootingResolver()
+        self.visibility_history_limit = visibility_history_limit
         self.tick_number = 0
         self.visibility_history = [
             deque[VisibilityObservation](maxlen=visibility_history_limit)
@@ -138,7 +140,7 @@ class LoopEngine:
 
     async def collect_valid_actions(
         self,
-        max_attempts: int = 3,
+        max_attempts: int = MAX_ACTION_ATTEMPTS,
         observed_soldiers: list[ObservedSoldier] | None = None,
     ) -> list[Action | None]:
         """
@@ -164,12 +166,13 @@ class LoopEngine:
                     soldier=self.battlefield.soldiers[soldier_index],
                     movement_resolver=self.movement_resolver,
                     max_attempts=max_attempts,
+                    visibility_history_limit=self.visibility_history_limit,
                 )
                 for soldier_index, observed_soldier in enumerate(observed_soldiers)
             ]
         )
 
-    async def tick(self, max_attempts: int = 3) -> ExecutionResult:
+    async def tick(self, max_attempts: int = MAX_ACTION_ATTEMPTS) -> ExecutionResult:
         observed_soldiers = self.observed_soldiers_map()
         actions = await self.collect_valid_actions(
             max_attempts=max_attempts,

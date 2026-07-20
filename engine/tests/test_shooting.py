@@ -3,11 +3,16 @@ from random import Random
 
 import pytest
 
-from athena.agent import SYSTEM_PROMPT, _resolve_action
+from athena.agent import (
+    SYSTEM_PROMPT,
+    _resolve_action,
+)
+from athena.params import build_system_prompt as build_openrouter_system_prompt
 from athena.world_state import Battlefield
 from athena.ollama_agent import (
     SYSTEM_PROMPT as OLLAMA_SYSTEM_PROMPT,
     _resolve_action as resolve_ollama_action,
+    build_system_prompt as build_ollama_system_prompt,
 )
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -96,6 +101,18 @@ def test_openrouter_prompt_lists_illegal_shooting_actions() -> None:
 
 def test_ollama_prompt_lists_shooting_as_illegal() -> None:
     assert "Shooting; this backend supports movement only." in OLLAMA_SYSTEM_PROMPT
+
+
+def test_agent_prompts_use_effective_engine_limits() -> None:
+    openrouter_prompt = build_openrouter_system_prompt(
+        visibility_history_limit=7,
+        max_elevation_change=2,
+    )
+    ollama_prompt = build_ollama_system_prompt(max_elevation_change=2)
+
+    assert "up to 7 prior tick observations" in openrouter_prompt
+    assert "elevation differs by more than 2 levels" in openrouter_prompt
+    assert "elevation differs by more than 2 levels" in ollama_prompt
 
 
 def test_accepts_visible_living_enemy_target() -> None:

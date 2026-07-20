@@ -2,6 +2,7 @@ from random import Random
 
 from athena.world_state import Battlefield, Soldier
 from athena.models import MoveAction, MoveDirection, Position, SurvivalState
+from athena.params import MAX_ELEVATION_CHANGE
 
 
 MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {
@@ -19,7 +20,7 @@ MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {
 class MovementResolver:
     def __init__(
         self,
-        max_elevation_change: int = 1,
+        max_elevation_change: int = MAX_ELEVATION_CHANGE,
         rng: Random | None = None,
     ) -> None:
         """Treat elevation as terrain, not as a separate vertical move action."""

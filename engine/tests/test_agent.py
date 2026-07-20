@@ -63,10 +63,13 @@ def test_openrouter_receives_current_observation_and_visibility_history(
             agent_context=agent_context,
             battlefield=battlefield,
             soldier=soldier,
-            movement_resolver=MovementResolver(),
+            movement_resolver=MovementResolver(max_elevation_change=2),
+            visibility_history_limit=7,
         )
     )
 
     assert result == MoveAction(direction=MoveDirection.EAST)
     assert "ordered from oldest to newest" in messages[0][1]
+    assert "up to 7 prior tick observations" in messages[0][1]
+    assert "elevation differs by more than 2 levels" in messages[0][1]
     assert json.loads(messages[1][1]) == json.loads(agent_context.model_dump_json())

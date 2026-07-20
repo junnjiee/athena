@@ -4,7 +4,15 @@
 
 Always read `ENGINE.md` at the start of any task. This is the single source of truth of the engine, and should always remain the truth.
 
-Any addition, edit or removal of features that affect engine behaviour or modelling assumptions should always be updated to `ENGINE.md`
+Any addition, edit or removal of features that affect engine behaviour or modelling assumptions should always be updated
+to `ENGINE.md`. Since you can't make changes without approval, always consult your human.
+
+## Strictly No Agent Zones
+
+You are not allowed to make changes without approval in these files. Always ask your human.
+
+- `ENGINE.md`
+- `AGENTS.md`
 
 ## Philosophy
 
@@ -20,3 +28,7 @@ Examples:
   input, since we are the ones controlling the input.
 - Bring up and document caller assumptions instead of writing defensive measures for every
   possible case. We keep the codebase lean and only fix assumptions that actually broke.
+
+## Other Notes
+
+Ollama implementation is currently broken. This is INTENDED. Ignore Ollama implementation totally when building.

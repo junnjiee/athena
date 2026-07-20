@@ -8,6 +8,7 @@ from io import StringIO
 from dotenv import load_dotenv
 
 from athena.agent import choose_action
+from athena.params import MAX_ACTION_ATTEMPTS, VISIBILITY_HISTORY_LIMIT
 from athena.ollama_agent import (
     OllamaUnavailable,
     choose_action_local,
@@ -45,7 +46,8 @@ def adapt_local_action_chooser(model: str) -> ActionChooser:
         battlefield: Battlefield,
         soldier: Soldier,
         movement_resolver: MovementResolver,
-        max_attempts: int = 3,
+        max_attempts: int = MAX_ACTION_ATTEMPTS,
+        visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
     ):
         return await choose_action_local(
             observed_soldier=agent_context.current_observation,
