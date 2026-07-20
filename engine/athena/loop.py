@@ -4,10 +4,10 @@ from math import ceil
 from typing import Awaitable, Callable
 
 from athena.agent import choose_action
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.resolvers.vision import VisionResolver
 from athena.types import (
     Action,

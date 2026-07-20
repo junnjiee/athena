@@ -1,8 +1,8 @@
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import MoveAction, MoveDirection, Position, Team
 
 

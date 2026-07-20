@@ -2,9 +2,9 @@ import asyncio
 import json
 
 from athena import agent
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import (
     AgentContext,
     AvailableTerrain,

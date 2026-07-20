@@ -13,11 +13,11 @@ from athena.ollama_agent import (
     choose_action_local,
     resolve_local_model,
 )
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import (
     AgentContext,
     ExecutionResult,

@@ -3,7 +3,7 @@ from io import StringIO
 from random import Random
 
 from athena import demo
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.demo import (
     both_teams_have_living_soldiers,
     render_demo_frame,
@@ -12,7 +12,7 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import MoveAction, MoveDirection, Position, ShootAction, Team
 
 

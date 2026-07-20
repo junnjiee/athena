@@ -1,8 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from athena.battlefield import Battlefield
-from athena.soldier import Soldier
+from athena.world_state import Battlefield, Soldier
 from athena.types import Position, Team
 
 

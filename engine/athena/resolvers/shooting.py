@@ -1,6 +1,6 @@
 from random import Random
 
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import (
     BattlefieldSnapshot,
     ObservedSoldier,

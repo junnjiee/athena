@@ -1,5 +1,5 @@
-from athena.soldier import Soldier
 from athena.types import BattlefieldSnapshot, Position, SoldierSnapshot
+from athena.world_state.soldier import Soldier
 
 
 class Battlefield:

@@ -4,14 +4,14 @@ from random import Random
 import pytest
 
 from athena.agent import SYSTEM_PROMPT, _resolve_action
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.ollama_agent import (
     SYSTEM_PROMPT as OLLAMA_SYSTEM_PROMPT,
     _resolve_action as resolve_ollama_action,
 )
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
-from athena.soldier import Soldier
+from athena.world_state import Soldier
 from athena.types import (
     AvailableTerrain,
     ChosenAction,

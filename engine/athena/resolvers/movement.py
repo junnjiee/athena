@@ -1,7 +1,6 @@
 from random import Random
 
-from athena.battlefield import Battlefield
-from athena.soldier import Soldier
+from athena.world_state import Battlefield, Soldier
 from athena.types import MoveAction, MoveDirection, Position, SurvivalState
 
 

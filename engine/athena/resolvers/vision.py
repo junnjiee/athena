@@ -1,8 +1,7 @@
 from math import inf
 from random import Random
 
-from athena.battlefield import Battlefield
-from athena.soldier import Soldier
+from athena.world_state import Battlefield, Soldier
 from athena.types import Position, SurvivalState
 
 
