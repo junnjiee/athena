@@ -13,7 +13,7 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.types import MoveAction, MoveDirection, Position, ShootAction, Team
+from athena.models import MoveAction, MoveDirection, Position, ShootAction, Team
 
 
 def loop_for(soldiers: list[Soldier]) -> LoopEngine:

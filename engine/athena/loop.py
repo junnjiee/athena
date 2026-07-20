@@ -9,7 +9,7 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.resolvers.vision import VisionResolver
-from athena.types import (
+from athena.models import (
     Action,
     AgentContext,
     AvailableTerrain,

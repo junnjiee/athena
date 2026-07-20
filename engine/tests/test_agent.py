@@ -5,7 +5,7 @@ from athena import agent
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
-from athena.types import (
+from athena.models import (
     AgentContext,
     AvailableTerrain,
     ChosenAction,

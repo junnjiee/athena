@@ -1,4 +1,4 @@
-from athena.types import Position, SurvivalState, Team
+from athena.models import Position, SurvivalState, Team
 
 
 class Soldier:

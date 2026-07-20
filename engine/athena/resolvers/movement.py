@@ -1,7 +1,7 @@
 from random import Random
 
 from athena.world_state import Battlefield, Soldier
-from athena.types import MoveAction, MoveDirection, Position, SurvivalState
+from athena.models import MoveAction, MoveDirection, Position, SurvivalState
 
 
 MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {

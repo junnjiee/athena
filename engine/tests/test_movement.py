@@ -3,7 +3,7 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.types import MoveAction, MoveDirection, Position, Team
+from athena.models import MoveAction, MoveDirection, Position, Team
 
 
 def battlefield_with_elevations(

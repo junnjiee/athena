@@ -8,7 +8,7 @@ from typing import Awaitable, Callable
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
-from athena.types import Action, ChosenAction, MoveAction, ObservedSoldier, ShootAction
+from athena.models import Action, ChosenAction, MoveAction, ObservedSoldier, ShootAction
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 _CHOSEN_ACTION_SCHEMA = ChosenAction.model_json_schema()

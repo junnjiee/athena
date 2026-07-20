@@ -2,7 +2,7 @@ from math import inf
 from random import Random
 
 from athena.world_state import Battlefield, Soldier
-from athena.types import Position, SurvivalState
+from athena.models import Position, SurvivalState
 
 
 SOLDIER_EYE_HEIGHT = 1.0

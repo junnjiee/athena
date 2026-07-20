@@ -12,7 +12,7 @@ from athena.ollama_agent import (
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
-from athena.types import (
+from athena.models import (
     AvailableTerrain,
     ChosenAction,
     MoveAction,

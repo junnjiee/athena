@@ -7,7 +7,7 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.types import Position, SurvivalState, Team
+from athena.models import Position, SurvivalState, Team
 
 
 def surface_for(*positions: Position) -> set[Position]:

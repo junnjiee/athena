@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from athena.world_state import Battlefield, Soldier
-from athena.types import Position, Team
+from athena.models import Position, Team
 
 
 def test_position_requires_xyz_coordinates() -> None:
