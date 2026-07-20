@@ -17,19 +17,16 @@ from athena.models.execution import (
 )
 from athena.models.observations import (
     AgentContext,
-    AvailableTerrain,
     ObservedSoldier,
     TerrainCell,
     VisibilityObservation,
     VisibleSoldier,
-    VisibleSoldiers,
 )
 
 __all__ = [
     "Action",
     "ActionKind",
     "AgentContext",
-    "AvailableTerrain",
     "BattlefieldSnapshot",
     "ChosenAction",
     "ExecutionResult",
@@ -45,5 +42,4 @@ __all__ = [
     "TerrainCell",
     "VisibilityObservation",
     "VisibleSoldier",
-    "VisibleSoldiers",
 ]

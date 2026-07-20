@@ -203,10 +203,10 @@ def _print_demo_frame(
         visible_soldiers = [
             f"{soldier.team.value}@"
             f"({soldier.position.x},{soldier.position.y},{soldier.position.z})"
-            for soldier in observation.visible_soldiers.soldiers
+            for soldier in observation.visible_soldiers
         ]
         visible_soldiers_text = ", ".join(visible_soldiers) or "none"
-        terrain_cells = observation.available_terrain.cells
+        terrain_cells = observation.available_terrain
         cover_count = sum(cell.has_cover for cell in terrain_cells)
         concealment_count = sum(cell.has_concealment for cell in terrain_cells)
 

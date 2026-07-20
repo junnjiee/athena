@@ -12,7 +12,6 @@ from athena.resolvers.vision import VisionResolver
 from athena.models import (
     Action,
     AgentContext,
-    AvailableTerrain,
     BattlefieldSnapshot,
     ExecutionResult,
     MoveAction,
@@ -21,7 +20,6 @@ from athena.models import (
     ShootAction,
     TerrainCell,
     VisibleSoldier,
-    VisibleSoldiers,
     VisibilityObservation,
 )
 
@@ -51,14 +49,14 @@ class LoopEngine:
             for _ in battlefield.soldiers
         ]
 
-    def visible_soldiers_map(self) -> list[VisibleSoldiers]:
+    def visible_soldiers_map(self) -> list[list[VisibleSoldier]]:
         """
         This array shows other soldiers that are visible to the
         current soldier. Index is mapped to battlefield.soldiers.
 
         NOTE: might be slow at scale, this is a O(n^2) operation
         """
-        visible_by_soldier: list[VisibleSoldiers] = []
+        visible_by_soldier: list[list[VisibleSoldier]] = []
 
         for observer in self.battlefield.soldiers:
             visible_soldiers = [
@@ -74,11 +72,11 @@ class LoopEngine:
                     target,
                 )
             ]
-            visible_by_soldier.append(VisibleSoldiers(soldiers=visible_soldiers))
+            visible_by_soldier.append(visible_soldiers)
 
         return visible_by_soldier
 
-    def nearby_terrain_map(self) -> list[AvailableTerrain]:
+    def nearby_terrain_map(self) -> list[list[TerrainCell]]:
         """
         Cells each soldier has line of sight to: within (capped) vision range and
         not hidden behind intervening terrain.
@@ -86,7 +84,7 @@ class LoopEngine:
         Only the local vision window is scanned, sized by the capped range.
         Iterating y-then-x yields cells in (y, x) order.
         """
-        terrain_by_soldier: list[AvailableTerrain] = []
+        terrain_by_soldier: list[list[TerrainCell]] = []
 
         cap = self.vision_resolver.max_vision_range
         for observer in self.battlefield.soldiers:
@@ -115,7 +113,7 @@ class LoopEngine:
                         )
                     )
 
-            terrain_by_soldier.append(AvailableTerrain(cells=cells))
+            terrain_by_soldier.append(cells)
 
         return terrain_by_soldier
 

@@ -13,7 +13,6 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
-    AvailableTerrain,
     ChosenAction,
     MoveAction,
     MoveDirection,
@@ -23,7 +22,6 @@ from athena.models import (
     SurvivalState,
     Team,
     VisibleSoldier,
-    VisibleSoldiers,
 )
 
 
@@ -35,8 +33,8 @@ def observation(
         team=soldier.team,
         position=soldier.position,
         survival_status=soldier.survival_status,
-        visible_soldiers=VisibleSoldiers(soldiers=visible_soldiers),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=visible_soldiers,
+        available_terrain=[],
     )
 
 

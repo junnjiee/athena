@@ -18,24 +18,12 @@ class VisibleSoldier(BaseModel):
     survival_status: SurvivalState
 
 
-class VisibleSoldiers(BaseModel):
-    model_config = IMMUTABLE_MODEL_CONFIG
-
-    soldiers: list[VisibleSoldier]
-
-
 class TerrainCell(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     position: Position
     has_cover: bool
     has_concealment: bool
-
-
-class AvailableTerrain(BaseModel):
-    model_config = IMMUTABLE_MODEL_CONFIG
-
-    cells: list[TerrainCell]
 
 
 class ObservedSoldier(BaseModel):
@@ -46,8 +34,8 @@ class ObservedSoldier(BaseModel):
     team: Team
     position: Position
     survival_status: SurvivalState
-    visible_soldiers: VisibleSoldiers
-    available_terrain: AvailableTerrain
+    visible_soldiers: list[VisibleSoldier]
+    available_terrain: list[TerrainCell]
 
 
 class VisibilityObservation(BaseModel):
@@ -56,8 +44,8 @@ class VisibilityObservation(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     tick: int
-    visible_soldiers: VisibleSoldiers
-    available_terrain: AvailableTerrain
+    visible_soldiers: list[VisibleSoldier]
+    available_terrain: list[TerrainCell]
 
 
 class AgentContext(BaseModel):

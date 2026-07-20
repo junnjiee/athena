@@ -252,8 +252,8 @@ def test_tick_supplies_each_soldier_with_its_own_visibility_history() -> None:
     assert second_tick_contexts[1][1].visibility_history == (
         first_result.observations[1],
     )
-    assert len(first_result.observations[0].visible_soldiers.soldiers) == 1
-    assert first_result.observations[1].visible_soldiers.soldiers == []
+    assert len(first_result.observations[0].visible_soldiers) == 1
+    assert first_result.observations[1].visible_soldiers == []
 
 
 def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:

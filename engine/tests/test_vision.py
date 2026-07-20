@@ -54,7 +54,7 @@ def test_alive_observer_sees_friendly_non_living_status(
         movement_resolver=MovementResolver(),
     )
 
-    visible_friendly = loop.visible_soldiers_map()[0].soldiers[0]
+    visible_friendly = loop.visible_soldiers_map()[0][0]
 
     assert visible_friendly.position == friendly.position
     assert visible_friendly.survival_status == survival_status
@@ -292,7 +292,7 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         movement_resolver=MovementResolver(),
     )
 
-    cells = loop.nearby_terrain_map()[0].cells
+    cells = loop.nearby_terrain_map()[0]
 
     assert [cell.position for cell in cells] == [
         Position(x=0, y=0, z=0),
@@ -327,7 +327,7 @@ def test_in_range_terrain_behind_hill_is_hidden() -> None:
     )
 
     assert behind_hill not in {
-        cell.position for cell in loop.nearby_terrain_map()[0].cells
+        cell.position for cell in loop.nearby_terrain_map()[0]
     }
 
 
@@ -351,7 +351,7 @@ def test_high_observer_sees_terrain_beyond_lower_rise() -> None:
     )
 
     assert beyond_rise in {
-        cell.position for cell in loop.nearby_terrain_map()[0].cells
+        cell.position for cell in loop.nearby_terrain_map()[0]
     }
 
 

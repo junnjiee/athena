@@ -49,7 +49,7 @@ class ShootingResolver:
         # O(n) - looping thru all visible soldiers
         eligible_targets = [
             visible_soldier
-            for visible_soldier in observed_soldier.visible_soldiers.soldiers
+            for visible_soldier in observed_soldier.visible_soldiers
             if visible_soldier.position == action.target_position
             and visible_soldier.team != soldier.team  # this line prevents fratricide
             and visible_soldier.survival_status == SurvivalState.ALIVE

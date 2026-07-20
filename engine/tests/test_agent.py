@@ -7,7 +7,6 @@ from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
 from athena.models import (
     AgentContext,
-    AvailableTerrain,
     ChosenAction,
     MoveAction,
     MoveDirection,
@@ -16,7 +15,6 @@ from athena.models import (
     SurvivalState,
     Team,
     VisibilityObservation,
-    VisibleSoldiers,
 )
 
 
@@ -47,13 +45,13 @@ def test_openrouter_receives_current_observation_and_visibility_history(
         team=Team.BLUE,
         position=soldier.position,
         survival_status=SurvivalState.ALIVE,
-        visible_soldiers=VisibleSoldiers(soldiers=[]),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=[],
+        available_terrain=[],
     )
     historical_observation = VisibilityObservation(
         tick=1,
-        visible_soldiers=VisibleSoldiers(soldiers=[]),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=[],
+        available_terrain=[],
     )
     agent_context = AgentContext(
         current_observation=current_observation,
