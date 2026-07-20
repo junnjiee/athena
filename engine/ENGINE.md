@@ -386,7 +386,7 @@ random roll in `[0, 1)` produces a hit when `roll < P(hit)`.
 | Maximum action attempts    |                          `3` | `LoopEngine` and agent functions   |
 | Visibility history limit   |                         `10` | `LoopEngine`                       |
 | OpenRouter prompt template |             tunable template | `params.py`                        |
-| Hosted model               | `deepseek/deepseek-v4-flash` | `agent.py`                         |
+| Hosted model               |   `openai/gpt-oss-120b:nitro` | `agent.py`                         |
 | Ollama host                |     `http://localhost:11434` | `ollama_agent.py` or `OLLAMA_HOST` |
 | Ollama discovery timeout   |                 `10` seconds | `ollama_agent.py`                  |
 | Ollama action timeout      |                `120` seconds | `ollama_agent.py`                  |

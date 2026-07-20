@@ -64,7 +64,7 @@ async def choose_action(
     soldier: Soldier,
     movement_resolver: MovementResolver,
     max_attempts: int = MAX_ACTION_ATTEMPTS,
-    model: str = "deepseek/deepseek-v4-flash",
+    model: str = "openai/gpt-oss-120b:nitro",
     shooting_resolver: ShootingResolver | None = None,
     visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
 ) -> Action | None:

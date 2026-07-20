@@ -31,7 +31,7 @@ Run a short five-tick simulation:
 uv run python -m athena.demo --ticks 5
 ```
 
-This uses the default hosted model, `deepseek/deepseek-v4-flash`.
+This uses the default hosted model, `openai/gpt-oss-120b:nitro`.
 
 To select another OpenRouter model:
 

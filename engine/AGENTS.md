@@ -7,9 +7,9 @@ Always read `ENGINE.md` at the start of any task. This is the single source of t
 Any addition, edit or removal of features that affect engine behaviour or modelling assumptions should always be updated
 to `ENGINE.md`. Since you can't make changes without approval, always consult your human.
 
-## Strictly No Agent Zones
+## Strictly No Unwarranted Edits
 
-You are not allowed to make changes without approval in these files. Always ask your human.
+You are STRICTLY NOT ALLOWED to make changes without approval in these files. ALWAYS ASK your human.
 
 - `ENGINE.md`
 - `AGENTS.md`
