@@ -43,8 +43,8 @@ remain with their existing owners.
 Agents propose actions, while the engine owns adjudication and state mutation:
 
 1. `LoopEngine` derives local observations from global truth.
-2. The action chooser returns at most one proposed physical action and one optional
-   broadcast per soldier.
+2. The action chooser returns at most one proposed physical action (`hold`, `move`,
+   or `shoot`) and one optional broadcast per soldier.
 3. Resolvers validate and resolve the complete action and broadcast batch.
 4. `LoopEngine` commits accepted movement, casualty, and message-history effects.
 
@@ -412,10 +412,13 @@ remain in their provider modules.
 
 ### Action schema and retries
 
-- The physical-action schema supports only move and shoot.
-- There is no explicit wait, observe, take-cover, treat, or plan action.
-- OpenRouter may propose movement or shooting plus one optional communication-group
-  broadcast in the same turn.
+- The physical-action schema supports hold, move, and shoot.
+- `HoldAction` has no parameters. It is accepted without a resolver and produces no
+  movement, shot, or battlefield-state mutation. A valid broadcast attached to the
+  same turn is still delivered.
+- There is no explicit observe, take-cover, treat, or plan action.
+- OpenRouter may propose holding, movement, or shooting plus one optional
+  communication-group broadcast in the same turn.
 - Ollama is intentionally movement-only and rejects every shoot proposal.
 - Ollama does not receive communication context or propose broadcasts.
 - The chooser requests up to `max_attempts` proposals and returns the first
@@ -437,21 +440,25 @@ remain in their provider modules.
 
 ### Prompt assumptions
 
-Both prompts currently embed scenario and engine rules directly:
+The prompts currently embed scenario and engine rules directly:
 
-- Blue advances east and Red advances west.
+- The default OpenRouter objectives and the Ollama objectives say Blue advances east
+  and Red advances west. An OpenRouter caller may replace the complete team-objective
+  section for a scenario or team without changing the structural engine rules.
 - Movement is one cell.
 - Maximum elevation change is rendered from the active movement resolver.
 - Cover is impassable.
 - Occupied stationary cells are unavailable.
+- OpenRouter may hold position.
 - OpenRouter may shoot visible living enemies.
 - Ollama may not shoot.
 - The OpenRouter history description is rendered from the active loop limit.
 - OpenRouter is told that broadcasts must target one of the communication groups in
   its context and arrive on the next tick.
 
-The team objectives remain scenario assumptions embedded in the prompts. Structural
-movement and shooting statements still mirror hardcoded engine behavior, while the
+Team-objective text is a scenario assumption. OpenRouter renders a caller-supplied
+objective when present and otherwise retains its default objectives. Structural hold,
+movement, and shooting statements still mirror hardcoded engine behavior, while the
 tunable elevation and history values are inserted from the effective runtime values.
 
 ### Scheduling and failure behavior
@@ -471,8 +478,8 @@ tunable elevation and history values are inserted from the effective runtime val
 - The current observation is sent separately from history.
 - Each completed tick appends the exact pre-action visibility and own position that
   informed that tick's decision, together with the action submitted for resolution.
-- A historical submitted action is a move with its direction, a shot with its exact
-  target coordinates, or `None` when no action was submitted.
+- A historical submitted action is a hold, a move with its direction, a shot with
+  its exact target coordinates, or `None` when no action was submitted.
 - The submitted action does not report its resolved outcome. In particular, history
   does not say whether a move was accepted or rejected or whether a shot hit or
   missed.
@@ -497,7 +504,7 @@ tunable elevation and history values are inserted from the effective runtime val
 
 ### Broadcast and delivery semantics
 
-- An OpenRouter turn contains one required move or shoot action and at most one
+- An OpenRouter turn contains one required hold, move, or shoot action and at most one
   optional `BroadcastDraft` with a group ID and message content.
 - A valid broadcast is sent only when the soldier was alive in the shared pre-tick
   snapshot and belonged to the selected group.
@@ -554,6 +561,9 @@ The execution assumptions are:
 - Same-tick casualties do not cancel accepted movement or shooting.
 - Same-tick casualties do not cancel a broadcast proposed while the sender was alive.
 - There is no initiative, reaction, interrupt, or within-tick team ordering.
+- A `HoldAction` records an explicit decision to stay in place and leaves battlefield
+  state unchanged, although its optional broadcast can still update communication
+  history.
 - A `None` action leaves that soldier unchanged.
 - An `ExecutionResult` records submitted actions, shot outcomes, accepted team
   messages, pre-action observations, and immutable before/after snapshots.

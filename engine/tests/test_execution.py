@@ -13,6 +13,7 @@ from athena.models import (
     ChosenTurn,
     CommunicationGroup,
     ExecutionResult,
+    HoldAction,
     MoveAction,
     MoveDirection,
     Position,
@@ -189,6 +190,53 @@ def test_none_actions_leave_before_and_after_state_equal() -> None:
     result = loop_for([soldier]).execute_actions([None])
 
     assert result.before == result.after
+
+
+def test_hold_action_leaves_before_and_after_state_equal() -> None:
+    soldier = Soldier(Team.RED, Position(x=1, y=1, z=0))
+
+    result = loop_for([soldier]).execute_actions([HoldAction()])
+
+    assert result.actions == (HoldAction(),)
+    assert result.before == result.after
+
+
+def test_hold_action_can_broadcast() -> None:
+    group = CommunicationGroup(
+        group_id="red-team",
+        name="Red Team",
+        team=Team.RED,
+    )
+    soldier = Soldier(
+        Team.RED,
+        Position(x=1, y=1, z=0),
+        communication_group_ids={group.group_id},
+    )
+    loop = LoopEngine(
+        battlefield=Battlefield(
+            width=3,
+            height=3,
+            soldiers=[soldier],
+            communication_groups=[group],
+        ),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    result = loop.execute_actions(
+        [HoldAction()],
+        broadcasts=[
+            BroadcastDraft(
+                group_id=group.group_id,
+                content="Holding the summit.",
+            )
+        ],
+    )
+
+    assert result.before == result.after
+    assert [message.content for message in result.team_messages] == [
+        "Holding the summit."
+    ]
 
 
 def test_tick_returns_execution_result() -> None:

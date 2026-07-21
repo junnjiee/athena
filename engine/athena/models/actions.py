@@ -11,6 +11,7 @@ from athena.models.common import IMMUTABLE_MODEL_CONFIG, Position
 
 
 class ActionKind(StrEnum):
+    HOLD = "hold"
     MOVE = "move"
     SHOOT = "shoot"
 
@@ -40,7 +41,13 @@ class ShootAction(BaseModel):
     target_position: Position
 
 
-Action: TypeAlias = MoveAction | ShootAction
+class HoldAction(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    kind: Literal[ActionKind.HOLD] = ActionKind.HOLD
+
+
+Action: TypeAlias = HoldAction | MoveAction | ShootAction
 
 
 class ChosenAction(BaseModel):
@@ -91,7 +98,7 @@ class ChosenTurn(BaseModel):
 
     model_config = IMMUTABLE_MODEL_CONFIG
 
-    action: MoveAction | ShootAction
+    action: HoldAction | MoveAction | ShootAction
     broadcast: BroadcastDraft | None = None
 
     @model_validator(mode="before")

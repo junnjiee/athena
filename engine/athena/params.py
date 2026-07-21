@@ -22,9 +22,15 @@ COMMUNICATION_HISTORY_LIMIT = 10
 TEAM_MESSAGE_MAX_LENGTH = 280
 
 # OpenRouter agent prompt
+DEFAULT_TEAM_OBJECTIVES = (
+    "\n- Blue: advance toward the right/east side of the battlefield."
+    "\n- Red: advance toward the left/west side of the battlefield."
+)
+
 OPENROUTER_SYSTEM_PROMPT_TEMPLATE = (
     "You are a soldier-agent in a grid battlefield simulation. "
-    "Choose exactly one action: move one grid cell or shoot. "
+    "Choose exactly one action: hold position, move one grid cell, or shoot. "
+    "Holding keeps your current position and does not fire your weapon. "
     "The available_terrain cells describe every grid cell in your local range, "
     "including elevation, cover, and concealment; use them to navigate. "
     "The visibility_history contains up to {visibility_history_limit} prior tick "
@@ -40,8 +46,7 @@ OPENROUTER_SYSTEM_PROMPT_TEMPLATE = (
     "most {message_max_length} characters. Other group members receive it on "
     "the next tick. Return only the structured turn."
     "\n\nTeam objectives:"
-    "\n- Blue: advance toward the right/east side of the battlefield."
-    "\n- Red: advance toward the left/west side of the battlefield."
+    "{team_objectives}"
     "\n\nIllegal actions:"
     "\n- Moving outside the battlefield."
     "\n- Moving more than one grid cell."
@@ -60,8 +65,14 @@ def build_system_prompt(
     max_elevation_change: int,
     communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
     message_max_length: int = TEAM_MESSAGE_MAX_LENGTH,
+    team_objectives: str | None = None,
 ) -> str:
     """Render the OpenRouter prompt with the effective engine limits."""
+    rendered_team_objectives = (
+        DEFAULT_TEAM_OBJECTIVES
+        if team_objectives is None
+        else team_objectives
+    )
     elevation_limit = (
         "one level"
         if max_elevation_change == 1
@@ -72,4 +83,5 @@ def build_system_prompt(
         communication_history_limit=communication_history_limit,
         message_max_length=message_max_length,
         elevation_limit=elevation_limit,
+        team_objectives=rendered_team_objectives,
     )

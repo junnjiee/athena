@@ -18,6 +18,7 @@ from athena.world_state import Soldier
 from athena.models import (
     AgentContext,
     ChosenTurn,
+    HoldAction,
     MoveAction,
     ObservedSoldier,
     ShootAction,
@@ -68,6 +69,8 @@ async def _resolve_action(
         ):
             chosen_turn = chosen_turn.model_copy(update={"broadcast": None})
 
+        if isinstance(action, HoldAction):
+            return chosen_turn
         if isinstance(action, MoveAction):
             validation = movement_resolver.validate_move_action(
                 battlefield, soldier, action
@@ -120,6 +123,7 @@ async def choose_action(
     shooting_resolver: ShootingResolver | None = None,
     visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
     communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
+    team_objectives: str | None = None,
 ) -> ChosenTurn | None:
     if shooting_resolver is None:
         shooting_resolver = ShootingResolver()
@@ -140,6 +144,7 @@ async def choose_action(
                         visibility_history_limit,
                         movement_resolver.max_elevation_change,
                         communication_history_limit,
+                        team_objectives=team_objectives,
                     ),
                 ),
                 ("human", human_message),

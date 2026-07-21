@@ -16,6 +16,7 @@ from athena.world_state import Soldier
 from athena.models import (
     BroadcastDraft,
     CommunicationGroup,
+    HoldAction,
     MoveAction,
     MoveDirection,
     Position,
@@ -78,6 +79,21 @@ def test_render_demo_frame_labels_one_conflicting_move_as_accepted(capsys) -> No
     assert "soldier 0 blue: move east (rejected)" in output
     assert "soldier 1 red: move west (accepted)" in output
     assert "position (2,0,0) -> (1,0,0)" in output
+
+
+def test_render_demo_frame_shows_hold_action(capsys) -> None:
+    soldier = Soldier(Team.RED, Position(x=1, y=1, z=0))
+    loop = loop_for([soldier])
+    result = loop.execute_actions([HoldAction()])
+
+    render_demo_frame(
+        "After tick 1",
+        loop.battlefield,
+        loop.observed_soldiers_map(),
+        execution_result=result,
+    )
+
+    assert "soldier 0 red: hold" in capsys.readouterr().out
 
 
 def test_render_demo_frame_shows_team_broadcast(capsys) -> None:
