@@ -32,8 +32,9 @@ remain with their existing owners.
 
 - Agents do not receive that global state. They receive an `AgentContext`
   containing the soldier's current local observation, a bounded history of earlier
-  local visibility, their available communication groups, and a bounded history of
-  messages they sent or received.
+  local visibility with the soldier's own position and submitted action, their
+  available communication groups, and a bounded history of messages they sent or
+  received.
 
 - Python action chooser also receives the live `Battlefield` and `Soldier` so it
   can validate a proposed action before returning it to the loop. This is an internal
@@ -468,10 +469,14 @@ tunable elevation and history values are inserted from the effective runtime val
 
 - History is maintained separately for each soldier index.
 - The current observation is sent separately from history.
-- Each completed tick appends the exact pre-action visibility that informed that
-  tick's decision.
-- History contains visible soldiers and available terrain, but omits the observer's
-  own position, team, and survival state.
+- Each completed tick appends the exact pre-action visibility and own position that
+  informed that tick's decision, together with the action submitted for resolution.
+- A historical submitted action is a move with its direction, a shot with its exact
+  target coordinates, or `None` when no action was submitted.
+- The submitted action does not report its resolved outcome. In particular, history
+  does not say whether a move was accepted or rejected or whether a shot hit or
+  missed.
+- History omits the observer's historical team and survival state.
 - Entries are kept oldest to newest.
 - The default rolling limit is ten.
 - Ollama receives only the current observation and does not receive history.

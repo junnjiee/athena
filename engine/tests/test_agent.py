@@ -77,6 +77,8 @@ def test_openrouter_receives_current_observation_and_visibility_history(
     )
     historical_observation = VisibilityObservation(
         tick=1,
+        position=Position(x=0, y=0, z=0),
+        submitted_action=MoveAction(direction=MoveDirection.EAST),
         visible_soldiers=[],
         available_terrain=[],
     )
@@ -113,6 +115,8 @@ def test_openrouter_receives_current_observation_and_visibility_history(
     )
     assert "ordered from oldest to newest" in messages[0][1]
     assert "up to 7 prior tick observations" in messages[0][1]
+    assert "exact pre-action position and submitted_action" in messages[0][1]
+    assert "does not report whether a move was accepted" in messages[0][1]
     assert "up to 10 messages" in messages[0][1]
     assert "receive it on the next tick" in messages[0][1]
     assert "elevation differs by more than 2 levels" in messages[0][1]
