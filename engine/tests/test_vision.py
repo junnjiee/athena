@@ -2,12 +2,12 @@ from random import Random
 
 import pytest
 
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
-from athena.types import Position, SurvivalState, Team
+from athena.world_state import Soldier
+from athena.models import Position, SurvivalState, Team
 
 
 def surface_for(*positions: Position) -> set[Position]:
@@ -54,7 +54,7 @@ def test_alive_observer_sees_friendly_non_living_status(
         movement_resolver=MovementResolver(),
     )
 
-    visible_friendly = loop.visible_soldiers_map()[0].soldiers[0]
+    visible_friendly = loop.visible_soldiers_map()[0][0]
 
     assert visible_friendly.position == friendly.position
     assert visible_friendly.survival_status == survival_status
@@ -115,6 +115,19 @@ def test_hill_blocks_soldier_los_for_both_teams(target_team: Team) -> None:
     )
 
     assert not VisionResolver().verify_los(battlefield, observer, target)
+
+
+def test_soldier_eye_height_is_configurable() -> None:
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=5)
+    target = Soldier(Team.RED, Position(x=2, y=0, z=0), vision_range=5)
+    battlefield = Battlefield(width=3, height=1, soldiers=[observer, target])
+
+    assert VisionResolver().verify_los(battlefield, observer, target)
+    assert not VisionResolver(soldier_eye_height=0).verify_los(
+        battlefield,
+        observer,
+        target,
+    )
 
 
 def test_high_observer_can_see_over_terrain_below_sightline() -> None:
@@ -257,7 +270,7 @@ def test_friendly_soldier_still_ignores_hard_cover_below_sightline() -> None:
     assert VisionResolver().verify_los(battlefield, observer, target)
 
 
-def test_concealment_detection_still_uses_xyz_target_position() -> None:
+def test_concealment_hide_probability_uses_xyz_target_position() -> None:
     observer = Soldier(Team.BLUE, Position(x=0, y=0, z=1), vision_range=5)
     target = Soldier(Team.RED, Position(x=1, y=0, z=0), vision_range=5)
     battlefield = Battlefield(
@@ -268,8 +281,12 @@ def test_concealment_detection_still_uses_xyz_target_position() -> None:
         concealment={target.position},
     )
 
+    assert VisionResolver(
+        concealment_hide_probability=0.0,
+        rng=Random(0),
+    ).verify_los(battlefield, observer, target)
     assert not VisionResolver(
-        concealment_detection_penalty=1.0,
+        concealment_hide_probability=1.0,
         rng=Random(0),
     ).verify_los(battlefield, observer, target)
 
@@ -292,7 +309,7 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         movement_resolver=MovementResolver(),
     )
 
-    cells = loop.nearby_terrain_map()[0].cells
+    cells = loop.nearby_terrain_map()[0]
 
     assert [cell.position for cell in cells] == [
         Position(x=0, y=0, z=0),
@@ -327,7 +344,7 @@ def test_in_range_terrain_behind_hill_is_hidden() -> None:
     )
 
     assert behind_hill not in {
-        cell.position for cell in loop.nearby_terrain_map()[0].cells
+        cell.position for cell in loop.nearby_terrain_map()[0]
     }
 
 
@@ -351,7 +368,7 @@ def test_high_observer_sees_terrain_beyond_lower_rise() -> None:
     )
 
     assert beyond_rise in {
-        cell.position for cell in loop.nearby_terrain_map()[0].cells
+        cell.position for cell in loop.nearby_terrain_map()[0]
     }
 
 

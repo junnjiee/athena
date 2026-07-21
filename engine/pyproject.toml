@@ -1,19 +1,17 @@
 [project]
 name = "athena-engine"
 version = "0.1.0"
-description = "Minimal Athena 2D simulation engine with a LangChain/OpenRouter agent."
+description = "Athena 2D simulation engine with a LangChain/OpenRouter agent."
 requires-python = ">=3.11"
 dependencies = [
-    "langchain",
-    "langchain-openrouter",
-    "pydantic",
-    "python-dotenv",
+  "langchain",
+  "langchain-openrouter",
+  "pydantic",
+  "python-dotenv",
 ]
 
 [dependency-groups]
-dev = [
-    "pytest",
-]
+dev = ["pytest"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

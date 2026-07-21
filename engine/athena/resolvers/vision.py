@@ -1,25 +1,26 @@
 from math import inf
 from random import Random
 
-from athena.battlefield import Battlefield
-from athena.soldier import Soldier
-from athena.types import Position, SurvivalState
-
-
-SOLDIER_EYE_HEIGHT = 1.0
-MAX_VISION_RANGE = 100.0
-"""Hard ceiling on how far any soldier can see, regardless of vision or elevation."""
+from athena.world_state import Battlefield, Soldier
+from athena.models import Position, SurvivalState
+from athena.params import (
+    CONCEALMENT_HIDE_PROBABILITY,
+    MAX_VISION_RANGE,
+    SOLDIER_EYE_HEIGHT,
+)
 
 
 class VisionResolver:
     def __init__(
         self,
-        concealment_detection_penalty: float = 0.0,
+        concealment_hide_probability: float = CONCEALMENT_HIDE_PROBABILITY,
         max_vision_range: float = MAX_VISION_RANGE,
+        soldier_eye_height: float = SOLDIER_EYE_HEIGHT,
         rng: Random | None = None,
     ) -> None:
-        self.concealment_detection_penalty = concealment_detection_penalty
+        self.concealment_hide_probability = concealment_hide_probability
         self.max_vision_range = max_vision_range
+        self.soldier_eye_height = soldier_eye_height
         self.rng = rng or Random()
 
     def verify_los(
@@ -68,8 +69,11 @@ class VisionResolver:
             return False
 
         if target.position in battlefield.concealment:
-            detection_probability = 1.0 - self.concealment_detection_penalty
-            return self.rng.random() <= max(0.0, min(1.0, detection_probability))
+            hide_probability = max(
+                0.0,
+                min(1.0, self.concealment_hide_probability),
+            )
+            return self.rng.random() >= hide_probability
 
         return True
 
@@ -102,15 +106,15 @@ class VisionResolver:
     ) -> bool:
         """Return whether the battlefield surface intersects the soldiers' sightline.
 
-        A soldier's eye is one elevation level above its ground position. For each
-        intervening cell, compare the terrain height with the eye-to-eye line at
-        that cell's projected center. Meeting the line is enough to block sight.
+        A soldier's eye is the configured height above its ground position. For
+        each intervening cell, compare the terrain height with the eye-to-eye line
+        at that cell's projected center. Meeting the line is enough to block sight.
         """
         dx = target_position.x - observer_position.x
         dy = target_position.y - observer_position.y
         horizontal_distance_squared = dx * dx + dy * dy
-        observer_eye_z = observer_position.z + SOLDIER_EYE_HEIGHT
-        target_eye_z = target_position.z + SOLDIER_EYE_HEIGHT
+        observer_eye_z = observer_position.z + self.soldier_eye_height
+        target_eye_z = target_position.z + self.soldier_eye_height
 
         for x, y in self._intervening_sightline_cells(
             observer_position,

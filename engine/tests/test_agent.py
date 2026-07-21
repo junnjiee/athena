@@ -2,12 +2,11 @@ import asyncio
 import json
 
 from athena import agent
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
-from athena.soldier import Soldier
-from athena.types import (
+from athena.world_state import Soldier
+from athena.models import (
     AgentContext,
-    AvailableTerrain,
     ChosenAction,
     MoveAction,
     MoveDirection,
@@ -16,7 +15,6 @@ from athena.types import (
     SurvivalState,
     Team,
     VisibilityObservation,
-    VisibleSoldiers,
 )
 
 
@@ -47,13 +45,13 @@ def test_openrouter_receives_current_observation_and_visibility_history(
         team=Team.BLUE,
         position=soldier.position,
         survival_status=SurvivalState.ALIVE,
-        visible_soldiers=VisibleSoldiers(soldiers=[]),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=[],
+        available_terrain=[],
     )
     historical_observation = VisibilityObservation(
         tick=1,
-        visible_soldiers=VisibleSoldiers(soldiers=[]),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=[],
+        available_terrain=[],
     )
     agent_context = AgentContext(
         current_observation=current_observation,
@@ -65,10 +63,13 @@ def test_openrouter_receives_current_observation_and_visibility_history(
             agent_context=agent_context,
             battlefield=battlefield,
             soldier=soldier,
-            movement_resolver=MovementResolver(),
+            movement_resolver=MovementResolver(max_elevation_change=2),
+            visibility_history_limit=7,
         )
     )
 
     assert result == MoveAction(direction=MoveDirection.EAST)
     assert "ordered from oldest to newest" in messages[0][1]
+    assert "up to 7 prior tick observations" in messages[0][1]
+    assert "elevation differs by more than 2 levels" in messages[0][1]
     assert json.loads(messages[1][1]) == json.loads(agent_context.model_dump_json())

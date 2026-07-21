@@ -1,99 +1,80 @@
 # Athena Engine
 
-Minimal Python height-field grid simulation where soldiers occupy XYZ positions on
-the battlefield surface.
-Each soldier-agent chooses actions through an LLM — a hosted model via LangChain using
-OpenRouter, or a local model via Ollama — and the resolvers validate whether each
-movement is legal.
+Athena is a battlefield simulation in which agent-controlled soldiers move, observe terrain, and engage the opposing force.
 
-## Elevation Rules
+Detailed engine behavior and modeling assumptions are documented in [ENGINE.md](ENGINE.md).
 
-- Every `(x, y)` battlefield cell has exactly one ground `z` elevation.
-- A soldier can move one horizontal grid cell when the elevation changes by at most
-  one level.
-- Effective vision range changes by one cell per level of relative elevation: higher
-  observers see farther downhill, while lower observers see less far uphill.
-- Terrain at or above the interpolated eye-to-eye sightline blocks visibility for
-  both friendly and opposing soldiers.
-- Rifle shots have a 90% base hit probability, adjusted by two percentage points per
-  relative elevation level and clamped between 50% and 99%.
-- Each soldier observation contains every elevation-adjusted in-range terrain cell,
-  including its XYZ position and cover/concealment flags, for local navigation.
+## Requirements
+
+- Python 3.11 or newer
+- [uv](https://docs.astral.sh/uv/)
 
 ## Setup
 
-Install `uv` if it is not already installed:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Install project dependencies:
+Install the Python dependencies:
 
 ```bash
 uv sync
 ```
 
-Athena runs its agents on either a cloud model (OpenRouter) or a local model
-(Ollama). Set up whichever backend you plan to use — you can configure both.
+## Run with OpenRouter
 
-### OpenRouter (cloud)
+Create a `.env` file in the project root:
 
-Create a `.env` file with your OpenRouter key:
-
-```bash
-OPENROUTER_API_KEY=your_key_here
+```dotenv
+OPENROUTER_API_KEY=your-api-key
 ```
 
-### Ollama (local)
+Run a short five-tick simulation:
 
-Install [Ollama], then start it and pull at least one model:
+```bash
+uv run python -m athena.demo --ticks 5
+```
 
-By default Athena talks to Ollama at `http://localhost:11434`. To use a remote or
-non-default server, set `OLLAMA_HOST` in your shell or `.env` (a bare `host:port`
-without a scheme is accepted).
+This uses the default hosted model, `openai/gpt-oss-120b:nitro`.
 
-## Run Tests
+To select another OpenRouter model:
+
+```bash
+uv run python -m athena.demo --model provider/model-name --ticks 5
+```
+
+## Run with Ollama
+
+Start Ollama and pull a local model:
+
+```bash
+ollama serve
+ollama pull llama3.1:8b
+```
+
+Use the most recently running or pulled model:
+
+```bash
+uv run python -m athena.demo --model ollama:auto --ticks 5
+```
+
+Or select a specific local model:
+
+```bash
+uv run python -m athena.demo --model ollama:llama3.1:8b --ticks 5
+```
+
+## Command options
+
+```text
+--model MODEL  OpenRouter model ID or an Ollama model prefixed with "ollama:"
+--ticks TICKS  Maximum simulation ticks to run (default: 60)
+```
+
+Show the complete command help:
+
+```bash
+uv run python -m athena.demo --help
+```
+
+## Run the tests
 
 ```bash
 uv run pytest
 ```
-
-## Run Demo
-
-```bash
-uv run python -m athena.demo
-```
-
-The demo prints the grid, sends each soldier's local observation to a model (OpenRouter
-or Ollama), gets one action back, and asks the world to apply that action.
-
-### Choosing the agent model
-
-The backend is selected with `--model`. Routing to hosted or local is the only thing
-it changes — the loop, rendering, and output are identical either way.
-
-```bash
-uv run python -m athena.demo                                    # pinned hosted default (OpenRouter)
-uv run python -m athena.demo --model deepseek/deepseek-v4-flash # a specific OpenRouter model
-uv run python -m athena.demo --model ollama:auto               # local Ollama, auto-detected
-uv run python -m athena.demo --model ollama:llama3.1:8b        # local Ollama, specific model
-```
-
-- Omit `--model` for the pinned hosted default (a reproducible baseline). Any value
-  without an `ollama:` prefix is treated as an OpenRouter model id.
-- `ollama:` routes to a locally-hosted model — no API key or network needed:
-  - `ollama:auto` uses the currently running model (`ollama run <model>`), falling
-    back to the most recently pulled one.
-  - `ollama:<name>` uses that specific model; it must already be pulled, otherwise
-    the demo exits telling you which `ollama pull` to run.
-
-The resolved provider/model is printed to stderr at startup so each run is attributable.
-
-Grid symbols:
-
-- `A`: agent
-- `E`: living enemy
-- `#`: hard-cover cell
-- `!`: concealment cell
-- `.`: empty cell

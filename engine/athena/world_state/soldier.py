@@ -1,4 +1,5 @@
-from athena.types import Position, SurvivalState, Team
+from athena.models import Position, SurvivalState, Team
+from athena.params import DEFAULT_SOLDIER_VISION_RANGE
 
 
 class Soldier:
@@ -12,7 +13,7 @@ class Soldier:
         team: Team,
         position: Position,
         survival_status: SurvivalState = SurvivalState.ALIVE,
-        vision_range: float = 10.0,
+        vision_range: float = DEFAULT_SOLDIER_VISION_RANGE,
     ) -> None:
         self.team = team
         self.position = position

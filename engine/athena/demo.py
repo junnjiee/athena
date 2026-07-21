@@ -8,17 +8,18 @@ from io import StringIO
 from dotenv import load_dotenv
 
 from athena.agent import choose_action
+from athena.params import MAX_ACTION_ATTEMPTS, VISIBILITY_HISTORY_LIMIT
 from athena.ollama_agent import (
     OllamaUnavailable,
     choose_action_local,
     resolve_local_model,
 )
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
-from athena.types import (
+from athena.world_state import Soldier
+from athena.models import (
     AgentContext,
     ExecutionResult,
     MoveAction,
@@ -45,7 +46,8 @@ def adapt_local_action_chooser(model: str) -> ActionChooser:
         battlefield: Battlefield,
         soldier: Soldier,
         movement_resolver: MovementResolver,
-        max_attempts: int = 3,
+        max_attempts: int = MAX_ACTION_ATTEMPTS,
+        visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
     ):
         return await choose_action_local(
             observed_soldier=agent_context.current_observation,
@@ -203,10 +205,10 @@ def _print_demo_frame(
         visible_soldiers = [
             f"{soldier.team.value}@"
             f"({soldier.position.x},{soldier.position.y},{soldier.position.z})"
-            for soldier in observation.visible_soldiers.soldiers
+            for soldier in observation.visible_soldiers
         ]
         visible_soldiers_text = ", ".join(visible_soldiers) or "none"
-        terrain_cells = observation.available_terrain.cells
+        terrain_cells = observation.available_terrain
         cover_count = sum(cell.has_cover for cell in terrain_cells)
         concealment_count = sum(cell.has_concealment for cell in terrain_cells)
 

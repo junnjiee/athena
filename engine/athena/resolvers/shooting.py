@@ -1,7 +1,13 @@
 from random import Random
 
-from athena.soldier import Soldier
-from athena.types import (
+from athena.world_state import Soldier
+from athena.params import (
+    BASE_HIT_PROBABILITY,
+    ELEVATION_HIT_MODIFIER_PER_LEVEL,
+    MAXIMUM_HIT_PROBABILITY,
+    MINIMUM_HIT_PROBABILITY,
+)
+from athena.models import (
     BattlefieldSnapshot,
     ObservedSoldier,
     Position,
@@ -14,10 +20,10 @@ from athena.types import (
 class ShootingResolver:
     def __init__(
         self,
-        base_hit_probability: float = 0.90,
-        elevation_modifier_per_level: float = 0.02,
-        minimum_hit_probability: float = 0.50,
-        maximum_hit_probability: float = 0.99,
+        base_hit_probability: float = BASE_HIT_PROBABILITY,
+        elevation_modifier_per_level: float = ELEVATION_HIT_MODIFIER_PER_LEVEL,
+        minimum_hit_probability: float = MINIMUM_HIT_PROBABILITY,
+        maximum_hit_probability: float = MAXIMUM_HIT_PROBABILITY,
         rng: Random | None = None,
     ) -> None:
         """Configure explicit simulation assumptions for rifle hit resolution.
@@ -49,7 +55,7 @@ class ShootingResolver:
         # O(n) - looping thru all visible soldiers
         eligible_targets = [
             visible_soldier
-            for visible_soldier in observed_soldier.visible_soldiers.soldiers
+            for visible_soldier in observed_soldier.visible_soldiers
             if visible_soldier.position == action.target_position
             and visible_soldier.team != soldier.team  # this line prevents fratricide
             and visible_soldier.survival_status == SurvivalState.ALIVE
