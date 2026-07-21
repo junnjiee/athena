@@ -8,6 +8,7 @@ from athena.params import (
     MINIMUM_HIT_PROBABILITY,
 )
 from athena.models import (
+    ActionValidationResult,
     BattlefieldSnapshot,
     ObservedSoldier,
     Position,
@@ -49,18 +50,42 @@ class ShootingResolver:
         state. This prevents an agent from acting on a hidden enemy's position even if
         it happens to guess those coordinates.
         """
-        if soldier.survival_status != SurvivalState.ALIVE:
-            return False
+        return self.validate_shoot_action(observed_soldier, soldier, action).valid
 
-        # O(n) - looping thru all visible soldiers
-        eligible_targets = [
+    def validate_shoot_action(
+        self,
+        observed_soldier: ObservedSoldier,
+        soldier: Soldier,
+        action: ShootAction,
+    ) -> ActionValidationResult:
+        if soldier.survival_status != SurvivalState.ALIVE:
+            return ActionValidationResult.rejected("Only an alive soldier can shoot.")
+
+        matching_targets = [
             visible_soldier
             for visible_soldier in observed_soldier.visible_soldiers
             if visible_soldier.position == action.target_position
-            and visible_soldier.team != soldier.team  # this line prevents fratricide
+        ]
+        eligible_targets = [
+            visible_soldier
+            for visible_soldier in matching_targets
+            if visible_soldier.team != soldier.team  # this line prevents fratricide
             and visible_soldier.survival_status == SurvivalState.ALIVE
         ]
-        return len(eligible_targets) == 1
+        if len(eligible_targets) == 1:
+            return ActionValidationResult.accepted()
+        if not matching_targets:
+            return ActionValidationResult.rejected(
+                "No visible soldier occupies the requested target position."
+            )
+        if not eligible_targets:
+            return ActionValidationResult.rejected(
+                "The requested target is not a visible living enemy."
+            )
+        return ActionValidationResult.rejected(
+            "Multiple visible living enemies occupy the requested target position, "
+            "so the target is ambiguous."
+        )
 
     def resolve_shoot_target(
         self,

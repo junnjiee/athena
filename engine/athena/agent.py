@@ -1,6 +1,8 @@
 from typing import Awaitable, Callable
 
+from langchain_core.exceptions import OutputParserException
 from langchain_openrouter import ChatOpenRouter
+from pydantic import ValidationError
 
 from athena.params import (
     MAX_ACTION_ATTEMPTS,
@@ -19,6 +21,7 @@ from athena.models import (
     MoveAction,
     ObservedSoldier,
     ShootAction,
+    SurvivalState,
 )
 
 
@@ -31,7 +34,7 @@ SYSTEM_PROMPT = build_system_prompt(
 
 # Call propose() up to max_attempts times, returning the first legal action.
 async def _resolve_action(
-    propose: Callable[[], Awaitable[ChosenAction]],
+    propose: Callable[[str | None], Awaitable[ChosenAction]],
     observed_soldier: ObservedSoldier,
     battlefield: Battlefield,
     soldier: Soldier,
@@ -39,20 +42,61 @@ async def _resolve_action(
     shooting_resolver: ShootingResolver,
     max_attempts: int,
 ) -> Action | None:
+    retry_feedback: str | None = None
     for _ in range(max_attempts):
-        action = (await propose()).action
+        try:
+            action = (await propose(retry_feedback)).action
+        except OutputParserException as exc:
+            validation_error = exc.__cause__
+            if not isinstance(validation_error, ValidationError):
+                raise
+            details = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in validation_error.errors(include_url=False)
+            )
+            retry_feedback = (
+                "Your previous structured action did not match the required schema: "
+                f"{details}. Return a corrected structured action."
+            )
+            continue
 
         if isinstance(action, MoveAction):
-            if movement_resolver.verify_move_action(battlefield, soldier, action):
+            validation = movement_resolver.validate_move_action(
+                battlefield, soldier, action
+            )
+            if validation.valid:
                 return action
-
-        if isinstance(action, ShootAction):
-            if shooting_resolver.verify_shoot_action(
+        else:
+            validation = shooting_resolver.validate_shoot_action(
                 observed_soldier,
                 soldier,
                 action,
-            ):
+            )
+            if validation.valid:
                 return action
+
+        rejection_reason = validation.reason
+        if (
+            isinstance(action, MoveAction)
+            and observed_soldier.survival_status == SurvivalState.ALIVE
+        ):
+            destination = movement_resolver.resolve_move_position(
+                battlefield, soldier, action
+            )
+            destination_is_visible = destination is not None and any(
+                terrain.position == destination
+                for terrain in observed_soldier.available_terrain
+            )
+            if not destination_is_visible:
+                rejection_reason = (
+                    f"Moving {action.direction.value} was rejected by the movement "
+                    "rules."
+                )
+
+        retry_feedback = (
+            f"Your previous action {action.model_dump_json()} was rejected: "
+            f"{rejection_reason} Choose a different legal action."
+        )
 
     return None
 
@@ -75,7 +119,10 @@ async def choose_action(
     # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
     structured_llm = llm.with_structured_output(ChosenAction, method="json_schema")
 
-    async def propose() -> ChosenAction:
+    async def propose(retry_feedback: str | None) -> ChosenAction:
+        human_message = agent_context.model_dump_json()
+        if retry_feedback is not None:
+            human_message = f"{human_message}\n\nRetry feedback:\n{retry_feedback}"
         chosen = await structured_llm.ainvoke(
             [
                 (
@@ -85,7 +132,7 @@ async def choose_action(
                         movement_resolver.max_elevation_change,
                     ),
                 ),
-                ("human", agent_context.model_dump_json()),
+                ("human", human_message),
             ]
         )
         # LangChain types structured output as BaseModel | dict, even when a

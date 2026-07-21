@@ -406,11 +406,18 @@ remain in their provider modules.
 - Ollama is intentionally movement-only and rejects every shoot proposal.
 - The chooser requests up to `max_attempts` proposals and returns the first
   individually legal action.
-- Every retry uses the same observation.
+- Every retry uses the same observation. After an individually illegal action, the
+  next OpenRouter request also receives the rejected action and a short reason from
+  the movement or shooting resolver. Detailed movement reasons are included only
+  when the determining terrain is present in the current observation; otherwise the
+  retry receives a generic movement-rule rejection.
 - Exhausting retries returns `None`, causing no action during execution.
 - Each retry is another model request.
 - The structured-output boundary accepts a nested action that some models return as
-  JSON encoded inside a string. Other malformed output still fails validation.
+  JSON encoded inside a string. Pydantic schema failures wrapped by the OpenRouter
+  output parser are retried with concise validation feedback that excludes the raw
+  malformed action value. Bare Pydantic errors and other parser failures propagate
+  and fail action collection.
 
 ### Prompt assumptions
 

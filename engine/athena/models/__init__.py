@@ -3,6 +3,7 @@
 from athena.models.actions import (
     Action,
     ActionKind,
+    ActionValidationResult,
     ChosenAction,
     MoveAction,
     MoveDirection,
@@ -33,6 +34,7 @@ from athena.models.replay import (
 __all__ = [
     "Action",
     "ActionKind",
+    "ActionValidationResult",
     "AgentContext",
     "BattlefieldSnapshot",
     "ChosenAction",
