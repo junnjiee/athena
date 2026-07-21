@@ -39,6 +39,20 @@ To select another OpenRouter model:
 uv run python -m athena.demo --model provider/model-name --ticks 5
 ```
 
+## Write a replay log
+
+Pass `--replay-log` to write a result-only JSON log for a replay UI:
+
+```bash
+uv run python -m athena.demo --ticks 5 --replay-log runs/demo.json
+```
+
+The log contains the static battlefield, the initial soldier state as step zero,
+and one final soldier-state step per completed tick. Each tick step also contains
+executed shots with their pre-tick source and target positions and whether they hit.
+Agent observations, submitted actions, rejected moves, hit probabilities, and random
+rolls are omitted.
+
 ## Run with Ollama
 
 Start Ollama and pull a local model:
@@ -65,6 +79,7 @@ uv run python -m athena.demo --model ollama:llama3.1:8b --ticks 5
 ```text
 --model MODEL  OpenRouter model ID or an Ollama model prefixed with "ollama:"
 --ticks TICKS  Maximum simulation ticks to run (default: 60)
+--replay-log PATH  Write result-only replay JSON to this path
 ```
 
 Show the complete command help:
