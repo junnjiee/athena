@@ -209,6 +209,37 @@ def test_tick_returns_execution_result() -> None:
     assert result.before == result.after
 
 
+def test_action_collection_skips_non_alive_soldiers() -> None:
+    called_soldiers: list[Soldier] = []
+
+    async def record_call(soldier: Soldier, **_: object) -> MoveAction:
+        called_soldiers.append(soldier)
+        return MoveAction(direction=MoveDirection.EAST)
+
+    alive = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    casualty = Soldier(
+        Team.BLUE,
+        Position(x=2, y=0, z=0),
+        survival_status=SurvivalState.CASUALTY,
+    )
+    dead = Soldier(
+        Team.RED,
+        Position(x=4, y=0, z=0),
+        survival_status=SurvivalState.DEAD,
+    )
+    loop = LoopEngine(
+        battlefield=Battlefield(width=5, height=1, soldiers=[casualty, alive, dead]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=record_call,
+    )
+
+    actions = asyncio.run(loop.collect_valid_actions())
+
+    assert called_soldiers == [alive]
+    assert actions == [None, MoveAction(direction=MoveDirection.EAST), None]
+
+
 def test_tick_supplies_each_soldier_with_its_own_visibility_history() -> None:
     received_contexts: list[tuple[Soldier, AgentContext]] = []
 
