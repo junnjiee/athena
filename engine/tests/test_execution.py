@@ -9,6 +9,9 @@ from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
 from athena.models import (
     AgentContext,
+    BroadcastDraft,
+    ChosenTurn,
+    CommunicationGroup,
     ExecutionResult,
     MoveAction,
     MoveDirection,
@@ -278,3 +281,205 @@ def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:
         observation.tick
         for observation in received_contexts[-1].visibility_history
     ] == list(range(2, 12))
+
+
+def test_tick_delivers_broadcasts_to_overlapping_groups_on_the_next_tick() -> None:
+    alpha = CommunicationGroup(
+        group_id="blue-alpha",
+        name="Blue Alpha",
+        team=Team.BLUE,
+    )
+    headquarters = CommunicationGroup(
+        group_id="blue-hq",
+        name="Blue HQ",
+        team=Team.BLUE,
+    )
+    red_group = CommunicationGroup(
+        group_id="red-team",
+        name="Red Team",
+        team=Team.RED,
+    )
+    rifleman = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={alpha.group_id},
+    )
+    sergeant = Soldier(
+        Team.BLUE,
+        Position(x=0, y=1, z=0),
+        communication_group_ids={alpha.group_id, headquarters.group_id},
+    )
+    commander = Soldier(
+        Team.BLUE,
+        Position(x=0, y=2, z=0),
+        communication_group_ids={headquarters.group_id},
+    )
+    red = Soldier(
+        Team.RED,
+        Position(x=4, y=0, z=0),
+        communication_group_ids={red_group.group_id},
+    )
+    received_contexts: dict[Soldier, list[AgentContext]] = {
+        soldier: [] for soldier in (rifleman, sergeant, commander, red)
+    }
+
+    async def choose_turn(
+        agent_context: AgentContext,
+        soldier: Soldier,
+        **_: object,
+    ) -> ChosenTurn | None:
+        soldier_contexts = received_contexts[soldier]
+        soldier_contexts.append(agent_context)
+        if len(soldier_contexts) > 1 or soldier is red:
+            return None
+        if soldier is rifleman:
+            broadcast = BroadcastDraft(
+                group_id=alpha.group_id,
+                content="Contact near the ridge.",
+            )
+        elif soldier is commander:
+            broadcast = BroadcastDraft(
+                group_id=headquarters.group_id,
+                content="Continue the advance.",
+            )
+        else:
+            broadcast = None
+        return ChosenTurn(
+            action=MoveAction(direction=MoveDirection.EAST),
+            broadcast=broadcast,
+        )
+
+    loop = LoopEngine(
+        battlefield=Battlefield(
+            width=5,
+            height=3,
+            soldiers=[rifleman, sergeant, commander, red],
+            communication_groups=[alpha, headquarters, red_group],
+        ),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=choose_turn,
+    )
+
+    first_result = asyncio.run(loop.tick())
+    asyncio.run(loop.tick())
+
+    assert all(
+        contexts[0].communication_history == ()
+        for contexts in received_contexts.values()
+    )
+    assert [message.group_id for message in first_result.team_messages] == [
+        alpha.group_id,
+        headquarters.group_id,
+    ]
+    assert received_contexts[rifleman][1].communication_history == (
+        first_result.team_messages[0],
+    )
+    assert received_contexts[sergeant][1].communication_history == (
+        first_result.team_messages[0],
+        first_result.team_messages[1],
+    )
+    assert received_contexts[commander][1].communication_history == (
+        first_result.team_messages[1],
+    )
+    assert received_contexts[red][1].communication_history == ()
+    assert {
+        group.group_id
+        for group in received_contexts[sergeant][1].communication_groups
+    } == {alpha.group_id, headquarters.group_id}
+
+
+def test_invalid_broadcast_group_is_dropped_without_rejecting_physical_action() -> None:
+    blue = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    loop = LoopEngine(
+        battlefield=Battlefield(width=2, height=1, soldiers=[blue]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    result = loop.execute_actions(
+        [MoveAction(direction=MoveDirection.EAST)],
+        broadcasts=[
+            BroadcastDraft(group_id="unavailable", content="Invalid group.")
+        ],
+    )
+
+    assert result.after.soldiers[0].position == Position(x=1, y=0, z=0)
+    assert result.team_messages == ()
+
+
+def test_pre_tick_living_sender_transmits_when_hit_during_the_same_tick() -> None:
+    group = CommunicationGroup(
+        group_id="blue-team",
+        name="Blue Team",
+        team=Team.BLUE,
+    )
+    blue = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={group.group_id},
+    )
+    red = Soldier(Team.RED, Position(x=2, y=0, z=0))
+    loop = LoopEngine(
+        battlefield=Battlefield(
+            width=3,
+            height=1,
+            soldiers=[blue, red],
+            communication_groups=[group],
+        ),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        shooting_resolver=ShootingResolver(rng=Random(0)),
+    )
+
+    result = loop.execute_actions(
+        [
+            MoveAction(direction=MoveDirection.EAST),
+            ShootAction(target_position=blue.position),
+        ],
+        broadcasts=[
+            BroadcastDraft(group_id=group.group_id, content="Taking fire."),
+            None,
+        ],
+    )
+
+    assert result.after.soldiers[0].survival_status == SurvivalState.CASUALTY
+    assert [message.content for message in result.team_messages] == ["Taking fire."]
+
+
+def test_communication_history_keeps_only_the_last_ten_messages() -> None:
+    group = CommunicationGroup(
+        group_id="blue-team",
+        name="Blue Team",
+        team=Team.BLUE,
+    )
+    blue = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={group.group_id},
+    )
+    loop = LoopEngine(
+        battlefield=Battlefield(
+            width=1,
+            height=1,
+            soldiers=[blue],
+            communication_groups=[group],
+        ),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    for tick in range(1, 13):
+        loop.execute_actions(
+            [None],
+            broadcasts=[
+                BroadcastDraft(
+                    group_id=group.group_id,
+                    content=f"Message {tick}",
+                )
+            ],
+        )
+
+    assert [message.sent_tick for message in loop.communication_history[0]] == list(
+        range(3, 13)
+    )

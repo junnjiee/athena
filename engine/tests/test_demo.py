@@ -13,7 +13,15 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.models import MoveAction, MoveDirection, Position, ShootAction, Team
+from athena.models import (
+    BroadcastDraft,
+    CommunicationGroup,
+    MoveAction,
+    MoveDirection,
+    Position,
+    ShootAction,
+    Team,
+)
 
 
 def loop_for(soldiers: list[Soldier]) -> LoopEngine:
@@ -69,6 +77,49 @@ def test_render_demo_frame_labels_one_conflicting_move_as_accepted(capsys) -> No
     assert "soldier 0 blue: move east (rejected)" in output
     assert "soldier 1 red: move west (accepted)" in output
     assert "position (2,0,0) -> (1,0,0)" in output
+
+
+def test_render_demo_frame_shows_team_broadcast(capsys) -> None:
+    group = CommunicationGroup(
+        group_id="blue-team",
+        name="Blue Team",
+        team=Team.BLUE,
+    )
+    blue = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={group.group_id},
+    )
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[blue],
+        communication_groups=[group],
+    )
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+    result = loop.execute_actions(
+        [MoveAction(direction=MoveDirection.EAST)],
+        broadcasts=[
+            BroadcastDraft(
+                group_id=group.group_id,
+                content="Moving to the ridge.",
+            )
+        ],
+    )
+
+    render_demo_frame(
+        "After tick 1",
+        battlefield,
+        loop.observed_soldiers_map(),
+        execution_result=result,
+    )
+
+    output = capsys.readouterr().out
+    assert "soldier 0 -> blue-team: Moving to the ridge." in output
 
 
 def test_render_demo_frame_colors_elevated_cells(capsys) -> None:

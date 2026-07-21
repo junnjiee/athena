@@ -8,6 +8,7 @@ from athena.models.common import (
     SurvivalState,
     Team,
 )
+from athena.models.communications import CommunicationGroup, TeamMessage
 
 
 class VisibleSoldier(BaseModel):
@@ -49,9 +50,11 @@ class VisibilityObservation(BaseModel):
 
 
 class AgentContext(BaseModel):
-    """The current local state and bounded visibility history sent to an agent."""
+    """Local state plus bounded visibility and communication history."""
 
     model_config = IMMUTABLE_MODEL_CONFIG
 
     current_observation: ObservedSoldier
     visibility_history: tuple[VisibilityObservation, ...]
+    communication_groups: tuple[CommunicationGroup, ...] = ()
+    communication_history: tuple[TeamMessage, ...] = ()
