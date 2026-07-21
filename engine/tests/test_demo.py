@@ -13,7 +13,14 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.models import MoveAction, MoveDirection, Position, ShootAction, Team
+from athena.models import (
+    MoveAction,
+    MoveDirection,
+    Position,
+    ReplayLog,
+    ShootAction,
+    Team,
+)
 
 
 def loop_for(soldiers: list[Soldier]) -> LoopEngine:
@@ -128,6 +135,21 @@ def test_run_demo_reports_progress_until_requested_tick(monkeypatch) -> None:
         "After tick 3 - running tick 4 (waiting for agents)",
         "After tick 4 - tick limit reached",
     ]
+
+
+def test_run_demo_writes_replay_log(monkeypatch, tmp_path) -> None:
+    async def choose_none(**_: object) -> None:
+        return None
+
+    monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
+    monkeypatch.setattr(demo, "render_demo_frame", lambda *_args, **_kwargs: None)
+    output_path = tmp_path / "demo.json"
+
+    asyncio.run(demo.run_demo(ticks=2, replay_log_path=output_path))
+
+    replay_log = ReplayLog.model_validate_json(output_path.read_text())
+    assert [step.step for step in replay_log.steps] == [0, 1, 2]
+    assert all(step.shots == () for step in replay_log.steps)
 
 
 def test_battle_finishes_when_one_team_has_no_living_soldiers() -> None:
