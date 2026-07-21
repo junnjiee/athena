@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, model_validator
 
+from athena.models.communications import BroadcastDraft
 from athena.models.common import IMMUTABLE_MODEL_CONFIG, Position
 
 
@@ -59,6 +60,28 @@ class ChosenAction(BaseModel):
         raises a model_type ValidationError. Parse only that case back into a
         dict; a properly nested object passes through untouched.
         """
+        if isinstance(data, dict) and isinstance(data.get("action"), str):
+            try:
+                parsed = json.loads(data["action"])
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"action was a string but not valid JSON: {data['action']!r}"
+                ) from exc
+            return {**data, "action": parsed}
+        return data
+
+
+class ChosenTurn(BaseModel):
+    """OpenRouter's physical action plus an optional team broadcast."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    action: MoveAction | ShootAction
+    broadcast: BroadcastDraft | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_stringified_action(cls, data: Any) -> Any:
         if isinstance(data, dict) and isinstance(data.get("action"), str):
             try:
                 parsed = json.loads(data["action"])

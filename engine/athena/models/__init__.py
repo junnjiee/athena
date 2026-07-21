@@ -4,9 +4,15 @@ from athena.models.actions import (
     Action,
     ActionKind,
     ChosenAction,
+    ChosenTurn,
     MoveAction,
     MoveDirection,
     ShootAction,
+)
+from athena.models.communications import (
+    BroadcastDraft,
+    CommunicationGroup,
+    TeamMessage,
 )
 from athena.models.common import Position, SurvivalState, Team
 from athena.models.execution import (
@@ -35,7 +41,10 @@ __all__ = [
     "ActionKind",
     "AgentContext",
     "BattlefieldSnapshot",
+    "BroadcastDraft",
     "ChosenAction",
+    "ChosenTurn",
+    "CommunicationGroup",
     "ExecutionResult",
     "MoveAction",
     "MoveDirection",
@@ -51,6 +60,7 @@ __all__ = [
     "SoldierSnapshot",
     "SurvivalState",
     "Team",
+    "TeamMessage",
     "TerrainCell",
     "VisibilityObservation",
     "VisibleSoldier",

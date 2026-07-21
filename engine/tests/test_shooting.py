@@ -19,6 +19,7 @@ from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
     ChosenAction,
+    ChosenTurn,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
@@ -270,16 +271,16 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     observed = observation(shooter, [])
     proposed_actions = iter(
         [
-            ChosenAction(
+            ChosenTurn(
                 action=ShootAction(target_position=Position(x=2, y=2, z=0)),
             ),
-            ChosenAction(
+            ChosenTurn(
                 action=MoveAction(direction=MoveDirection.EAST),
             ),
         ]
     )
 
-    async def propose() -> ChosenAction:
+    async def propose() -> ChosenTurn:
         return next(proposed_actions)
 
     result = asyncio.run(
@@ -294,7 +295,9 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.EAST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.EAST),
+    )
 
 
 def test_action_resolution_accepts_valid_shoot_action() -> None:
@@ -306,8 +309,8 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
     )
     shoot_action = ShootAction(target_position=target_position)
 
-    async def propose() -> ChosenAction:
-        return ChosenAction(action=shoot_action)
+    async def propose() -> ChosenTurn:
+        return ChosenTurn(action=shoot_action)
 
     result = asyncio.run(
         _resolve_action(
@@ -321,15 +324,15 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
         )
     )
 
-    assert result == shoot_action
+    assert result == ChosenTurn(action=shoot_action)
 
 
 def test_action_resolution_returns_none_after_invalid_shoot_attempts() -> None:
     shooter = Soldier(Team.BLUE, Position(x=1, y=1, z=0))
     observed = observation(shooter, [])
 
-    async def propose() -> ChosenAction:
-        return ChosenAction(
+    async def propose() -> ChosenTurn:
+        return ChosenTurn(
             action=ShootAction(target_position=Position(x=4, y=3, z=0)),
         )
 
