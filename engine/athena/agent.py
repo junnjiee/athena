@@ -5,6 +5,7 @@ from langchain_openrouter import ChatOpenRouter
 from pydantic import ValidationError
 
 from athena.params import (
+    COMMUNICATION_HISTORY_LIMIT,
     MAX_ACTION_ATTEMPTS,
     MAX_ELEVATION_CHANGE,
     VISIBILITY_HISTORY_LIMIT,
@@ -15,9 +16,8 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
-    Action,
     AgentContext,
-    ChosenAction,
+    ChosenTurn,
     MoveAction,
     ObservedSoldier,
     ShootAction,
@@ -34,18 +34,18 @@ SYSTEM_PROMPT = build_system_prompt(
 
 # Call propose() up to max_attempts times, returning the first legal action.
 async def _resolve_action(
-    propose: Callable[[str | None], Awaitable[ChosenAction]],
+    propose: Callable[[str | None], Awaitable[ChosenTurn]],
     observed_soldier: ObservedSoldier,
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
     shooting_resolver: ShootingResolver,
     max_attempts: int,
-) -> Action | None:
+) -> ChosenTurn | None:
     retry_feedback: str | None = None
     for _ in range(max_attempts):
         try:
-            action = (await propose(retry_feedback)).action
+            chosen_turn = await propose(retry_feedback)
         except OutputParserException as exc:
             validation_error = exc.__cause__
             if not isinstance(validation_error, ValidationError):
@@ -60,12 +60,20 @@ async def _resolve_action(
             )
             continue
 
+        action = chosen_turn.action
+        broadcast = chosen_turn.broadcast
+        if (
+            broadcast is not None
+            and broadcast.group_id not in soldier.communication_group_ids
+        ):
+            chosen_turn = chosen_turn.model_copy(update={"broadcast": None})
+
         if isinstance(action, MoveAction):
             validation = movement_resolver.validate_move_action(
                 battlefield, soldier, action
             )
             if validation.valid:
-                return action
+                return chosen_turn
         else:
             validation = shooting_resolver.validate_shoot_action(
                 observed_soldier,
@@ -73,7 +81,7 @@ async def _resolve_action(
                 action,
             )
             if validation.valid:
-                return action
+                return chosen_turn
 
         rejection_reason = validation.reason
         if (
@@ -111,15 +119,16 @@ async def choose_action(
     model: str = "openai/gpt-oss-120b:nitro",
     shooting_resolver: ShootingResolver | None = None,
     visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
-) -> Action | None:
+    communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
+) -> ChosenTurn | None:
     if shooting_resolver is None:
         shooting_resolver = ShootingResolver()
 
     llm = ChatOpenRouter(model=model)
     # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
-    structured_llm = llm.with_structured_output(ChosenAction, method="json_schema")
+    structured_llm = llm.with_structured_output(ChosenTurn, method="json_schema")
 
-    async def propose(retry_feedback: str | None) -> ChosenAction:
+    async def propose(retry_feedback: str | None) -> ChosenTurn:
         human_message = agent_context.model_dump_json()
         if retry_feedback is not None:
             human_message = f"{human_message}\n\nRetry feedback:\n{retry_feedback}"
@@ -130,6 +139,7 @@ async def choose_action(
                     build_system_prompt(
                         visibility_history_limit,
                         movement_resolver.max_elevation_change,
+                        communication_history_limit,
                     ),
                 ),
                 ("human", human_message),
@@ -138,8 +148,8 @@ async def choose_action(
         # LangChain types structured output as BaseModel | dict, even when a
         # Pydantic schema is provided. Keep the external LLM boundary explicit
         # before resolving an engine action.
-        if not isinstance(chosen, ChosenAction):
-            raise TypeError("Expected ChosenAction from structured LLM output.")
+        if not isinstance(chosen, ChosenTurn):
+            raise TypeError("Expected ChosenTurn from structured LLM output.")
         return chosen
 
     return await _resolve_action(

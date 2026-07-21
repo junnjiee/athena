@@ -19,6 +19,7 @@ from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
     ChosenAction,
+    ChosenTurn,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
@@ -271,10 +272,10 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     observed = observation(shooter, [])
     proposed_actions = iter(
         [
-            ChosenAction(
+            ChosenTurn(
                 action=ShootAction(target_position=Position(x=2, y=2, z=0)),
             ),
-            ChosenAction(
+            ChosenTurn(
                 action=MoveAction(direction=MoveDirection.EAST),
             ),
         ]
@@ -282,7 +283,7 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
 
     retry_feedback: list[str | None] = []
 
-    async def propose(feedback: str | None) -> ChosenAction:
+    async def propose(feedback: str | None) -> ChosenTurn:
         retry_feedback.append(feedback)
         return next(proposed_actions)
 
@@ -298,7 +299,9 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.EAST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.EAST),
+    )
     assert retry_feedback[0] is None
     assert retry_feedback[1] is not None
     assert (
@@ -355,13 +358,13 @@ def test_move_retry_feedback_only_explains_visible_terrain(
     )
     proposed_actions = iter(
         [
-            ChosenAction(action=MoveAction(direction=MoveDirection.EAST)),
-            ChosenAction(action=MoveAction(direction=MoveDirection.WEST)),
+            ChosenTurn(action=MoveAction(direction=MoveDirection.EAST)),
+            ChosenTurn(action=MoveAction(direction=MoveDirection.WEST)),
         ]
     )
     retry_feedback: list[str | None] = []
 
-    async def propose(feedback: str | None) -> ChosenAction:
+    async def propose(feedback: str | None) -> ChosenTurn:
         retry_feedback.append(feedback)
         return next(proposed_actions)
 
@@ -377,7 +380,9 @@ def test_move_retry_feedback_only_explains_visible_terrain(
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.WEST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.WEST),
+    )
     assert retry_feedback[1] is not None
     assert expected_reason in retry_feedback[1]
     if not destination_is_visible:
@@ -395,8 +400,8 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
     )
     shoot_action = ShootAction(target_position=target_position)
 
-    async def propose(_: str | None) -> ChosenAction:
-        return ChosenAction(action=shoot_action)
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(action=shoot_action)
 
     result = asyncio.run(
         _resolve_action(
@@ -410,15 +415,15 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
         )
     )
 
-    assert result == shoot_action
+    assert result == ChosenTurn(action=shoot_action)
 
 
 def test_action_resolution_returns_none_after_invalid_shoot_attempts() -> None:
     shooter = Soldier(Team.BLUE, Position(x=1, y=1, z=0))
     observed = observation(shooter, [])
 
-    async def propose(_: str | None) -> ChosenAction:
-        return ChosenAction(
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(
             action=ShootAction(target_position=Position(x=4, y=3, z=0)),
         )
 

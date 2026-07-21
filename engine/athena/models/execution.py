@@ -3,6 +3,7 @@
 from pydantic import BaseModel
 
 from athena.models.actions import Action
+from athena.models.communications import CommunicationGroup, TeamMessage
 from athena.models.common import (
     IMMUTABLE_MODEL_CONFIG,
     Position,
@@ -20,6 +21,7 @@ class SoldierSnapshot(BaseModel):
     position: Position
     survival_status: SurvivalState
     vision_range: float
+    communication_group_ids: frozenset[str]
 
 
 class BattlefieldSnapshot(BaseModel):
@@ -29,6 +31,7 @@ class BattlefieldSnapshot(BaseModel):
     height: int
     surface: frozenset[Position]
     soldiers: tuple[SoldierSnapshot, ...]
+    communication_groups: tuple[CommunicationGroup, ...]
     cover: frozenset[Position]
     concealment: frozenset[Position]
 
@@ -51,3 +54,4 @@ class ExecutionResult(BaseModel):
     observations: tuple[VisibilityObservation, ...]
     before: BattlefieldSnapshot
     after: BattlefieldSnapshot
+    team_messages: tuple[TeamMessage, ...] = ()

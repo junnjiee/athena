@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, model_validator
 
+from athena.models.communications import BroadcastDraft
 from athena.models.common import IMMUTABLE_MODEL_CONFIG, Position
 
 
@@ -83,3 +84,23 @@ class ActionValidationResult(BaseModel):
     @classmethod
     def rejected(cls, reason: str) -> "ActionValidationResult":
         return cls(valid=False, reason=reason)
+
+
+class ChosenTurn(BaseModel):
+    """OpenRouter's physical action plus an optional team broadcast."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    action: MoveAction | ShootAction
+    broadcast: BroadcastDraft | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_stringified_action(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("action"), str):
+            try:
+                parsed = json.loads(data["action"])
+            except json.JSONDecodeError as exc:
+                raise ValueError("action must be valid JSON") from exc
+            return {**data, "action": parsed}
+        return data

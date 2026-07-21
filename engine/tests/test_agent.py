@@ -13,13 +13,16 @@ from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
     AgentContext,
-    ChosenAction,
+    BroadcastDraft,
+    ChosenTurn,
+    CommunicationGroup,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
     Position,
     SurvivalState,
     Team,
+    TeamMessage,
     VisibilityObservation,
 )
 
@@ -33,10 +36,14 @@ def test_openrouter_receives_current_observation_and_visibility_history(
         async def ainvoke(
             self,
             request_messages: list[tuple[str, str]],
-        ) -> ChosenAction:
+        ) -> ChosenTurn:
             messages.extend(request_messages)
-            return ChosenAction(
+            return ChosenTurn(
                 action=MoveAction(direction=MoveDirection.EAST),
+                broadcast=BroadcastDraft(
+                    group_id="blue-alpha",
+                    content="Moving east.",
+                ),
             )
 
     class Llm:
@@ -45,8 +52,22 @@ def test_openrouter_receives_current_observation_and_visibility_history(
 
     monkeypatch.setattr(agent, "ChatOpenRouter", lambda **_: Llm())
 
-    soldier = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
-    battlefield = Battlefield(width=2, height=1, soldiers=[soldier])
+    group = CommunicationGroup(
+        group_id="blue-alpha",
+        name="Blue Alpha",
+        team=Team.BLUE,
+    )
+    soldier = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={group.group_id},
+    )
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[soldier],
+        communication_groups=[group],
+    )
     current_observation = ObservedSoldier(
         team=Team.BLUE,
         position=soldier.position,
@@ -62,6 +83,15 @@ def test_openrouter_receives_current_observation_and_visibility_history(
     agent_context = AgentContext(
         current_observation=current_observation,
         visibility_history=(historical_observation,),
+        communication_groups=(group,),
+        communication_history=(
+            TeamMessage(
+                sent_tick=1,
+                group_id=group.group_id,
+                sender_index=0,
+                content="Holding position.",
+            ),
+        ),
     )
 
     result = asyncio.run(
@@ -74,9 +104,17 @@ def test_openrouter_receives_current_observation_and_visibility_history(
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.EAST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.EAST),
+        broadcast=BroadcastDraft(
+            group_id="blue-alpha",
+            content="Moving east.",
+        ),
+    )
     assert "ordered from oldest to newest" in messages[0][1]
     assert "up to 7 prior tick observations" in messages[0][1]
+    assert "up to 10 messages" in messages[0][1]
+    assert "receive it on the next tick" in messages[0][1]
     assert "elevation differs by more than 2 levels" in messages[0][1]
     assert json.loads(messages[1][1]) == json.loads(agent_context.model_dump_json())
 
@@ -103,17 +141,17 @@ def test_openrouter_retries_with_sanitized_pydantic_validation_feedback(
     excluded_text: str | None,
 ) -> None:
     requests: list[list[tuple[str, str]]] = []
-    parser = PydanticOutputParser(pydantic_object=ChosenAction)
+    parser = PydanticOutputParser(pydantic_object=ChosenTurn)
 
     class StructuredLlm:
         async def ainvoke(
             self,
             request_messages: list[tuple[str, str]],
-        ) -> ChosenAction:
+        ) -> ChosenTurn:
             requests.append(request_messages)
             if len(requests) == 1:
                 return parser.parse(invalid_output)
-            return ChosenAction(
+            return ChosenTurn(
                 action=MoveAction(direction=MoveDirection.EAST),
             )
 
@@ -147,7 +185,9 @@ def test_openrouter_retries_with_sanitized_pydantic_validation_feedback(
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.EAST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.EAST),
+    )
     assert len(requests) == 2
     retry_message = requests[1][1][1]
     assert "Retry feedback:" in retry_message
@@ -167,7 +207,7 @@ def test_non_pydantic_parser_error_still_propagates() -> None:
         available_terrain=[],
     )
 
-    async def propose(_: str | None) -> ChosenAction:
+    async def propose(_: str | None) -> ChosenTurn:
         raise OutputParserException("Malformed JSON before Pydantic validation.")
 
     with pytest.raises(OutputParserException):
@@ -195,10 +235,10 @@ def test_bare_pydantic_validation_error_still_propagates() -> None:
     )
     attempts = 0
 
-    async def propose(_: str | None) -> ChosenAction:
+    async def propose(_: str | None) -> ChosenTurn:
         nonlocal attempts
         attempts += 1
-        return ChosenAction.model_validate(
+        return ChosenTurn.model_validate(
             {"action": {"kind": "move", "direction": "up"}}
         )
 
@@ -216,3 +256,11 @@ def test_bare_pydantic_validation_error_still_propagates() -> None:
         )
 
     assert attempts == 1
+
+
+def test_broadcast_content_is_limited_to_280_characters() -> None:
+    with pytest.raises(ValidationError):
+        BroadcastDraft(
+            group_id="blue-alpha",
+            content="x" * 281,
+        )

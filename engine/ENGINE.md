@@ -27,11 +27,13 @@ remain with their existing owners.
 
 ## Authority and information boundaries
 
-- `Battlefield` and its mutable `Soldier` objects hold authoritative global state.
+- `Battlefield` and its mutable `Soldier` objects hold authoritative global state,
+  including scenario-defined communication groups and soldier memberships.
 
 - Agents do not receive that global state. They receive an `AgentContext`
-  containing the soldier's current local observation and a bounded history
-  of earlier local visibility.
+  containing the soldier's current local observation, a bounded history of earlier
+  local visibility, their available communication groups, and a bounded history of
+  messages they sent or received.
 
 - Python action chooser also receives the live `Battlefield` and `Soldier` so it
   can validate a proposed action before returning it to the loop. This is an internal
@@ -40,13 +42,15 @@ remain with their existing owners.
 Agents propose actions, while the engine owns adjudication and state mutation:
 
 1. `LoopEngine` derives local observations from global truth.
-2. The action chooser returns at most one proposed action per soldier.
-3. Resolvers validate and resolve the complete action batch.
-4. `LoopEngine` commits accepted movement and casualty effects.
+2. The action chooser returns at most one proposed physical action and one optional
+   broadcast per soldier.
+3. Resolvers validate and resolve the complete action and broadcast batch.
+4. `LoopEngine` commits accepted movement, casualty, and message-history effects.
 
 The ordering of `battlefield.soldiers` is an implicit identity system. Soldier
-indices align actions, observations, visibility histories, snapshots, and shot
-outcomes. There is no independent soldier identifier in the current model.
+indices align actions, observations, visibility histories, communication histories,
+message senders, snapshots, and shot outcomes. There is no independent soldier
+identifier in the current model.
 
 ## Battlefield and terrain
 
@@ -91,12 +95,13 @@ custom collection of ground `Position` values are scenario inputs.
 
 ## Soldier model
 
-A soldier currently has four properties:
+A soldier currently has five properties:
 
 - team
 - exact XYZ surface position
 - survival state
 - vision range
+- communication group IDs
 
 The current soldier assumptions are:
 
@@ -112,6 +117,10 @@ The current soldier assumptions are:
 
 Default vision range is configurable today per soldier. Default survival state and
 the rifle hit transition are hardcoded defaults.
+
+Communication group membership is a scenario input supplied per soldier. Battlefield
+construction validates that every referenced group exists and belongs to the same
+Blue or Red team as the soldier.
 
 ## Agent-local observations
 
@@ -385,6 +394,8 @@ random roll in `[0, 1)` produces a hit when `roll < P(hit)`.
 | -------------------------- | ---------------------------: | ---------------------------------- |
 | Maximum action attempts    |                          `3` | `LoopEngine` and agent functions   |
 | Visibility history limit   |                         `10` | `LoopEngine`                       |
+| Communication history limit |                        `10` | `LoopEngine`                       |
+| Team message length         |           `280` characters | communication models               |
 | OpenRouter prompt template |             tunable template | `params.py`                        |
 | Hosted model               |   `openai/gpt-oss-120b:nitro` | `agent.py`                         |
 | Ollama host                |     `http://localhost:11434` | `ollama_agent.py` or `OLLAMA_HOST` |
@@ -400,10 +411,12 @@ remain in their provider modules.
 
 ### Action schema and retries
 
-- The action schema supports only move and shoot.
-- There is no explicit wait, communicate, observe, take-cover, treat, or plan action.
-- OpenRouter may propose movement or shooting.
+- The physical-action schema supports only move and shoot.
+- There is no explicit wait, observe, take-cover, treat, or plan action.
+- OpenRouter may propose movement or shooting plus one optional communication-group
+  broadcast in the same turn.
 - Ollama is intentionally movement-only and rejects every shoot proposal.
+- Ollama does not receive communication context or propose broadcasts.
 - The chooser requests up to `max_attempts` proposals and returns the first
   individually legal action.
 - Every retry uses the same observation. After an individually illegal action, the
@@ -418,6 +431,8 @@ remain in their provider modules.
   output parser are retried with concise validation feedback that excludes the raw
   malformed action value. Bare Pydantic errors and other parser failures propagate
   and fail action collection.
+- An inaccessible broadcast group is dropped without rejecting an otherwise legal
+  physical action.
 
 ### Prompt assumptions
 
@@ -431,6 +446,8 @@ Both prompts currently embed scenario and engine rules directly:
 - OpenRouter may shoot visible living enemies.
 - Ollama may not shoot.
 - The OpenRouter history description is rendered from the active loop limit.
+- OpenRouter is told that broadcasts must target one of the communication groups in
+  its context and arrive on the next tick.
 
 The team objectives remain scenario assumptions embedded in the prompts. Structural
 movement and shooting statements still mirror hardcoded engine behavior, while the
@@ -459,14 +476,57 @@ tunable elevation and history values are inserted from the effective runtime val
 - The default rolling limit is ten.
 - Ollama receives only the current observation and does not receive history.
 
+## Team communication
+
+### Communication groups and membership
+
+- `Team` still means the Blue or Red faction. A `CommunicationGroup` is a separate,
+  scenario-defined broadcast group with a unique ID, display name, and owning team.
+- A soldier may belong to zero, one, or multiple communication groups.
+- A soldier may only join communication groups owned by its Blue or Red team.
+- Membership grants both send and receive access. Roles such as rifleman, sergeant,
+  or commander are not modeled; scenarios express their communication access through
+  group membership.
+- Groups do not relay messages automatically. A soldier belonging to two groups must
+  deliberately repeat information from one group into the other.
+
+### Broadcast and delivery semantics
+
+- An OpenRouter turn contains one required move or shoot action and at most one
+  optional `BroadcastDraft` with a group ID and message content.
+- A valid broadcast is sent only when the soldier was alive in the shared pre-tick
+  snapshot and belonged to the selected group.
+- A soldier alive before the tick still transmits when made a casualty during the
+  same tick, matching the snapshot-based movement and shooting semantics.
+- Broadcasts are resolved in soldier-index order. Every member of the selected group,
+  including the sender, records the resulting `TeamMessage` in that order.
+- Messages sent during tick `N` first appear in agent context during tick `N + 1`.
+- A message records the sent tick, communication group ID, sender soldier index, and
+  content. It does not automatically reveal the sender's position.
+- Message content must contain at least one character and no more than 280 characters.
+- The engine currently has no communication range, loss, delay beyond one tick,
+  interception, jamming, recipient selection, or send-only/receive-only permissions.
+
+### Communication history
+
+- History is maintained separately for each soldier index and contains messages the
+  soldier sent or received through its communication groups.
+- Messages from all accessible groups share one chronological history.
+- The default rolling limit is ten messages, ordered oldest to newest.
+- `AgentContext` includes the soldier's available group descriptions and current
+  communication history. The complete context is serialized into each OpenRouter
+  request, so these messages consume model context-window tokens.
+- Communication history is loop state and is not included in battlefield snapshots.
+- Ollama receives no communication groups or communication history.
+
 ## Tick and execution semantics
 
 A normal tick has two phases:
 
 1. Build local observations and collect at most one individually valid action per
    soldier.
-2. Capture a global before-snapshot, resolve all actions against that state, commit
-   accepted effects, and capture an after-snapshot.
+2. Capture a global before-snapshot, resolve all actions and broadcasts against that
+   state, commit accepted effects and message histories, and capture an after-snapshot.
 
 The execution assumptions are:
 
@@ -474,10 +534,11 @@ The execution assumptions are:
 - Movement and shooting resolve independently from the same snapshot.
 - Accepted positions are committed before casualty transitions.
 - Same-tick casualties do not cancel accepted movement or shooting.
+- Same-tick casualties do not cancel a broadcast proposed while the sender was alive.
 - There is no initiative, reaction, interrupt, or within-tick team ordering.
 - A `None` action leaves that soldier unchanged.
-- An `ExecutionResult` records submitted actions, shot outcomes, pre-action
-  observations, and immutable before/after snapshots.
+- An `ExecutionResult` records submitted actions, shot outcomes, accepted team
+  messages, pre-action observations, and immutable before/after snapshots.
 - `execute_actions()` assumes one action-list entry per soldier but does not validate
   the list length.
 - The core loop has no automatic victory condition

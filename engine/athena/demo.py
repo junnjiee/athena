@@ -9,7 +9,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from athena.agent import choose_action
-from athena.params import MAX_ACTION_ATTEMPTS, VISIBILITY_HISTORY_LIMIT
+from athena.params import (
+    COMMUNICATION_HISTORY_LIMIT,
+    MAX_ACTION_ATTEMPTS,
+    VISIBILITY_HISTORY_LIMIT,
+)
 from athena.ollama_agent import (
     OllamaUnavailable,
     choose_action_local,
@@ -23,6 +27,7 @@ from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
 from athena.models import (
     AgentContext,
+    CommunicationGroup,
     ExecutionResult,
     MoveAction,
     ObservedSoldier,
@@ -50,6 +55,7 @@ def adapt_local_action_chooser(model: str) -> ActionChooser:
         movement_resolver: MovementResolver,
         max_attempts: int = MAX_ACTION_ATTEMPTS,
         visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
+        communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
     ):
         return await choose_action_local(
             observed_soldier=agent_context.current_observation,
@@ -124,6 +130,16 @@ def render_execution_result(result: ExecutionResult) -> None:
                 f"({resolution})"
             )
 
+    print()
+    print("Team communications")
+    if result.team_messages:
+        for message in result.team_messages:
+            print(
+                f"  soldier {message.sender_index} -> {message.group_id}: "
+                f"{message.content}"
+            )
+    else:
+        print("  none")
     print()
     print("State changes")
     changes: list[str] = []
@@ -278,21 +294,25 @@ async def run_demo(
         team=Team.BLUE,
         position=ground(1, 2),
         vision_range=6,
+        communication_group_ids={"blue-team"},
     )
     blue_2 = Soldier(
         team=Team.BLUE,
         position=ground(1, 5),
         vision_range=6,
+        communication_group_ids={"blue-team"},
     )
     red_1 = Soldier(
         team=Team.RED,
         position=ground(10, 2),
         vision_range=6,
+        communication_group_ids={"red-team"},
     )
     red_2 = Soldier(
         team=Team.RED,
         position=ground(10, 5),
         vision_range=6,
+        communication_group_ids={"red-team"},
     )
 
     battlefield = Battlefield(
@@ -314,6 +334,18 @@ async def run_demo(
             ground(8, 3),
             ground(8, 6),
         },
+        communication_groups=[
+            CommunicationGroup(
+                group_id="blue-team",
+                name="Blue team",
+                team=Team.BLUE,
+            ),
+            CommunicationGroup(
+                group_id="red-team",
+                name="Red team",
+                team=Team.RED,
+            ),
+        ],
     )
     # build_action_chooser (above) already resolved which backend/model to use;
     # everything downstream (loop, rendering, output) is identical regardless.
