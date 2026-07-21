@@ -195,6 +195,7 @@ def test_run_demo_writes_replay_log(monkeypatch, tmp_path) -> None:
     replay_log = ReplayLog.model_validate_json(output_path.read_text())
     assert [step.step for step in replay_log.steps] == [0, 1, 2]
     assert all(step.shots == () for step in replay_log.steps)
+    assert all(step.messages == () for step in replay_log.steps)
 
 
 def test_battle_finishes_when_one_team_has_no_living_soldiers() -> None:

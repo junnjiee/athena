@@ -7,7 +7,9 @@ from athena.models import (
     ExecutionResult,
     Position,
     ReplayBattlefield,
+    ReplayCommunicationGroup,
     ReplayLog,
+    ReplayMessage,
     ReplayShot,
     ReplaySoldier,
     ReplayStep,
@@ -45,12 +47,26 @@ class ReplayRecorder:
             surface=_sorted_positions(initial_snapshot.surface),
             cover=_sorted_positions(initial_snapshot.cover),
             concealment=_sorted_positions(initial_snapshot.concealment),
+            communication_groups=tuple(
+                ReplayCommunicationGroup(
+                    group_id=group.group_id,
+                    name=group.name,
+                    team=group.team,
+                    member_indices=tuple(
+                        soldier.soldier_index
+                        for soldier in initial_snapshot.soldiers
+                        if group.group_id in soldier.communication_group_ids
+                    ),
+                )
+                for group in initial_snapshot.communication_groups
+            ),
         )
         self._steps = [
             ReplayStep(
                 step=0,
                 soldiers=_replay_soldiers(initial_snapshot),
                 shots=(),
+                messages=(),
             )
         ]
 
@@ -79,6 +95,14 @@ class ReplayRecorder:
                     hit=shot.hit,
                 )
                 for shot in result.shot_outcomes
+            ),
+            messages=tuple(
+                ReplayMessage(
+                    sender_index=message.sender_index,
+                    group_id=message.group_id,
+                    content=message.content,
+                )
+                for message in result.team_messages
             ),
         )
         self._steps.append(step)

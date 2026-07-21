@@ -524,6 +524,19 @@ tunable elevation and history values are inserted from the effective runtime val
 - Communication history is loop state and is not included in battlefield snapshots.
 - Ollama receives no communication groups or communication history.
 
+### Replay representation
+
+- Replay schema version 2 records communication groups once as static battlefield
+  data, including each group's ID, display name, team, and soldier member indices.
+- Every completed replay step records each accepted team message once, in
+  sender-index resolution order. A replay message contains its sender soldier index,
+  communication group ID, and content.
+- A message in replay step `N` was sent during the transition from step `N - 1` to
+  step `N`. Replay clients derive its origin from the sender's position in the
+  preceding step and its recipients from the communication group's member indices.
+- The initial step has no messages. Rejected broadcast drafts and per-soldier rolling
+  communication histories are not included in replay logs.
+
 ## Tick and execution semantics
 
 A normal tick has two phases:
