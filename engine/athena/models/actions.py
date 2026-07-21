@@ -64,11 +64,26 @@ class ChosenAction(BaseModel):
             try:
                 parsed = json.loads(data["action"])
             except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"action was a string but not valid JSON: {data['action']!r}"
-                ) from exc
+                raise ValueError("action must be valid JSON") from exc
             return {**data, "action": parsed}
         return data
+
+
+class ActionValidationResult(BaseModel):
+    """Internal legality result used to explain rejected actions to an agent."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    valid: bool
+    reason: str | None = None
+
+    @classmethod
+    def accepted(cls) -> "ActionValidationResult":
+        return cls(valid=True)
+
+    @classmethod
+    def rejected(cls, reason: str) -> "ActionValidationResult":
+        return cls(valid=False, reason=reason)
 
 
 class ChosenTurn(BaseModel):
@@ -86,8 +101,6 @@ class ChosenTurn(BaseModel):
             try:
                 parsed = json.loads(data["action"])
             except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"action was a string but not valid JSON: {data['action']!r}"
-                ) from exc
+                raise ValueError("action must be valid JSON") from exc
             return {**data, "action": parsed}
         return data

@@ -27,6 +27,7 @@ from athena.models import (
     ShootAction,
     SurvivalState,
     Team,
+    TerrainCell,
     VisibleSoldier,
 )
 
@@ -280,7 +281,10 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
         ]
     )
 
-    async def propose() -> ChosenTurn:
+    retry_feedback: list[str | None] = []
+
+    async def propose(feedback: str | None) -> ChosenTurn:
+        retry_feedback.append(feedback)
         return next(proposed_actions)
 
     result = asyncio.run(
@@ -298,6 +302,93 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     assert result == ChosenTurn(
         action=MoveAction(direction=MoveDirection.EAST),
     )
+    assert retry_feedback[0] is None
+    assert retry_feedback[1] is not None
+    assert (
+        "No visible soldier occupies the requested target position"
+        in retry_feedback[1]
+    )
+    assert '"kind":"shoot"' in retry_feedback[1]
+
+
+@pytest.mark.parametrize(
+    ("destination_is_visible", "destination_elevation", "has_cover", "expected_reason"),
+    [
+        (False, 0, True, "Moving east was rejected by the movement rules."),
+        (False, 2, False, "Moving east was rejected by the movement rules."),
+        (True, 0, True, "contains impassable cover"),
+        (True, 2, False, "Destination elevation differs by 2 levels"),
+    ],
+)
+def test_move_retry_feedback_only_explains_visible_terrain(
+    destination_is_visible: bool,
+    destination_elevation: int,
+    has_cover: bool,
+    expected_reason: str,
+) -> None:
+    soldier = Soldier(Team.BLUE, Position(x=1, y=0, z=0))
+    destination = Position(x=2, y=0, z=destination_elevation)
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[soldier],
+        surface={
+            Position(x=0, y=0, z=0),
+            soldier.position,
+            destination,
+        },
+        cover={destination} if has_cover else set(),
+    )
+    observed = ObservedSoldier(
+        team=Team.BLUE,
+        position=soldier.position,
+        survival_status=SurvivalState.ALIVE,
+        visible_soldiers=[],
+        available_terrain=(
+            [
+                TerrainCell(
+                    position=destination,
+                    has_cover=has_cover,
+                    has_concealment=False,
+                )
+            ]
+            if destination_is_visible
+            else []
+        ),
+    )
+    proposed_actions = iter(
+        [
+            ChosenTurn(action=MoveAction(direction=MoveDirection.EAST)),
+            ChosenTurn(action=MoveAction(direction=MoveDirection.WEST)),
+        ]
+    )
+    retry_feedback: list[str | None] = []
+
+    async def propose(feedback: str | None) -> ChosenTurn:
+        retry_feedback.append(feedback)
+        return next(proposed_actions)
+
+    result = asyncio.run(
+        _resolve_action(
+            propose,
+            observed,
+            battlefield,
+            soldier,
+            MovementResolver(),
+            ShootingResolver(),
+            max_attempts=2,
+        )
+    )
+
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.WEST),
+    )
+    assert retry_feedback[1] is not None
+    assert expected_reason in retry_feedback[1]
+    if not destination_is_visible:
+        assert "cover" not in retry_feedback[1]
+        assert "elevation" not in retry_feedback[1]
+        assert destination.model_dump_json() not in retry_feedback[1]
 
 
 def test_action_resolution_accepts_valid_shoot_action() -> None:
@@ -309,7 +400,7 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
     )
     shoot_action = ShootAction(target_position=target_position)
 
-    async def propose() -> ChosenTurn:
+    async def propose(_: str | None) -> ChosenTurn:
         return ChosenTurn(action=shoot_action)
 
     result = asyncio.run(
@@ -331,7 +422,7 @@ def test_action_resolution_returns_none_after_invalid_shoot_attempts() -> None:
     shooter = Soldier(Team.BLUE, Position(x=1, y=1, z=0))
     observed = observation(shooter, [])
 
-    async def propose() -> ChosenTurn:
+    async def propose(_: str | None) -> ChosenTurn:
         return ChosenTurn(
             action=ShootAction(target_position=Position(x=4, y=3, z=0)),
         )
