@@ -12,6 +12,15 @@ from athena.models.common import (
 )
 
 
+class ReplayCommunicationGroup(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    group_id: str
+    name: str
+    team: Team
+    member_indices: tuple[int, ...]
+
+
 class ReplayBattlefield(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
@@ -20,6 +29,7 @@ class ReplayBattlefield(BaseModel):
     surface: tuple[Position, ...]
     cover: tuple[Position, ...]
     concealment: tuple[Position, ...]
+    communication_groups: tuple[ReplayCommunicationGroup, ...]
 
 
 class ReplaySoldier(BaseModel):
@@ -41,17 +51,26 @@ class ReplayShot(BaseModel):
     hit: bool
 
 
+class ReplayMessage(BaseModel):
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    sender_index: int
+    group_id: str
+    content: str
+
+
 class ReplayStep(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     step: int
     soldiers: tuple[ReplaySoldier, ...]
     shots: tuple[ReplayShot, ...]
+    messages: tuple[ReplayMessage, ...]
 
 
 class ReplayLog(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     battlefield: ReplayBattlefield
     steps: tuple[ReplayStep, ...]

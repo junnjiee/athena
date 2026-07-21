@@ -47,11 +47,14 @@ Pass `--replay-log` to write a result-only JSON log for a replay UI:
 uv run python -m athena.demo --ticks 5 --replay-log runs/demo.json
 ```
 
-The log contains the static battlefield, the initial soldier state as step zero,
-and one final soldier-state step per completed tick. Each tick step also contains
-executed shots with their pre-tick source and target positions and whether they hit.
-Agent observations, submitted actions, rejected moves, hit probabilities, and random
-rolls are omitted.
+Replay schema version 2 contains the static battlefield and communication groups,
+the initial soldier state as step zero, and one final soldier-state step per completed
+tick. Each tick step also contains executed shots and accepted team messages. A
+message in step `N` was sent during the transition from step `N - 1` to step `N`; its
+origin is the sender's position in the preceding step, and its recipients are the
+members of its static communication group. Agent observations, submitted actions,
+rejected moves and broadcasts, rolling communication histories, hit probabilities,
+and random rolls are omitted.
 
 ## Run with Ollama
 

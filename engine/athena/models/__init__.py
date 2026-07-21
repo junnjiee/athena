@@ -31,7 +31,9 @@ from athena.models.observations import (
 )
 from athena.models.replay import (
     ReplayBattlefield,
+    ReplayCommunicationGroup,
     ReplayLog,
+    ReplayMessage,
     ReplayShot,
     ReplaySoldier,
     ReplayStep,
@@ -53,7 +55,9 @@ __all__ = [
     "ObservedSoldier",
     "Position",
     "ReplayBattlefield",
+    "ReplayCommunicationGroup",
     "ReplayLog",
+    "ReplayMessage",
     "ReplayShot",
     "ReplaySoldier",
     "ReplayStep",
