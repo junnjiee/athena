@@ -4,6 +4,7 @@ import sys
 from contextlib import redirect_stdout
 from functools import partial
 from io import StringIO
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,7 @@ from athena.ollama_agent import (
 from athena.world_state import Battlefield
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
+from athena.replay import ReplayRecorder
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
 from athena.models import (
@@ -266,7 +268,11 @@ def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
     return Team.BLUE in living_teams and Team.RED in living_teams
 
 
-async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
+async def run_demo(
+    model_spec: str | None = None,
+    ticks: int = 60,
+    replay_log_path: str | Path | None = None,
+) -> None:
     load_dotenv()
     action_chooser = build_action_chooser(model_spec)
 
@@ -349,6 +355,11 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
         movement_resolver=MovementResolver(),
         action_chooser=action_chooser,
     )
+    replay_recorder = (
+        ReplayRecorder(battlefield.snapshot())
+        if replay_log_path is not None
+        else None
+    )
 
     use_live_screen = sys.stdout.isatty()
     if use_live_screen:
@@ -368,6 +379,8 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
         )
         for tick_index in range(ticks):
             result = await loop.tick()
+            if replay_recorder is not None:
+                replay_recorder.record(result)
             completed_tick = tick_index + 1
             battle_finished = not both_teams_have_living_soldiers(battlefield)
             reached_tick_limit = completed_tick == ticks
@@ -391,9 +404,13 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
             if battle_finished:
                 break
     finally:
-        if use_live_screen:
-            sys.stdout.write("\033[?25h\033[?1049l")
-            sys.stdout.flush()
+        try:
+            if replay_recorder is not None and replay_log_path is not None:
+                replay_recorder.save(replay_log_path)
+        finally:
+            if use_live_screen:
+                sys.stdout.write("\033[?25h\033[?1049l")
+                sys.stdout.flush()
 
 
 def main() -> None:
@@ -408,9 +425,21 @@ def main() -> None:
         default=60,
         help="maximum simulation ticks to run (default: 60)",
     )
+    parser.add_argument(
+        "--replay-log",
+        type=Path,
+        default=None,
+        help="write result-only replay JSON to this path",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(run_demo(model_spec=args.model, ticks=args.ticks))
+        asyncio.run(
+            run_demo(
+                model_spec=args.model,
+                ticks=args.ticks,
+                replay_log_path=args.replay_log,
+            )
+        )
     except OllamaUnavailable as exc:
         raise SystemExit(f"error: {exc}")
 

@@ -28,6 +28,13 @@ from athena.models.observations import (
     VisibilityObservation,
     VisibleSoldier,
 )
+from athena.models.replay import (
+    ReplayBattlefield,
+    ReplayLog,
+    ReplayShot,
+    ReplaySoldier,
+    ReplayStep,
+)
 
 __all__ = [
     "Action",
@@ -43,6 +50,11 @@ __all__ = [
     "MoveDirection",
     "ObservedSoldier",
     "Position",
+    "ReplayBattlefield",
+    "ReplayLog",
+    "ReplayShot",
+    "ReplaySoldier",
+    "ReplayStep",
     "ShootAction",
     "ShotOutcome",
     "SoldierSnapshot",

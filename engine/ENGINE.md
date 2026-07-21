@@ -448,9 +448,9 @@ tunable elevation and history values are inserted from the effective runtime val
 
 ### Scheduling and failure behavior
 
-- `LoopEngine` schedules one action-chooser call for every soldier, including
-  casualties and dead soldiers.
-- All chooser calls run concurrently through `asyncio.gather`.
+- `LoopEngine` schedules action-chooser calls only for alive soldiers. Casualties
+  and dead soldiers receive `None` without invoking the chooser.
+- All alive-soldier chooser calls run concurrently through `asyncio.gather`.
 - Result order remains aligned with soldier order.
 - If any chooser raises, action collection raises and execution does not commit a
   state change for that tick.

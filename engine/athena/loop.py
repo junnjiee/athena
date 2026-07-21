@@ -163,31 +163,41 @@ class LoopEngine:
         if observed_soldiers is None:
             observed_soldiers = self.observed_soldiers_map()
 
+        async def collect_soldier_action(
+            soldier_index: int,
+            observed_soldier: ObservedSoldier,
+        ) -> ChosenTurn | Action | None:
+            soldier = self.battlefield.soldiers[soldier_index]
+            if soldier.survival_status != SurvivalState.ALIVE:
+                return None
+
+            return await self.action_chooser(
+                agent_context=AgentContext(
+                    current_observation=observed_soldier,
+                    visibility_history=tuple(
+                        self.visibility_history[soldier_index]
+                    ),
+                    communication_groups=self.battlefield.communication_groups_for(
+                        soldier
+                    ),
+                    communication_history=tuple(
+                        self.communication_history[soldier_index]
+                    ),
+                ),
+                battlefield=self.battlefield,
+                soldier=soldier,
+                movement_resolver=self.movement_resolver,
+                max_attempts=max_attempts,
+                visibility_history_limit=self.visibility_history_limit,
+                communication_history_limit=self.communication_history_limit,
+            )
+
         # asyncio.gather preserves input order, so each result stays aligned with
         # battlefield.soldiers. It also raises if any soldier task raises, which
         # keeps this collection phase fail-fast while the engine is still small.
         results = await asyncio.gather(
             *[
-                self.action_chooser(
-                    agent_context=AgentContext(
-                        current_observation=observed_soldier,
-                        visibility_history=tuple(
-                            self.visibility_history[soldier_index]
-                        ),
-                        communication_groups=self.battlefield.communication_groups_for(
-                            self.battlefield.soldiers[soldier_index]
-                        ),
-                        communication_history=tuple(
-                            self.communication_history[soldier_index]
-                        ),
-                    ),
-                    battlefield=self.battlefield,
-                    soldier=self.battlefield.soldiers[soldier_index],
-                    movement_resolver=self.movement_resolver,
-                    max_attempts=max_attempts,
-                    visibility_history_limit=self.visibility_history_limit,
-                    communication_history_limit=self.communication_history_limit,
-                )
+                collect_soldier_action(soldier_index, observed_soldier)
                 for soldier_index, observed_soldier in enumerate(observed_soldiers)
             ]
         )
