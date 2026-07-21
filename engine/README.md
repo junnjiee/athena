@@ -39,6 +39,20 @@ To select another OpenRouter model:
 uv run python -m athena.demo --model provider/model-name --ticks 5
 ```
 
+## Run the hill-assault demo
+
+The second demo places six Blue attackers together at the southern bottom of a
+three-level hill and four stationary Red defenders on its summit. Blue's orders
+split the initial formation into three-soldier western and eastern assault elements,
+while Red's separate orders use the explicit hold action to defend in place.
+
+```bash
+uv run python -m athena.demo2 --ticks 20
+```
+
+`demo2` uses OpenRouter only. It accepts an optional OpenRouter model ID through the
+same `--model provider/model-name` form and supports `--replay-log`.
+
 ## Write a replay log
 
 Pass `--replay-log` to write a result-only JSON log for a replay UI:

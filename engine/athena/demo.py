@@ -29,6 +29,7 @@ from athena.models import (
     AgentContext,
     CommunicationGroup,
     ExecutionResult,
+    HoldAction,
     MoveAction,
     ObservedSoldier,
     Position,
@@ -108,6 +109,8 @@ def render_execution_result(result: ExecutionResult) -> None:
 
         if action is None:
             print(f"{prefix} none")
+        elif isinstance(action, HoldAction):
+            print(f"{prefix} hold")
         elif isinstance(action, MoveAction):
             outcome = (
                 "accepted"

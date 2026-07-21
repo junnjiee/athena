@@ -20,6 +20,7 @@ from athena.world_state import Soldier
 from athena.models import (
     ChosenAction,
     ChosenTurn,
+    HoldAction,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
@@ -70,8 +71,14 @@ def test_shoot_action_serializes_target_coordinates() -> None:
     assert chosen.action == ShootAction(target_position=Position(x=4, y=7, z=2))
 
 
+def test_hold_action_serializes_without_parameters() -> None:
+    chosen = ChosenTurn.model_validate({"action": {"kind": "hold"}})
+
+    assert chosen.action == HoldAction()
+
+
 def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
-    assert "move one grid cell or shoot" in SYSTEM_PROMPT
+    assert "hold position, move one grid cell, or shoot" in SYSTEM_PROMPT
     assert "x, y, and z" in SYSTEM_PROMPT
     assert "available_terrain cells" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
@@ -115,6 +122,17 @@ def test_agent_prompts_use_effective_engine_limits() -> None:
     assert "up to 7 prior tick observations" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in ollama_prompt
+
+
+def test_openrouter_prompt_accepts_scenario_team_objectives() -> None:
+    prompt = build_openrouter_system_prompt(
+        visibility_history_limit=7,
+        max_elevation_change=1,
+        team_objectives="\n- Red: hold the summit.",
+    )
+
+    assert "\n\nTeam objectives:\n- Red: hold the summit." in prompt
+    assert "Blue: advance toward the right/east side" not in prompt
 
 
 def test_accepts_visible_living_enemy_target() -> None:
@@ -416,6 +434,28 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
     )
 
     assert result == ChosenTurn(action=shoot_action)
+
+
+def test_action_resolution_accepts_hold_action() -> None:
+    soldier = Soldier(Team.RED, Position(x=1, y=1, z=0))
+    observed = observation(soldier, [])
+
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(action=HoldAction())
+
+    result = asyncio.run(
+        _resolve_action(
+            propose,
+            observed,
+            Battlefield(width=3, height=3, soldiers=[soldier]),
+            soldier,
+            MovementResolver(),
+            ShootingResolver(),
+            max_attempts=1,
+        )
+    )
+
+    assert result == ChosenTurn(action=HoldAction())
 
 
 def test_action_resolution_returns_none_after_invalid_shoot_attempts() -> None:
