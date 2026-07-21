@@ -288,6 +288,31 @@ def test_tick_supplies_each_soldier_with_its_own_visibility_history() -> None:
     )
     assert len(first_result.observations[0].visible_soldiers) == 1
     assert first_result.observations[1].visible_soldiers == []
+    assert first_result.observations[0].position == Position(x=0, y=0, z=0)
+    assert first_result.observations[1].position == Position(x=2, y=0, z=0)
+    assert all(
+        observation.submitted_action is None
+        for observation in first_result.observations
+    )
+
+
+def test_history_records_pre_action_position_and_submitted_actions() -> None:
+    mover = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    shooter = Soldier(Team.BLUE, Position(x=0, y=1, z=0))
+    target = Soldier(Team.RED, Position(x=2, y=1, z=0))
+    loop = loop_for([mover, shooter, target])
+    move = MoveAction(direction=MoveDirection.EAST)
+    shoot = ShootAction(target_position=target.position)
+
+    result = loop.execute_actions([move, shoot, None])
+
+    assert result.observations[0].position == Position(x=0, y=0, z=0)
+    assert result.observations[0].submitted_action == move
+    assert result.after.soldiers[0].position == Position(x=1, y=0, z=0)
+    assert result.observations[1].position == Position(x=0, y=1, z=0)
+    assert result.observations[1].submitted_action == shoot
+    assert result.observations[2].position == Position(x=2, y=1, z=0)
+    assert result.observations[2].submitted_action is None
 
 
 def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:

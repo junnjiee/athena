@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel
 
+from athena.models.actions import Action
 from athena.models.common import (
     IMMUTABLE_MODEL_CONFIG,
     Position,
@@ -40,11 +41,13 @@ class ObservedSoldier(BaseModel):
 
 
 class VisibilityObservation(BaseModel):
-    """The local visibility used to choose actions in one completed tick."""
+    """The local context and submitted action from one completed tick."""
 
     model_config = IMMUTABLE_MODEL_CONFIG
 
     tick: int
+    position: Position
+    submitted_action: Action | None
     visible_soldiers: list[VisibleSoldier]
     available_terrain: list[TerrainCell]
 

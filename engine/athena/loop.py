@@ -288,10 +288,12 @@ class LoopEngine:
         observations = tuple(
             VisibilityObservation(
                 tick=self.tick_number,
+                position=observed_soldier.position,
+                submitted_action=actions[soldier_index],
                 visible_soldiers=observed_soldier.visible_soldiers,
                 available_terrain=observed_soldier.available_terrain,
             )
-            for observed_soldier in observed_soldiers
+            for soldier_index, observed_soldier in enumerate(observed_soldiers)
         )
         for soldier_index, observation in enumerate(observations):
             self.visibility_history[soldier_index].append(observation)
