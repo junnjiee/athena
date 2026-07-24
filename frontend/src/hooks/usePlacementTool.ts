@@ -25,7 +25,9 @@ function isPlaceableMode(mode: ToolMode): mode is PlaceableMode {
  *  placement, since a commander typically stamps down several units of the
  *  same type in a row. A click that lands on an *existing* unit/objective
  *  selects it instead of stamping a duplicate on top -- selection takes
- *  priority over placement. */
+ *  priority over placement -- except for trenches, which are dug *inside* a
+ *  section/platoon's position on purpose, so overlapping a unit there must
+ *  still place rather than select it. */
 export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit, onSetToolMode, onPlace }: Args) {
   const unitsRef = useRef(units)
   const objectivesRef = useRef(objectives)
@@ -54,18 +56,21 @@ export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit
     if (!isPlaceableMode(mode)) return
 
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+    const isTrench = mode === 'place-trench' || mode === 'place-prepared-trench'
 
     handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-      const nearestUnit = findNearestUnit(viewer, click.position, unitsRef.current)
-      if (nearestUnit) {
-        onSetToolModeRef.current('navigate')
-        onSelectUnitRef.current(nearestUnit.id)
-        return
-      }
-      const nearestObjective = findNearestObjective(viewer, click.position, objectivesRef.current)
-      if (nearestObjective) {
-        onSetToolModeRef.current('navigate')
-        return
+      if (!isTrench) {
+        const nearestUnit = findNearestUnit(viewer, click.position, unitsRef.current)
+        if (nearestUnit) {
+          onSetToolModeRef.current('navigate')
+          onSelectUnitRef.current(nearestUnit.id)
+          return
+        }
+        const nearestObjective = findNearestObjective(viewer, click.position, objectivesRef.current)
+        if (nearestObjective) {
+          onSetToolModeRef.current('navigate')
+          return
+        }
       }
 
       // Terrain-accurate pick: on a hillside the ellipsoid intersection lands

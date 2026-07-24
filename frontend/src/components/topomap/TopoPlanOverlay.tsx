@@ -418,12 +418,17 @@ export function TopoPlanOverlay({
       if (!press || Math.hypot(point[0] - press[0], point[1] - press[1]) > CLICK_SLOP_PX) return
 
       // Selection takes priority over placement: a click landing on an
-      // existing unit/objective selects it instead of stamping a duplicate.
-      const existing = nearestMarker(point)
-      if (existing) {
-        onSetToolMode('navigate')
-        if (existing.kind === 'unit') onSelectUnit(existing.id)
-        return
+      // existing unit/objective selects it instead of stamping a duplicate --
+      // except trenches, which are meant to be dug inside a section/platoon's
+      // position, so overlapping a unit there still places instead of selecting.
+      const isTrench = toolMode === 'place-trench' || toolMode === 'place-prepared-trench'
+      if (!isTrench) {
+        const existing = nearestMarker(point)
+        if (existing) {
+          onSetToolMode('navigate')
+          if (existing.kind === 'unit') onSelectUnit(existing.id)
+          return
+        }
       }
 
       const [longitude, latitude] = projection.unprojectXY(point[0], point[1])

@@ -5,6 +5,7 @@ import {
   Route,
   Trees,
   Waves,
+  Grid3x3,
   Eye,
   EyeOff,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ const BATTLEFIELD_LAYERS: { key: keyof BattlefieldLayerToggles; label: string; i
   { key: 'roads', label: 'Roads', icon: Route },
   { key: 'trees', label: 'Vegetation', icon: Trees },
   { key: 'water', label: 'Water', icon: Waves },
+  { key: 'gridLines', label: 'Grid Lines', icon: Grid3x3 },
 ]
 
 export function TerrainLayersPanel({
