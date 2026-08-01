@@ -12,8 +12,20 @@ import type {
   ReasoningStep,
 } from '../types/terrain'
 import type { PlanAnalysis } from '../lib/validate'
+import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 
 export type BattlegroundPhase = 'idle' | 'generating' | 'ready'
+
+/** The units/objectives/routes/name of a plan loaded from the Plans page --
+ *  those fields live in BattlegroundSelectorPage's local state (not this
+ *  store), so this is a one-shot handoff: PlansPage sets it right before
+ *  navigating to '/', and the page consumes+clears it on mount. */
+export interface PendingPlan {
+  name: string
+  units: PlacedUnit[]
+  objectives: PlacedObjective[]
+  routes: PlacedRoute[]
+}
 
 const STEP_LABELS: [ReasoningStep['id'], string][] = [
   ['elevation', 'Downloading elevation model'],
@@ -70,8 +82,15 @@ interface BattlegroundState {
   night: boolean
   hoverCell: CellSample | null
   planAnalysis: PlanAnalysis | null
+  pendingPlan: PendingPlan | null
 
   generate: (bbox: BBoxDeg, name: string) => Promise<void>
+  /** Restores a previously-saved battleground snapshot without re-running the
+   *  DEM/OSM/weather pipeline -- used when loading a plan from the Plans page. */
+  loadSaved: (meta: BattlegroundMeta, grid: GridData, features: OsmFeatures) => void
+  setPendingPlan: (plan: PendingPlan) => void
+  /** Reads and clears pendingPlan in one step, so a mount effect can't double-consume it. */
+  consumePendingPlan: () => PendingPlan | null
   dismissError: () => void
   clear: () => void
   setHeatmap: (metric: HeatmapMetric) => void
@@ -98,6 +117,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   night: false,
   hoverCell: null,
   planAnalysis: null,
+  pendingPlan: null,
 
   async generate(bbox, name) {
     const gen = ++generation
@@ -171,6 +191,32 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
     } catch (error: unknown) {
       fail(error instanceof Error ? error.message : 'failed to reach terrain service')
     }
+  },
+
+  loadSaved(meta, grid, features) {
+    // Bump generation/unsubscribe exactly like clear() does, so a stale
+    // in-flight generate() from a session this is replacing can't resurrect
+    // itself and stomp the restored state right after it's set.
+    generation++
+    unsubscribe?.()
+    unsubscribe = null
+    set((s) => ({
+      phase: 'ready',
+      jobId: meta.id,
+      error: null,
+      meta,
+      grid,
+      features,
+      revealToken: s.revealToken + 1,
+      hoverCell: null,
+    }))
+  },
+
+  setPendingPlan: (plan) => set({ pendingPlan: plan }),
+  consumePendingPlan() {
+    const plan = get().pendingPlan
+    if (plan) set({ pendingPlan: null })
+    return plan
   },
 
   dismissError() {

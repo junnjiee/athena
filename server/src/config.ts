@@ -1,8 +1,13 @@
+import 'dotenv/config'
+
 /** All tunables and external endpoints in one place — nothing hardcoded in services. */
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   host: process.env.HOST ?? '127.0.0.1',
   corsOrigin: /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+
+  /** Neon Postgres connection string (server/.env, see server/.env.example) — used by db/client.ts. */
+  databaseUrl: process.env.DATABASE_URL ?? '',
 
   /** AWS Terrain Tiles (Mapzen terrarium encoding) — public S3 bucket, no key needed. */
   demTileUrl: (z: number, x: number, y: number) =>

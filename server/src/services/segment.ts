@@ -39,9 +39,16 @@ export function classifySpectralPixel(r: number, g: number, b: number, tex: numb
 
   // Vegetation: dark or rough canopy = forest, bright smooth = grass.
   if (exg >= 22) {
-    if (luma < 90 || tex >= 26) {
+    const dark = luma < 90
+    const textured = tex >= 26
+    if (dark || textured) {
       const darkness = Math.max(0, 90 - luma) * 0.4
-      return { cls: C.FOREST, conf: Math.min(95, Math.round(40 + exg * 0.5 + darkness + tex * 0.5)) }
+      const base = 40 + exg * 0.5 + darkness + tex * 0.5
+      // A single weak signal (shadowed-but-smooth grass, or bright-but-lightly-
+      // textured scrub/farmland) is discounted -- only corroborated dark+textured
+      // canopy asserts full confidence high enough to override WorldCover.
+      const conf = dark && textured ? base : base * 0.5
+      return { cls: C.FOREST, conf: Math.min(95, Math.round(conf)) }
     }
     if (luma >= 150) return { cls: C.GRASS, conf: Math.min(90, Math.round(35 + exg * 0.4)) }
     return { cls: C.SCRUB, conf: Math.min(80, Math.round(30 + exg * 0.4)) }
@@ -157,9 +164,34 @@ export interface SegmentationStage {
   info: SegmentationInfo | null
 }
 
-/** Pipeline-facing orchestrator: fetch imagery, segment in the worker pool,
- *  summarize coverage. Never throws — segmentation is enrichment; any failure
- *  degrades to the WorldCover-prior behavior unchanged. */
+/** Nearest-neighbor stretch of a per-cell Uint8Array from one grid resolution
+ *  to another (both covering the same bbox). Used to bring a segmentation
+ *  result computed at a coarser, imagery-appropriate resolution back up to
+ *  the finer output simulation grid. Exported for tests. */
+export function upsampleNearest(
+  src: Uint8Array,
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number,
+): Uint8Array {
+  if (srcW === dstW && srcH === dstH) return src
+  const dst = new Uint8Array(dstW * dstH)
+  for (let row = 0; row < dstH; row++) {
+    const sr = Math.min(srcH - 1, Math.floor((row * srcH) / dstH))
+    for (let col = 0; col < dstW; col++) {
+      const sc = Math.min(srcW - 1, Math.floor((col * srcW) / dstW))
+      dst[row * dstW + col] = src[sr * srcW + sc]
+    }
+  }
+  return dst
+}
+
+/** Pipeline-facing orchestrator: fetch imagery, segment in the worker pool at
+ *  whatever coarser resolution the imagery can actually support (see
+ *  buildSpectralGrid), upsample back to the output grid, summarize coverage.
+ *  Never throws — segmentation is enrichment; any failure degrades to the
+ *  WorldCover-prior behavior unchanged. */
 export async function segmentBattlefield(
   bbox: BBox,
   width: number,
@@ -168,7 +200,12 @@ export async function segmentBattlefield(
 ): Promise<SegmentationStage> {
   try {
     const spectral = await buildSpectralGrid(bbox, width, height, cellMeters)
-    const seg = await runSegmentationInPool(spectral)
+    const coarse = await runSegmentationInPool(spectral)
+    const seg: SegmentationResult = {
+      cls: upsampleNearest(coarse.cls, spectral.width, spectral.height, width, height),
+      confidence: upsampleNearest(coarse.confidence, spectral.width, spectral.height, width, height),
+    }
+
     let confident = 0
     for (let i = 0; i < seg.cls.length; i++) {
       if (seg.cls[i] !== SEG_NONE && seg.confidence[i] >= config.segConfidenceMin) confident++

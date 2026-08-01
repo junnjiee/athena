@@ -1,10 +1,12 @@
-import { Play, TrendingUp } from 'lucide-react'
+import { Play, Save, TrendingUp } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 
 interface Props {
   canRunSimulation: boolean
   planName: string
   onRunSimulation: () => void
+  onSavePlan: () => void
+  saveState: 'idle' | 'saving' | 'saved' | 'error'
 }
 
 function etaRange(minutes: number): string {
@@ -13,7 +15,7 @@ function etaRange(minutes: number): string {
   return `${low} – ${high} min`
 }
 
-export function BottomBar({ canRunSimulation, planName, onRunSimulation }: Props) {
+export function BottomBar({ canRunSimulation, planName, onRunSimulation, onSavePlan, saveState }: Props) {
   const phase = useBattleground((s) => s.phase)
   const analysis = useBattleground((s) => s.planAnalysis)
 
@@ -76,7 +78,16 @@ export function BottomBar({ canRunSimulation, planName, onRunSimulation }: Props
         </div>
       </div>
 
-      <div className="relative">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={!canRunSimulation || saveState === 'saving'}
+          onClick={onSavePlan}
+          className="glass flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm text-(--text) transition-colors hover:text-(--text-h) disabled:cursor-not-allowed disabled:text-(--text-dim)"
+        >
+          <Save className="h-4 w-4" strokeWidth={1.75} />
+          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : 'Save Plan'}
+        </button>
         <button
           type="button"
           disabled={!canRunSimulation}

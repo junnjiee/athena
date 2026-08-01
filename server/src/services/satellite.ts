@@ -7,6 +7,7 @@ import {
   bboxPixelRegion,
   latToPixelY,
   lonToPixelX,
+  metersPerPixel,
   tilesForRegion,
   zoomForResolution,
   type TileCoord,
@@ -176,8 +177,20 @@ export function reduceMosaicToCells(
   return { width, height, rgb, tex }
 }
 
+/** Coarsest cell size that still gets a genuine (non-sub-pixel-noisy) spectral
+ *  reading -- at least one real satellite pixel × satellitePixelsPerCell, but
+ *  never coarser than the requested output grid's own cell size. Exported for
+ *  tests. */
+export function spectralCellMeters(cellMeters: number, achievedMetersPerPixel: number): number {
+  return Math.max(cellMeters, achievedMetersPerPixel * config.satellitePixelsPerCell)
+}
+
 /** Fetch the RGB satellite raster for a bbox and reduce it to per-cell spectral
- *  stats at the grid resolution. */
+ *  stats. Sampled at whatever resolution the imagery can actually back up --
+ *  a cell smaller than one real pixel can't produce a meaningful texture
+ *  reading, so this deliberately reduces to a coarser grid than the output
+ *  simulation grid when necessary (segmentBattlefield upsamples the result
+ *  back up afterward). */
 export async function buildSpectralGrid(
   bbox: BBox,
   width: number,
@@ -191,6 +204,10 @@ export async function buildSpectralGrid(
     config.satelliteMinZoom,
     config.satelliteMaxZoom,
   )
+  const achieved = metersPerPixel(zoom, midLat)
+  const segCellMeters = spectralCellMeters(cellMeters, achieved)
+  const segWidth = Math.max(1, Math.round((width * cellMeters) / segCellMeters))
+  const segHeight = Math.max(1, Math.round((height * cellMeters) / segCellMeters))
   const mosaic = await buildRgbMosaic(bbox, zoom)
-  return reduceMosaicToCells(mosaic, bbox, width, height)
+  return reduceMosaicToCells(mosaic, bbox, segWidth, segHeight)
 }
