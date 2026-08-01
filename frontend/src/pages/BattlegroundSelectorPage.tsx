@@ -13,6 +13,7 @@ import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
+import { DataQualityWarning } from '../components/panels/DataQualityWarning'
 import { SimulationExportModal } from '../components/panels/SimulationExportModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
@@ -23,6 +24,8 @@ import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground } from '../state/battleground'
 import { analyzePlan } from '../lib/validate'
 import { toMGRS } from '../lib/coords'
+import { savePlan } from '../lib/api'
+import { computeRectangleStats } from '../lib/selectionGeometry'
 import { photoSource } from '../lib/photoTiles'
 import { TileStatsHud } from '../components/panels/TileStatsHud'
 import { XRayToggle } from '../components/panels/XRayToggle'
@@ -61,29 +64,52 @@ const UNIT_PLACEMENT: Record<
 }
 
 export function BattlegroundSelectorPage() {
+  // Pure read (safe under StrictMode's dev-mode double-invoke of lazy
+  // initializers) -- actually consuming/clearing it happens once in the
+  // effect below instead, since that has a side effect on the store.
+  const [initialPlan] = useState(() => useBattleground.getState().pendingPlan)
+
   const [toolMode, setToolMode] = useState<ToolMode>('navigate')
-  const [selection, setSelection] = useState<SelectionResult | null>(null)
+  // A loaded plan's meta/grid/features are already restored into the store by
+  // loadSaved() before this page mounts -- synthesize a matching `selection`
+  // (page-local, drives planningMode/canPlan) from its bbox so the roster
+  // panel and planning tools unlock immediately instead of asking to redraw
+  // a selection over terrain that's already generated.
+  const [selection, setSelection] = useState<SelectionResult | null>(() => {
+    const loadedMeta = useBattleground.getState().meta
+    if (!loadedMeta) return null
+    const rectangle = Cesium.Rectangle.fromDegrees(
+      loadedMeta.bbox.west,
+      loadedMeta.bbox.south,
+      loadedMeta.bbox.east,
+      loadedMeta.bbox.north,
+    )
+    return { rectangle, stats: computeRectangleStats(rectangle) }
+  })
   const [resetToken, setResetToken] = useState(0)
   const [activeTab, setActiveTab] = useState<HeaderTab>('layers')
-  const [battlegroundName, setBattlegroundName] = useState('')
+  const [battlegroundName, setBattlegroundName] = useState(initialPlan?.name ?? '')
   const [nameEditSignal, setNameEditSignal] = useState(0)
-  const [units, setUnits] = useState<PlacedUnit[]>([])
-  const [objectives, setObjectives] = useState<PlacedObjective[]>([])
-  const [routes, setRoutes] = useState<PlacedRoute[]>([])
+  const [units, setUnits] = useState<PlacedUnit[]>(initialPlan?.units ?? [])
+  const [objectives, setObjectives] = useState<PlacedObjective[]>(initialPlan?.objectives ?? [])
+  const [routes, setRoutes] = useState<PlacedRoute[]>(initialPlan?.routes ?? [])
   const [isDrawingRoute, setIsDrawingRoute] = useState(false)
   const [movementType, setMovementType] = useState<MovementType>(DEFAULT_MOVEMENT)
   const [loadout, setLoadout] = useState<MovementLoadout>(DEFAULT_LOADOUT)
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [showSimulationExport, setShowSimulationExport] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
   const features = useBattleground((s) => s.features)
+  const meta = useBattleground((s) => s.meta)
   const night = useBattleground((s) => s.night)
   const generate = useBattleground((s) => s.generate)
   const clearBattleground = useBattleground((s) => s.clear)
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
+  const consumePendingPlan = useBattleground((s) => s.consumePendingPlan)
 
   const showTopo = viewMode === 'topo' && phase === 'ready' && grid !== null
   const photoAvailable = photoSource() !== null
@@ -100,6 +126,14 @@ export function BattlegroundSelectorPage() {
   useEffect(() => {
     setPlanAnalysis(analyzePlan(routes, grid))
   }, [routes, grid, setPlanAnalysis])
+
+  // initialPlan (above) already seeded this page's local plan state from
+  // whatever PlansPage handed off before navigating here -- this just clears
+  // the store's one-shot slot so a later remount of this page (e.g. browser
+  // back/forward) doesn't re-seed the same stale plan a second time.
+  useEffect(() => {
+    if (initialPlan) consumePendingPlan()
+  }, [initialPlan, consumePendingPlan])
 
   // Escape deselects, mirroring the Escape-cancels convention already used by
   // both route-drawing surfaces (useRouteDrawing.ts, TopoPlanOverlay.tsx).
@@ -162,6 +196,25 @@ export function BattlegroundSelectorPage() {
       },
       name,
     )
+  }
+
+  async function handleSavePlan() {
+    if (!meta) return
+    setSaveState('saving')
+    try {
+      await savePlan({
+        battlegroundId: meta.id,
+        name: battlegroundName.trim() || 'Untitled Plan',
+        units,
+        objectives,
+        routes,
+      })
+      setSaveState('saved')
+      setTimeout(() => setSaveState('idle'), 2400)
+    } catch {
+      setSaveState('error')
+      setTimeout(() => setSaveState('idle'), 2400)
+    }
   }
 
   function handlePlace(mode: PlaceableMode, position: LonLat) {
@@ -266,7 +319,18 @@ export function BattlegroundSelectorPage() {
             setToolMode('navigate')
             if (battlegroundName.trim() === '') setNameEditSignal((t) => t + 1)
           }}
-          onViewerReady={handleViewerReady}
+          onViewerReady={(viewer) => {
+            handleViewerReady(viewer)
+            // A loaded plan's `selection` is already populated by mount time (see
+            // its useState initializer above) -- since that never goes through
+            // onSelectionFinalize below, apply the same clipping/zoom-cap here
+            // once the viewer exists. No-op for a fresh live-drag session, where
+            // `selection` is still null at this point.
+            if (selection) {
+              applyGlobeClipping(viewer, selection.rectangle)
+              setSelectionZoomCap(selection.rectangle)
+            }
+          }}
           toolMode={toolMode}
           units={units}
           objectives={objectives}
@@ -384,6 +448,7 @@ export function BattlegroundSelectorPage() {
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {phase === 'ready' ? (
                   <>
+                    <DataQualityWarning />
                     <TerrainInfoPanel />
                     <button
                       type="button"
@@ -434,6 +499,8 @@ export function BattlegroundSelectorPage() {
           canRunSimulation={phase === 'ready'}
           planName={battlegroundName}
           onRunSimulation={() => setShowSimulationExport(true)}
+          onSavePlan={handleSavePlan}
+          saveState={saveState}
         />
       </div>
 

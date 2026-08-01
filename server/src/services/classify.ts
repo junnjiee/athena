@@ -163,7 +163,16 @@ function classifyCell(
   // overrides an OSM area polygon, building, road, or water hit above. Live-imagery
   // segmentation (fresher, higher-res) outranks the 2021 WorldCover prior, but only
   // when it cleared the confidence gate applied in buildGridChannels.
-  return areaCls ?? segFallback ?? landCoverFallback ?? C.OPEN
+  //
+  // Exception: 'urban' area hits come from landuse zoning tags (residential/
+  // industrial/commercial/...), not direct ground-truth vegetation observations --
+  // unlike forest/water/wetland/scrub/grass tags, a zoned "urban" polygon says
+  // nothing about whether there's real tree cover inside it (private gardens,
+  // street trees, an undeveloped wooded buffer). Let a confident raster read
+  // correct it; only fall back to the zoning tag if neither raster source has
+  // an opinion either.
+  if (areaCls !== null && areaCls !== C.URBAN) return areaCls
+  return segFallback ?? landCoverFallback ?? areaCls ?? C.OPEN
 }
 
 function computeSlopeDeg(height: Float32Array, w: number, h: number, cellMeters: number): Uint8Array {

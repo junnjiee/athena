@@ -31,30 +31,40 @@ function buildQuery(bbox: BBox): string {
 out tags geom;`
 }
 
+/** Public Overpass mirrors are rate-limited and occasionally reject/timeout
+ *  under ordinary load -- a single pass through the mirror list treats a
+ *  transient hiccup the same as a sustained outage, silently degrading
+ *  classification (see pipeline.ts's catch) far more often than necessary. */
+const OVERPASS_PASSES = 2
+const OVERPASS_RETRY_DELAY_MS = 1500
+
 async function fetchOverpass(bbox: BBox): Promise<OverpassElement[]> {
   const query = buildQuery(bbox)
   let lastError: unknown = null
-  for (const endpoint of config.overpassEndpoints) {
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': config.userAgent,
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(config.overpassTimeoutMs),
-      })
-      if (!res.ok) throw new Error(`Overpass HTTP ${res.status} at ${endpoint}`)
-      const body = (await res.json()) as { elements?: OverpassElement[] }
-      return body.elements ?? []
-    } catch (error: unknown) {
-      lastError = error
-      console.warn('[osm] endpoint failed, trying next:', endpoint)
+  for (let pass = 0; pass < OVERPASS_PASSES; pass++) {
+    if (pass > 0) await new Promise((resolve) => setTimeout(resolve, OVERPASS_RETRY_DELAY_MS))
+    for (const endpoint of config.overpassEndpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': config.userAgent,
+          },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: AbortSignal.timeout(config.overpassTimeoutMs),
+        })
+        if (!res.ok) throw new Error(`Overpass HTTP ${res.status} at ${endpoint}`)
+        const body = (await res.json()) as { elements?: OverpassElement[] }
+        return body.elements ?? []
+      } catch (error: unknown) {
+        lastError = error
+        console.warn(`[osm] endpoint failed (pass ${pass + 1}/${OVERPASS_PASSES}):`, endpoint)
+      }
     }
   }
   throw new Error(
-    `All Overpass endpoints failed: ${lastError instanceof Error ? lastError.message : lastError}`,
+    `All Overpass endpoints failed after ${OVERPASS_PASSES} passes: ${lastError instanceof Error ? lastError.message : lastError}`,
   )
 }
 

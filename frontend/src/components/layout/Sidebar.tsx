@@ -1,16 +1,23 @@
 import { Triangle, Map, ClipboardList, Activity, Radar, Users, Settings } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
+/** Only Battleground/Plans have real pages so far -- the rest stay
+ *  non-interactive stubs (no `path`) rather than wiring up routes that
+ *  don't exist yet. */
 const NAV_ITEMS = [
-  { label: 'Battleground', icon: Map, active: true },
-  { label: 'Plans', icon: ClipboardList, active: false },
-  { label: 'Simulations', icon: Activity, active: false },
-  { label: 'Intel', icon: Radar, active: false },
-  { label: 'Units', icon: Users, active: false },
-  { label: 'Settings', icon: Settings, active: false },
+  { label: 'Battleground', icon: Map, path: '/' },
+  { label: 'Plans', icon: ClipboardList, path: '/plans' },
+  { label: 'Simulations', icon: Activity, path: null },
+  { label: 'Intel', icon: Radar, path: null },
+  { label: 'Units', icon: Users, path: null },
+  { label: 'Settings', icon: Settings, path: null },
 ]
 
 /** Floating glass navigation rail — self-positioned on the left edge. */
 export function Sidebar() {
+  const location = useLocation()
+  const navigate = useNavigate()
+
   return (
     <aside className="glass-deep pointer-events-auto absolute top-4 bottom-4 left-4 z-30 flex w-52 flex-col rounded-2xl">
       <div className="flex items-center gap-2 px-5 py-5">
@@ -19,23 +26,30 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-1 px-3">
-        {NAV_ITEMS.map(({ label, icon: Icon, active }) => (
-          <button
-            key={label}
-            type="button"
-            className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-              active
-                ? 'bg-white/10 text-(--text-h)'
-                : 'text-(--text) hover:bg-white/5 hover:text-(--text-h)'
-            }`}
-          >
-            {active && (
-              <span className="absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full bg-(--accent)" />
-            )}
-            <Icon className="h-4 w-4" strokeWidth={1.75} />
-            {label}
-          </button>
-        ))}
+        {NAV_ITEMS.map(({ label, icon: Icon, path }) => {
+          const active = path !== null && location.pathname === path
+          return (
+            <button
+              key={label}
+              type="button"
+              disabled={path === null}
+              onClick={path ? () => navigate(path) : undefined}
+              className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                active
+                  ? 'bg-white/10 text-(--text-h)'
+                  : path === null
+                    ? 'cursor-not-allowed text-(--text-dim)'
+                    : 'text-(--text) hover:bg-white/5 hover:text-(--text-h)'
+              }`}
+            >
+              {active && (
+                <span className="absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full bg-(--accent)" />
+              )}
+              <Icon className="h-4 w-4" strokeWidth={1.75} />
+              {label}
+            </button>
+          )
+        })}
       </nav>
 
       <div className="mt-auto flex items-center gap-2 border-t border-(--border) px-4 py-4">

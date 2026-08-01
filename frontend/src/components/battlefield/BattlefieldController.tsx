@@ -320,17 +320,29 @@ export function BattlefieldController({ suppressed = false }: Props) {
   }, [viewer, grid, phase])
 
   // --- plan warning markers --------------------------------------------------
+  // Created once per viewer (not per planAnalysis change) -- recreating a
+  // CustomDataSource on every change meant an un-awaited add() from one run
+  // could still be settling when the next run's cleanup called remove(),
+  // silently no-oping and orphaning that data source (with its markers still
+  // rendered) forever. Mutating one persistent data source's entities instead
+  // has no add/remove race to lose track of.
   useEffect(() => {
     if (!viewer || viewer.isDestroyed()) return
     const ds = new Cesium.CustomDataSource('bf-warnings')
     void viewer.dataSources.add(ds)
     warningsDsRef.current = ds
-    if (planAnalysis) buildWarningMarkers(ds, planAnalysis.warnings)
     return () => {
       if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true)
       warningsDsRef.current = null
     }
-  }, [viewer, planAnalysis])
+  }, [viewer])
+
+  useEffect(() => {
+    const ds = warningsDsRef.current
+    if (!ds) return
+    ds.entities.removeAll()
+    if (planAnalysis) buildWarningMarkers(ds, planAnalysis.warnings)
+  }, [planAnalysis])
 
   // --- night lighting ----------------------------------------------------------
   useEffect(() => {

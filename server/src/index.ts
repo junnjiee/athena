@@ -4,6 +4,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import { config } from './config'
 import { registerRoutes } from './routes'
 import { registerSplatRoutes } from './routes/splats'
+import { registerPlanRoutes } from './routes/plans'
 import { getJob } from './services/pipeline'
 import type { ProgressEvent } from './types'
 
@@ -47,6 +48,7 @@ io.on('connection', (socket) => {
 
 registerRoutes(app, emitProgress)
 await registerSplatRoutes(app)
+registerPlanRoutes(app)
 
 try {
   await app.listen({ port: config.port, host: config.host })
