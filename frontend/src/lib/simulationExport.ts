@@ -1,5 +1,5 @@
 import { estimateMovement } from './movement'
-import type { PlanAnalysis, PlanWarning, RouteMetrics } from './validate'
+import { TERRAIN_CLASS_NAMES } from '../types/terrain'
 import type { BattlegroundMeta, BBoxDeg, GridData, Weather } from '../types/terrain'
 import type {
   ForceSide,
@@ -23,6 +23,8 @@ export interface SimulationExport {
     width: number
     height: number
     cellMeters: number
+    widthMeters: number
+    heightMeters: number
     weather: Weather | null
   }
   terrain: {
@@ -30,17 +32,14 @@ export interface SimulationExport {
     width: number
     height: number
     cellMeters: number
+    widthMeters: number
+    heightMeters: number
+    /** cls code -> human-readable terrain class name */
+    classNames: Record<number, string>
     /** row-major, row 0 = northernmost -- same layout as the decoded GridData channels */
     cells: {
       elevation: number[]
       cls: number[]
-      slope: number[]
-      cover: number[]
-      concealment: number[]
-      moveCost: number[]
-      visibility: number[]
-      vehicleMobility: number[]
-      ambush: number[]
     }
   } | null
   units: Array<{
@@ -69,12 +68,6 @@ export interface SimulationExport {
     loadout: MovementLoadout
     estimate: MovementEstimate
   }>
-  validation: {
-    warnings: PlanWarning[]
-    routeMetrics: RouteMetrics[]
-    totalEtaMinutes: number
-    exposure: number
-  } | null
 }
 
 export interface SimulationExportInput {
@@ -83,7 +76,6 @@ export interface SimulationExportInput {
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
-  planAnalysis: PlanAnalysis | null
 }
 
 export function buildSimulationExport({
@@ -92,7 +84,6 @@ export function buildSimulationExport({
   units,
   objectives,
   routes,
-  planAnalysis,
 }: SimulationExportInput): SimulationExport {
   const weather = meta?.weather ?? null
 
@@ -105,6 +96,8 @@ export function buildSimulationExport({
       width: meta?.width ?? 0,
       height: meta?.height ?? 0,
       cellMeters: meta?.cellMeters ?? 0,
+      widthMeters: (meta?.width ?? 0) * (meta?.cellMeters ?? 0),
+      heightMeters: (meta?.height ?? 0) * (meta?.cellMeters ?? 0),
       weather,
     },
     terrain: grid
@@ -113,16 +106,12 @@ export function buildSimulationExport({
           width: grid.width,
           height: grid.height,
           cellMeters: grid.cellMeters,
+          widthMeters: grid.width * grid.cellMeters,
+          heightMeters: grid.height * grid.cellMeters,
+          classNames: TERRAIN_CLASS_NAMES,
           cells: {
             elevation: Array.from(grid.elevation),
             cls: Array.from(grid.cls),
-            slope: Array.from(grid.slope),
-            cover: Array.from(grid.cover),
-            concealment: Array.from(grid.concealment),
-            moveCost: Array.from(grid.moveCost),
-            visibility: Array.from(grid.visibility),
-            vehicleMobility: Array.from(grid.vehicleMobility),
-            ambush: Array.from(grid.ambush),
           },
         }
       : null,
@@ -152,13 +141,5 @@ export function buildSimulationExport({
       loadout: r.loadout,
       estimate: estimateMovement(r.points, r.movementType, r.loadout, grid, weather),
     })),
-    validation: planAnalysis
-      ? {
-          warnings: planAnalysis.warnings,
-          routeMetrics: planAnalysis.routes,
-          totalEtaMinutes: planAnalysis.totalEtaMinutes,
-          exposure: planAnalysis.exposure,
-        }
-      : null,
   }
 }

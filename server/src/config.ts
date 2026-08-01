@@ -57,11 +57,11 @@ export const config = {
   segModelClassMap: process.env.ATHENA_SEG_CLASSMAP ?? null,
   segWorkerThreads: 2,
 
-  /** Grid sizing: cells are square; the longest bbox edge maps to at most maxCellsPerAxis. */
-  maxCellsPerAxis: 288,
-  minCellMeters: 5,
-  /** Reject selections larger than this on either axis (matches frontend's 3 km clamp, with margin). */
-  maxExtentMeters: 6_000,
+  /** Grid sizing: cells are square, fixed at this size regardless of selection extent
+   *  (the simulation team needs a constant, predictable resolution to build against). */
+  cellMeters: 1,
+  /** Reject selections larger than this on either axis (matches frontend's 400 m clamp, with margin). */
+  maxExtentMeters: 800,
 
   jobCacheSize: 24,
 } as const

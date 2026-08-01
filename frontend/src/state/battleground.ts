@@ -51,6 +51,8 @@ export interface BattlefieldLayerToggles {
   roads: boolean
   trees: boolean
   water: boolean
+  /** simulation grid cell boundaries, draped over the terrain */
+  gridLines: boolean
 }
 
 interface BattlegroundState {
@@ -92,7 +94,7 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   grid: null,
   revealToken: 0,
   heatmap: 'none',
-  layers: { buildings: true, roads: true, trees: true, water: true },
+  layers: { buildings: true, roads: true, trees: true, water: true, gridLines: false },
   night: false,
   hoverCell: null,
   planAnalysis: null,

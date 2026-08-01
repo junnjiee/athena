@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { useCesium } from 'resium'
 import { useBattleground } from '../../state/battleground'
-import { renderHeatmapCanvas, sampleCell } from '../../lib/grid'
+import { renderGridLinesCanvas, renderHeatmapCanvas, sampleCell } from '../../lib/grid'
 import { scatterTrees, treeSpriteDataUrl } from '../../lib/treeSprite'
 import {
   buildBuildings,
@@ -70,7 +70,15 @@ export function BattlefieldController() {
   const warningsDsRef = useRef<Cesium.CustomDataSource | null>(null)
   const treesRef = useRef<Cesium.BillboardCollection | null>(null)
   const heatmapLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const gridLinesLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   const revealTRef = useRef(0)
+  // Read inside the grid-lines effect's async callback below, so the layer picks
+  // up whatever the toggle's current value is by the time it's actually created
+  // (a plain effect dependency would instead rebuild the whole drape per toggle).
+  const gridLinesVisibleRef = useRef(layers.gridLines)
+  useEffect(() => {
+    gridLinesVisibleRef.current = layers.gridLines
+  }, [layers.gridLines])
 
   // --- battlefield content + cinematic reveal -----------------------------
   useEffect(() => {
@@ -175,7 +183,39 @@ export function BattlefieldController() {
     if (roadsDsRef.current && revealTRef.current >= STAGE.roads) roadsDsRef.current.show = layers.roads
     if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water
     if (treesRef.current) treesRef.current.show = layers.trees
+    if (gridLinesLayerRef.current) gridLinesLayerRef.current.show = layers.gridLines
   }, [layers, revealToken])
+
+  // --- grid line overlay ----------------------------------------------------
+  // The drape image only depends on the grid itself (not on the on/off toggle),
+  // so it's built once per grid -- the "layer visibility toggles" effect above
+  // handles subsequent toggle clicks via gridLinesLayerRef directly.
+  useEffect(() => {
+    if (!viewer || viewer.isDestroyed() || !grid) return
+    let cancelled = false
+
+    const rectangle = Cesium.Rectangle.fromDegrees(
+      grid.bbox.west,
+      grid.bbox.south,
+      grid.bbox.east,
+      grid.bbox.north,
+    )
+    const dataUrl = renderGridLinesCanvas(grid).toDataURL('image/png')
+    void Cesium.SingleTileImageryProvider.fromUrl(dataUrl, { rectangle }).then((provider) => {
+      if (cancelled || viewer.isDestroyed()) return
+      const layer = viewer.imageryLayers.addImageryProvider(provider)
+      layer.show = gridLinesVisibleRef.current
+      gridLinesLayerRef.current = layer
+    })
+
+    return () => {
+      cancelled = true
+      if (gridLinesLayerRef.current && !viewer.isDestroyed()) {
+        viewer.imageryLayers.remove(gridLinesLayerRef.current, true)
+        gridLinesLayerRef.current = null
+      }
+    }
+  }, [viewer, grid])
 
   // --- heatmap drape --------------------------------------------------------
   useEffect(() => {

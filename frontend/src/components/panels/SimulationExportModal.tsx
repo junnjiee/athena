@@ -42,7 +42,6 @@ function compactStringify(value: unknown, indent = 0): string {
 export function SimulationExportModal({ open, onClose, units, objectives, routes }: Props) {
   const meta = useBattleground((s) => s.meta)
   const grid = useBattleground((s) => s.grid)
-  const planAnalysis = useBattleground((s) => s.planAnalysis)
   const [copied, setCopied] = useState(false)
   const [wasOpen, setWasOpen] = useState(open)
   // Reset the "Copied" indicator when the modal closes -- done during render
@@ -64,8 +63,8 @@ export function SimulationExportModal({ open, onClose, units, objectives, routes
 
   const json = useMemo(() => {
     if (!open) return ''
-    return compactStringify(buildSimulationExport({ meta, grid, units, objectives, routes, planAnalysis }))
-  }, [open, meta, grid, units, objectives, routes, planAnalysis])
+    return compactStringify(buildSimulationExport({ meta, grid, units, objectives, routes }))
+  }, [open, meta, grid, units, objectives, routes])
 
   if (!open) return null
 
