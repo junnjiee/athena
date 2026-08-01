@@ -49,10 +49,17 @@ function applyNightLighting(viewer: Cesium.Viewer, night: boolean, centerLonDeg:
   viewer.scene.requestRender()
 }
 
+interface Props {
+  /** RECON (photo) mode active: the photoreal mesh carries its own real
+   *  buildings/trees/roads, so the stylized battlefield layers and the
+   *  globe-draped heatmap are hidden until the mode exits. */
+  suppressed?: boolean
+}
+
 /** Lives inside <Viewer>. Renders the generated battlefield (buildings, roads,
  *  water, procedural trees, heatmap drape), runs the cinematic reveal, samples
  *  terrain under the cursor, and applies night lighting. */
-export function BattlefieldController() {
+export function BattlefieldController({ suppressed = false }: Props) {
   const { viewer } = useCesium()
   const phase = useBattleground((s) => s.phase)
   const grid = useBattleground((s) => s.grid)
@@ -179,12 +186,13 @@ export function BattlefieldController() {
 
   // --- layer visibility toggles -------------------------------------------
   useEffect(() => {
-    if (buildingsDsRef.current) buildingsDsRef.current.show = layers.buildings
-    if (roadsDsRef.current && revealTRef.current >= STAGE.roads) roadsDsRef.current.show = layers.roads
-    if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water
-    if (treesRef.current) treesRef.current.show = layers.trees
-    if (gridLinesLayerRef.current) gridLinesLayerRef.current.show = layers.gridLines
-  }, [layers, revealToken])
+    if (buildingsDsRef.current) buildingsDsRef.current.show = layers.buildings && !suppressed
+    if (roadsDsRef.current && revealTRef.current >= STAGE.roads) roadsDsRef.current.show = layers.roads && !suppressed
+    if (waterDsRef.current && revealTRef.current >= STAGE.water) waterDsRef.current.show = layers.water && !suppressed
+    if (treesRef.current) treesRef.current.show = layers.trees && !suppressed
+    if (gridLinesLayerRef.current) gridLinesLayerRef.current.show = layers.gridLines && !suppressed
+  }, [layers, revealToken, suppressed])
+
 
   // --- grid line overlay ----------------------------------------------------
   // The drape image only depends on the grid itself (not on the on/off toggle),
@@ -228,7 +236,7 @@ export function BattlefieldController() {
       viewer.imageryLayers.remove(previous, true)
       heatmapLayerRef.current = null
     }
-    if (heatmap === 'none' || phase !== 'ready') return
+    if (heatmap === 'none' || phase !== 'ready' || suppressed) return
 
     const rectangle = Cesium.Rectangle.fromDegrees(
       grid.bbox.west,
@@ -259,7 +267,7 @@ export function BattlefieldController() {
         heatmapLayerRef.current = null
       }
     }
-  }, [viewer, grid, heatmap, phase])
+  }, [viewer, grid, heatmap, phase, suppressed])
 
   // --- terrain hover sampling ----------------------------------------------
   useEffect(() => {
@@ -267,12 +275,32 @@ export function BattlefieldController() {
     const setHoverCell = useBattleground.getState().setHoverCell
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
     let last = 0
+    let lastMeshPick = 0
+    let cameraMoving = false
+    const onMoveStart = () => {
+      cameraMoving = true
+    }
+    const onMoveEnd = () => {
+      cameraMoving = false
+    }
+    viewer.camera.moveStart.addEventListener(onMoveStart)
+    viewer.camera.moveEnd.addEventListener(onMoveEnd)
     handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
       const now = performance.now()
       if (now - last < 40) return
       last = now
       const ray = viewer.camera.getPickRay(movement.endPosition)
-      const cartesian = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
+      let cartesian = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
+      // Photo mode hides the globe -- depth-buffer picking against the
+      // photoreal mesh keeps the terrain-info hover (and its grid ref) alive.
+      // pickPosition is a full pick-buffer render pass, so it's rationed hard:
+      // never during camera movement, at most ~6/s, keeping the previous
+      // hover value in between instead of flickering it away.
+      if (!cartesian && !viewer.scene.globe.show && viewer.scene.pickPositionSupported) {
+        if (cameraMoving || now - lastMeshPick < 150) return
+        lastMeshPick = now
+        cartesian = viewer.scene.pickPosition(movement.endPosition)
+      }
       if (!cartesian) {
         setHoverCell(null)
         return
@@ -285,6 +313,8 @@ export function BattlefieldController() {
 
     return () => {
       handler.destroy()
+      viewer.camera.moveStart.removeEventListener(onMoveStart)
+      viewer.camera.moveEnd.removeEventListener(onMoveEnd)
       setHoverCell(null)
     }
   }, [viewer, grid, phase])

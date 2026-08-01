@@ -4,7 +4,9 @@ import { worldTerrain } from '../../lib/cesium-setup'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
+import { PhotoModeController } from './PhotoModeController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
+import type { ViewMode } from './ViewModeToggle'
 import type { SelectionResult } from '../../types/selection'
 import type {
   LonLat,
@@ -22,6 +24,7 @@ interface Props {
   resetToken: number
   onSelectionFinalize: (result: SelectionResult) => void
   onViewerReady: (viewer: Cesium.Viewer) => void
+  viewMode: ViewMode
   toolMode: ToolMode
   units: PlacedUnit[]
   objectives: PlacedObjective[]
@@ -39,6 +42,13 @@ interface Props {
   onRouteDrawingChange?: (isDrawing: boolean) => void
 }
 
+// Detached element that swallows Cesium's credit UI (ion logo, data attribution
+// line, and the demo-token banner) -- never appended to the document, so none of
+// it renders. NOTE: Cesium ion's and Google's (Photorealistic 3D Tiles) terms
+// require visible attribution; fine for a private hackathon demo, restore before
+// any public release.
+const hiddenCredits = document.createElement('div')
+
 // Cesium's default widgets (geocoder, home button, scene-mode picker) are replaced by
 // our own chrome (TopHeader, MapControls) to match the reference design, so all are
 // disabled here.
@@ -47,6 +57,7 @@ export function CesiumGlobe({
   resetToken,
   onSelectionFinalize,
   onViewerReady,
+  viewMode,
   toolMode,
   units,
   objectives,
@@ -67,6 +78,7 @@ export function CesiumGlobe({
     <Viewer
       full
       terrain={worldTerrain}
+      creditContainer={hiddenCredits}
       timeline={false}
       animation={false}
       vrButton={false}
@@ -102,7 +114,8 @@ export function CesiumGlobe({
         onRouteComplete={onRouteComplete}
         onRouteDrawingChange={onRouteDrawingChange}
       />
-      <BattlefieldController />
+      <BattlefieldController suppressed={viewMode === 'photo'} />
+      <PhotoModeController active={viewMode === 'photo'} />
     </Viewer>
   )
 }

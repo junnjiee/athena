@@ -38,7 +38,8 @@ export function useObjectiveEntities({ viewer, objectives }: Args) {
         semiMajorAxis: objective.radiusMeters,
         semiMinorAxis: objective.radiusMeters,
         material: Cesium.Color.fromCssColorString(ACCENT_HEX).withAlpha(0.15),
-        classificationType: Cesium.ClassificationType.TERRAIN,
+        // BOTH so the capture zone also drapes the photoreal mesh in RECON mode
+        classificationType: Cesium.ClassificationType.BOTH,
       },
       properties: { placementKind: 'objective' },
     }))

@@ -47,7 +47,9 @@ export function useRouteEntities({ viewer, routes }: Args) {
           width: style.width,
           material: style.material,
           clampToGround: true,
-          classificationType: Cesium.ClassificationType.TERRAIN,
+          // BOTH so routes also drape the photoreal mesh in RECON mode
+          // (behaves exactly like TERRAIN when no tileset is shown)
+          classificationType: Cesium.ClassificationType.BOTH,
         },
       })
       const arrow = viewer.entities.add({
