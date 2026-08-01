@@ -1,9 +1,9 @@
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
-from athena.types import MoveAction, MoveDirection, Position, Team
+from athena.world_state import Soldier
+from athena.models import MoveAction, MoveDirection, Position, Team
 
 
 def battlefield_with_elevations(
@@ -57,4 +57,20 @@ def test_steep_descent_is_rejected_too() -> None:
         battlefield,
         soldier,
         MoveAction(direction=MoveDirection.EAST),
+    )
+
+
+def test_move_validation_explains_rejection() -> None:
+    soldier = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    battlefield = battlefield_with_elevations([0, 2], soldier)
+
+    validation = MovementResolver(max_elevation_change=1).validate_move_action(
+        battlefield,
+        soldier,
+        MoveAction(direction=MoveDirection.EAST),
+    )
+
+    assert not validation.valid
+    assert validation.reason == (
+        "Destination elevation differs by 2 levels; the maximum is 1."
     )

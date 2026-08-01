@@ -4,23 +4,32 @@ import sys
 from contextlib import redirect_stdout
 from functools import partial
 from io import StringIO
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from athena.agent import choose_action
+from athena.params import (
+    COMMUNICATION_HISTORY_LIMIT,
+    MAX_ACTION_ATTEMPTS,
+    VISIBILITY_HISTORY_LIMIT,
+)
 from athena.ollama_agent import (
     OllamaUnavailable,
     choose_action_local,
     resolve_local_model,
 )
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
+from athena.replay import ReplayRecorder
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
-from athena.types import (
+from athena.world_state import Soldier
+from athena.models import (
     AgentContext,
+    CommunicationGroup,
     ExecutionResult,
+    HoldAction,
     MoveAction,
     ObservedSoldier,
     Position,
@@ -45,7 +54,9 @@ def adapt_local_action_chooser(model: str) -> ActionChooser:
         battlefield: Battlefield,
         soldier: Soldier,
         movement_resolver: MovementResolver,
-        max_attempts: int = 3,
+        max_attempts: int = MAX_ACTION_ATTEMPTS,
+        visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
+        communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
     ):
         return await choose_action_local(
             observed_soldier=agent_context.current_observation,
@@ -98,6 +109,8 @@ def render_execution_result(result: ExecutionResult) -> None:
 
         if action is None:
             print(f"{prefix} none")
+        elif isinstance(action, HoldAction):
+            print(f"{prefix} hold")
         elif isinstance(action, MoveAction):
             outcome = (
                 "accepted"
@@ -120,6 +133,16 @@ def render_execution_result(result: ExecutionResult) -> None:
                 f"({resolution})"
             )
 
+    print()
+    print("Team communications")
+    if result.team_messages:
+        for message in result.team_messages:
+            print(
+                f"  soldier {message.sender_index} -> {message.group_id}: "
+                f"{message.content}"
+            )
+    else:
+        print("  none")
     print()
     print("State changes")
     changes: list[str] = []
@@ -203,10 +226,10 @@ def _print_demo_frame(
         visible_soldiers = [
             f"{soldier.team.value}@"
             f"({soldier.position.x},{soldier.position.y},{soldier.position.z})"
-            for soldier in observation.visible_soldiers.soldiers
+            for soldier in observation.visible_soldiers
         ]
         visible_soldiers_text = ", ".join(visible_soldiers) or "none"
-        terrain_cells = observation.available_terrain.cells
+        terrain_cells = observation.available_terrain
         cover_count = sum(cell.has_cover for cell in terrain_cells)
         concealment_count = sum(cell.has_concealment for cell in terrain_cells)
 
@@ -248,7 +271,11 @@ def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
     return Team.BLUE in living_teams and Team.RED in living_teams
 
 
-async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
+async def run_demo(
+    model_spec: str | None = None,
+    ticks: int = 60,
+    replay_log_path: str | Path | None = None,
+) -> None:
     load_dotenv()
     action_chooser = build_action_chooser(model_spec)
 
@@ -270,21 +297,25 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
         team=Team.BLUE,
         position=ground(1, 2),
         vision_range=6,
+        communication_group_ids={"blue-team"},
     )
     blue_2 = Soldier(
         team=Team.BLUE,
         position=ground(1, 5),
         vision_range=6,
+        communication_group_ids={"blue-team"},
     )
     red_1 = Soldier(
         team=Team.RED,
         position=ground(10, 2),
         vision_range=6,
+        communication_group_ids={"red-team"},
     )
     red_2 = Soldier(
         team=Team.RED,
         position=ground(10, 5),
         vision_range=6,
+        communication_group_ids={"red-team"},
     )
 
     battlefield = Battlefield(
@@ -306,6 +337,18 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
             ground(8, 3),
             ground(8, 6),
         },
+        communication_groups=[
+            CommunicationGroup(
+                group_id="blue-team",
+                name="Blue team",
+                team=Team.BLUE,
+            ),
+            CommunicationGroup(
+                group_id="red-team",
+                name="Red team",
+                team=Team.RED,
+            ),
+        ],
     )
     # build_action_chooser (above) already resolved which backend/model to use;
     # everything downstream (loop, rendering, output) is identical regardless.
@@ -314,6 +357,11 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
         vision_resolver=VisionResolver(),
         movement_resolver=MovementResolver(),
         action_chooser=action_chooser,
+    )
+    replay_recorder = (
+        ReplayRecorder(battlefield.snapshot())
+        if replay_log_path is not None
+        else None
     )
 
     use_live_screen = sys.stdout.isatty()
@@ -334,6 +382,8 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
         )
         for tick_index in range(ticks):
             result = await loop.tick()
+            if replay_recorder is not None:
+                replay_recorder.record(result)
             completed_tick = tick_index + 1
             battle_finished = not both_teams_have_living_soldiers(battlefield)
             reached_tick_limit = completed_tick == ticks
@@ -357,9 +407,13 @@ async def run_demo(model_spec: str | None = None, ticks: int = 60) -> None:
             if battle_finished:
                 break
     finally:
-        if use_live_screen:
-            sys.stdout.write("\033[?25h\033[?1049l")
-            sys.stdout.flush()
+        try:
+            if replay_recorder is not None and replay_log_path is not None:
+                replay_recorder.save(replay_log_path)
+        finally:
+            if use_live_screen:
+                sys.stdout.write("\033[?25h\033[?1049l")
+                sys.stdout.flush()
 
 
 def main() -> None:
@@ -374,9 +428,21 @@ def main() -> None:
         default=60,
         help="maximum simulation ticks to run (default: 60)",
     )
+    parser.add_argument(
+        "--replay-log",
+        type=Path,
+        default=None,
+        help="write result-only replay JSON to this path",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(run_demo(model_spec=args.model, ticks=args.ticks))
+        asyncio.run(
+            run_demo(
+                model_spec=args.model,
+                ticks=args.ticks,
+                replay_log_path=args.replay_log,
+            )
+        )
     except OllamaUnavailable as exc:
         raise SystemExit(f"error: {exc}")
 

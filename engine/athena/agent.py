@@ -1,68 +1,113 @@
 from typing import Awaitable, Callable
 
+from langchain_core.exceptions import OutputParserException
 from langchain_openrouter import ChatOpenRouter
+from pydantic import ValidationError
 
-from athena.battlefield import Battlefield
+from athena.params import (
+    COMMUNICATION_HISTORY_LIMIT,
+    MAX_ACTION_ATTEMPTS,
+    MAX_ELEVATION_CHANGE,
+    VISIBILITY_HISTORY_LIMIT,
+    build_system_prompt,
+)
+from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
-from athena.soldier import Soldier
-from athena.types import (
-    Action,
+from athena.world_state import Soldier
+from athena.models import (
     AgentContext,
-    ChosenAction,
+    ChosenTurn,
+    HoldAction,
     MoveAction,
     ObservedSoldier,
     ShootAction,
+    SurvivalState,
 )
 
-# OpenRouter agent instructions.
-SYSTEM_PROMPT = (
-    "You are a soldier-agent in a grid battlefield simulation. "
-    "Choose exactly one action: move one grid cell or shoot. "
-    "The available_terrain cells describe "
-    "every grid cell in your local range, including elevation, cover, and "
-    "concealment; use them to navigate. The visibility_history contains up to "
-    "10 prior tick observations ordered from oldest to newest. Return only the "
-    "structured action."
-    "\n\nTeam objectives:"
-    "\n- Blue: advance toward the right/east side of the battlefield."
-    "\n- Red: advance toward the left/west side of the battlefield."
-    "\n\nIllegal actions:"
-    "\n- Moving outside the battlefield."
-    "\n- Moving more than one grid cell."
-    "\n- Moving into a cover cell."
-    "\n- Moving to a cell whose elevation differs by more than one level."
-    "\n- Moving into a cell occupied by a casualty or dead soldier."
-    "\n- Moving into a cell occupied by a stationary living soldier."
-    "\n- Shooting a friendly, casualty, dead, or non-visible soldier."
-    "\n- Shooting coordinates other than the visible living enemy's exact x, y, and z."
+
+# Default OpenRouter instructions. Runtime overrides are rendered in choose_action.
+SYSTEM_PROMPT = build_system_prompt(
+    VISIBILITY_HISTORY_LIMIT,
+    MAX_ELEVATION_CHANGE,
 )
 
 
 # Call propose() up to max_attempts times, returning the first legal action.
 async def _resolve_action(
-    propose: Callable[[], Awaitable[ChosenAction]],
+    propose: Callable[[str | None], Awaitable[ChosenTurn]],
     observed_soldier: ObservedSoldier,
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
     shooting_resolver: ShootingResolver,
     max_attempts: int,
-) -> Action | None:
+) -> ChosenTurn | None:
+    retry_feedback: str | None = None
     for _ in range(max_attempts):
-        action = (await propose()).action
+        try:
+            chosen_turn = await propose(retry_feedback)
+        except OutputParserException as exc:
+            validation_error = exc.__cause__
+            if not isinstance(validation_error, ValidationError):
+                raise
+            details = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in validation_error.errors(include_url=False)
+            )
+            retry_feedback = (
+                "Your previous structured action did not match the required schema: "
+                f"{details}. Return a corrected structured action."
+            )
+            continue
 
+        action = chosen_turn.action
+        broadcast = chosen_turn.broadcast
+        if (
+            broadcast is not None
+            and broadcast.group_id not in soldier.communication_group_ids
+        ):
+            chosen_turn = chosen_turn.model_copy(update={"broadcast": None})
+
+        if isinstance(action, HoldAction):
+            return chosen_turn
         if isinstance(action, MoveAction):
-            if movement_resolver.verify_move_action(battlefield, soldier, action):
-                return action
-
-        if isinstance(action, ShootAction):
-            if shooting_resolver.verify_shoot_action(
+            validation = movement_resolver.validate_move_action(
+                battlefield, soldier, action
+            )
+            if validation.valid:
+                return chosen_turn
+        else:
+            validation = shooting_resolver.validate_shoot_action(
                 observed_soldier,
                 soldier,
                 action,
-            ):
-                return action
+            )
+            if validation.valid:
+                return chosen_turn
+
+        rejection_reason = validation.reason
+        if (
+            isinstance(action, MoveAction)
+            and observed_soldier.survival_status == SurvivalState.ALIVE
+        ):
+            destination = movement_resolver.resolve_move_position(
+                battlefield, soldier, action
+            )
+            destination_is_visible = destination is not None and any(
+                terrain.position == destination
+                for terrain in observed_soldier.available_terrain
+            )
+            if not destination_is_visible:
+                rejection_reason = (
+                    f"Moving {action.direction.value} was rejected by the movement "
+                    "rules."
+                )
+
+        retry_feedback = (
+            f"Your previous action {action.model_dump_json()} was rejected: "
+            f"{rejection_reason} Choose a different legal action."
+        )
 
     return None
 
@@ -73,26 +118,43 @@ async def choose_action(
     battlefield: Battlefield,
     soldier: Soldier,
     movement_resolver: MovementResolver,
-    max_attempts: int = 3,
-    model: str = "deepseek/deepseek-v4-flash",
+    max_attempts: int = MAX_ACTION_ATTEMPTS,
+    model: str = "openai/gpt-oss-120b:nitro",
     shooting_resolver: ShootingResolver | None = None,
-) -> Action | None:
+    visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
+    communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
+    team_objectives: str | None = None,
+) -> ChosenTurn | None:
     if shooting_resolver is None:
         shooting_resolver = ShootingResolver()
 
     llm = ChatOpenRouter(model=model)
     # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
-    structured_llm = llm.with_structured_output(ChosenAction, method="json_schema")
+    structured_llm = llm.with_structured_output(ChosenTurn, method="json_schema")
 
-    async def propose() -> ChosenAction:
+    async def propose(retry_feedback: str | None) -> ChosenTurn:
+        human_message = agent_context.model_dump_json()
+        if retry_feedback is not None:
+            human_message = f"{human_message}\n\nRetry feedback:\n{retry_feedback}"
         chosen = await structured_llm.ainvoke(
-            [("system", SYSTEM_PROMPT), ("human", agent_context.model_dump_json())]
+            [
+                (
+                    "system",
+                    build_system_prompt(
+                        visibility_history_limit,
+                        movement_resolver.max_elevation_change,
+                        communication_history_limit,
+                        team_objectives=team_objectives,
+                    ),
+                ),
+                ("human", human_message),
+            ]
         )
         # LangChain types structured output as BaseModel | dict, even when a
         # Pydantic schema is provided. Keep the external LLM boundary explicit
         # before resolving an engine action.
-        if not isinstance(chosen, ChosenAction):
-            raise TypeError("Expected ChosenAction from structured LLM output.")
+        if not isinstance(chosen, ChosenTurn):
+            raise TypeError("Expected ChosenTurn from structured LLM output.")
         return chosen
 
     return await _resolve_action(

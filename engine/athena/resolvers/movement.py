@@ -1,8 +1,14 @@
 from random import Random
 
-from athena.battlefield import Battlefield
-from athena.soldier import Soldier
-from athena.types import MoveAction, MoveDirection, Position, SurvivalState
+from athena.world_state import Battlefield, Soldier
+from athena.models import (
+    ActionValidationResult,
+    MoveAction,
+    MoveDirection,
+    Position,
+    SurvivalState,
+)
+from athena.params import MAX_ELEVATION_CHANGE
 
 
 MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {
@@ -20,7 +26,7 @@ MOVE_DIRECTION_DELTAS: dict[MoveDirection, tuple[int, int]] = {
 class MovementResolver:
     def __init__(
         self,
-        max_elevation_change: int = 1,
+        max_elevation_change: int = MAX_ELEVATION_CHANGE,
         rng: Random | None = None,
     ) -> None:
         """Treat elevation as terrain, not as a separate vertical move action."""
@@ -49,10 +55,58 @@ class MovementResolver:
         soldier: Soldier,
         action: MoveAction,
     ) -> bool:
+        return self.validate_move_action(battlefield, soldier, action).valid
+
+    def validate_move_action(
+        self,
+        battlefield: Battlefield,
+        soldier: Soldier,
+        action: MoveAction,
+    ) -> ActionValidationResult:
         new_position = self.resolve_move_position(battlefield, soldier, action)
-        return new_position is not None and self.verify_move(
-            battlefield, soldier, new_position
-        )
+        if new_position is None:
+            return ActionValidationResult.rejected(
+                f"Moving {action.direction.value} would leave the battlefield."
+            )
+        return self.validate_move(battlefield, soldier, new_position)
+
+    def validate_move(
+        self,
+        battlefield: Battlefield,
+        soldier: Soldier,
+        new_position: Position,
+    ) -> ActionValidationResult:
+        if soldier.survival_status != SurvivalState.ALIVE:
+            return ActionValidationResult.rejected("Only an alive soldier can move.")
+
+        if not battlefield.in_bounds(new_position):
+            return ActionValidationResult.rejected(
+                f"Destination {new_position.model_dump_json()} is outside the battlefield."
+            )
+
+        if not battlefield.is_surface_position(new_position):
+            return ActionValidationResult.rejected(
+                f"Destination {new_position.model_dump_json()} does not match the battlefield surface."
+            )
+
+        if not self._is_single_step(soldier.position, new_position):
+            return ActionValidationResult.rejected(
+                f"Destination {new_position.model_dump_json()} is not one grid step away."
+            )
+
+        elevation_change = abs(new_position.z - soldier.position.z)
+        if elevation_change > self.max_elevation_change:
+            return ActionValidationResult.rejected(
+                f"Destination elevation differs by {elevation_change} levels; "
+                f"the maximum is {self.max_elevation_change}."
+            )
+
+        if new_position in battlefield.cover:
+            return ActionValidationResult.rejected(
+                f"Destination {new_position.model_dump_json()} contains impassable cover."
+            )
+
+        return ActionValidationResult.accepted()
 
     def verify_move(
         self,
@@ -64,28 +118,7 @@ class MovementResolver:
         Returns a boolean representing whether soldier can move to the new position.
         Does not move the soldier itself.
         """
-        if soldier.survival_status != SurvivalState.ALIVE:
-            return False
-
-        if not battlefield.in_bounds(new_position):
-            return False
-
-        if not battlefield.is_surface_position(new_position):
-            return False
-
-        if not self._is_single_step(soldier.position, new_position):
-            return False
-
-        if (
-            abs(new_position.z - soldier.position.z)
-            > self.max_elevation_change
-        ):
-            return False
-
-        if new_position in battlefield.cover:
-            return False
-
-        return True
+        return self.validate_move(battlefield, soldier, new_position).valid
 
     def _is_single_step(self, old_position: Position, new_position: Position) -> bool:
         x_distance = abs(new_position.x - old_position.x)

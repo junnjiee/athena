@@ -1,5 +1,10 @@
-from athena.soldier import Soldier
-from athena.types import BattlefieldSnapshot, Position, SoldierSnapshot
+from athena.models import (
+    BattlefieldSnapshot,
+    CommunicationGroup,
+    Position,
+    SoldierSnapshot,
+)
+from athena.world_state.soldier import Soldier
 
 
 class Battlefield:
@@ -9,6 +14,7 @@ class Battlefield:
     soldiers: list[Soldier]
     cover: set[Position]
     concealment: set[Position]
+    communication_groups: tuple[CommunicationGroup, ...]
 
     def __init__(
         self,
@@ -18,6 +24,9 @@ class Battlefield:
         surface: set[Position] | frozenset[Position] | None = None,
         cover: set[Position] | None = None,
         concealment: set[Position] | None = None,
+        communication_groups: list[CommunicationGroup]
+        | tuple[CommunicationGroup, ...]
+        | None = None,
     ) -> None:
         self.width = width
         self.height = height
@@ -33,8 +42,20 @@ class Battlefield:
         self.soldiers = soldiers
         self.cover = cover or set()
         self.concealment = concealment or set()
+        self.communication_groups = tuple(communication_groups or ())
+        self._communication_groups_by_id = self._validate_communication_groups()
         self._surface_by_xy = self._validate_surface()
         self._validate_occupants()
+
+    def _validate_communication_groups(self) -> dict[str, CommunicationGroup]:
+        groups_by_id: dict[str, CommunicationGroup] = {}
+        for group in self.communication_groups:
+            if group.group_id in groups_by_id:
+                raise ValueError(
+                    f"duplicate communication group id: {group.group_id}"
+                )
+            groups_by_id[group.group_id] = group
+        return groups_by_id
 
     def _validate_surface(self) -> dict[tuple[int, int], Position]:
         expected_coordinates = {
@@ -62,6 +83,17 @@ class Battlefield:
                     f"soldier position is not on the battlefield surface: "
                     f"{soldier.position}"
                 )
+            for group_id in soldier.communication_group_ids:
+                group = self._communication_groups_by_id.get(group_id)
+                if group is None:
+                    raise ValueError(
+                        f"soldier references unknown communication group: {group_id}"
+                    )
+                if group.team != soldier.team:
+                    raise ValueError(
+                        "soldier cannot join a communication group from another team: "
+                        f"{group_id}"
+                    )
 
         for terrain_name, positions in (
             ("cover", self.cover),
@@ -83,6 +115,19 @@ class Battlefield:
     def is_surface_position(self, position: Position) -> bool:
         return self.position_at(position.x, position.y) == position
 
+    def communication_group(self, group_id: str) -> CommunicationGroup | None:
+        return self._communication_groups_by_id.get(group_id)
+
+    def communication_groups_for(
+        self,
+        soldier: Soldier,
+    ) -> tuple[CommunicationGroup, ...]:
+        return tuple(
+            group
+            for group in self.communication_groups
+            if group.group_id in soldier.communication_group_ids
+        )
+
     def snapshot(self) -> BattlefieldSnapshot:
         """Capture immutable global truth for execution and replay."""
         return BattlefieldSnapshot(
@@ -96,9 +141,11 @@ class Battlefield:
                     position=soldier.position,
                     survival_status=soldier.survival_status,
                     vision_range=soldier.vision_range,
+                    communication_group_ids=soldier.communication_group_ids,
                 )
                 for index, soldier in enumerate(self.soldiers)
             ),
+            communication_groups=self.communication_groups,
             cover=frozenset(self.cover),
             concealment=frozenset(self.concealment),
         )

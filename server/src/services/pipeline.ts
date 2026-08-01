@@ -28,8 +28,7 @@ export function getJob(id: string): BattlegroundJob | undefined {
 
 function gridDimensions(bbox: BBox): { width: number; height: number; cellMeters: number } {
   const { widthM, heightM } = bboxExtentMeters(bbox)
-  const longest = Math.max(widthM, heightM)
-  const cellMeters = Math.max(config.minCellMeters, longest / config.maxCellsPerAxis)
+  const cellMeters = config.cellMeters
   return {
     width: Math.max(8, Math.round(widthM / cellMeters)),
     height: Math.max(8, Math.round(heightM / cellMeters)),

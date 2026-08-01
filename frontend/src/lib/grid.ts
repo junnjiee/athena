@@ -263,3 +263,34 @@ export function renderHeatmapCanvas(grid: GridData, metric: HeatmapMetric): HTML
 
   return out
 }
+
+const GRID_LINE_UPSCALE = 4
+
+/** Rasterize the simulation grid's cell boundaries for draping over terrain --
+ *  same single-tile imagery layer approach as renderHeatmapCanvas, so a
+ *  commander can see exactly how the terrain is cellified. */
+export function renderGridLinesCanvas(grid: GridData): HTMLCanvasElement {
+  const { width, height } = grid
+  const canvas = document.createElement('canvas')
+  canvas.width = width * GRID_LINE_UPSCALE
+  canvas.height = height * GRID_LINE_UPSCALE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('2d context unavailable')
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let col = 0; col <= width; col++) {
+    const x = col * GRID_LINE_UPSCALE + 0.5
+    ctx.moveTo(x, 0)
+    ctx.lineTo(x, canvas.height)
+  }
+  for (let row = 0; row <= height; row++) {
+    const y = row * GRID_LINE_UPSCALE + 0.5
+    ctx.moveTo(0, y)
+    ctx.lineTo(canvas.width, y)
+  }
+  ctx.stroke()
+
+  return canvas
+}

@@ -3,18 +3,24 @@ from random import Random
 
 import pytest
 
-from athena.agent import SYSTEM_PROMPT, _resolve_action
-from athena.battlefield import Battlefield
+from athena.agent import (
+    SYSTEM_PROMPT,
+    _resolve_action,
+)
+from athena.params import build_system_prompt as build_openrouter_system_prompt
+from athena.world_state import Battlefield
 from athena.ollama_agent import (
     SYSTEM_PROMPT as OLLAMA_SYSTEM_PROMPT,
     _resolve_action as resolve_ollama_action,
+    build_system_prompt as build_ollama_system_prompt,
 )
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
-from athena.soldier import Soldier
-from athena.types import (
-    AvailableTerrain,
+from athena.world_state import Soldier
+from athena.models import (
     ChosenAction,
+    ChosenTurn,
+    HoldAction,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
@@ -22,8 +28,8 @@ from athena.types import (
     ShootAction,
     SurvivalState,
     Team,
+    TerrainCell,
     VisibleSoldier,
-    VisibleSoldiers,
 )
 
 
@@ -35,8 +41,8 @@ def observation(
         team=soldier.team,
         position=soldier.position,
         survival_status=soldier.survival_status,
-        visible_soldiers=VisibleSoldiers(soldiers=visible_soldiers),
-        available_terrain=AvailableTerrain(cells=[]),
+        visible_soldiers=visible_soldiers,
+        available_terrain=[],
     )
 
 
@@ -65,8 +71,14 @@ def test_shoot_action_serializes_target_coordinates() -> None:
     assert chosen.action == ShootAction(target_position=Position(x=4, y=7, z=2))
 
 
+def test_hold_action_serializes_without_parameters() -> None:
+    chosen = ChosenTurn.model_validate({"action": {"kind": "hold"}})
+
+    assert chosen.action == HoldAction()
+
+
 def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
-    assert "move one grid cell or shoot" in SYSTEM_PROMPT
+    assert "hold position, move one grid cell, or shoot" in SYSTEM_PROMPT
     assert "x, y, and z" in SYSTEM_PROMPT
     assert "available_terrain cells" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
@@ -98,6 +110,29 @@ def test_openrouter_prompt_lists_illegal_shooting_actions() -> None:
 
 def test_ollama_prompt_lists_shooting_as_illegal() -> None:
     assert "Shooting; this backend supports movement only." in OLLAMA_SYSTEM_PROMPT
+
+
+def test_agent_prompts_use_effective_engine_limits() -> None:
+    openrouter_prompt = build_openrouter_system_prompt(
+        visibility_history_limit=7,
+        max_elevation_change=2,
+    )
+    ollama_prompt = build_ollama_system_prompt(max_elevation_change=2)
+
+    assert "up to 7 prior tick observations" in openrouter_prompt
+    assert "elevation differs by more than 2 levels" in openrouter_prompt
+    assert "elevation differs by more than 2 levels" in ollama_prompt
+
+
+def test_openrouter_prompt_accepts_scenario_team_objectives() -> None:
+    prompt = build_openrouter_system_prompt(
+        visibility_history_limit=7,
+        max_elevation_change=1,
+        team_objectives="\n- Red: hold the summit.",
+    )
+
+    assert "\n\nTeam objectives:\n- Red: hold the summit." in prompt
+    assert "Blue: advance toward the right/east side" not in prompt
 
 
 def test_accepts_visible_living_enemy_target() -> None:
@@ -255,16 +290,19 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     observed = observation(shooter, [])
     proposed_actions = iter(
         [
-            ChosenAction(
+            ChosenTurn(
                 action=ShootAction(target_position=Position(x=2, y=2, z=0)),
             ),
-            ChosenAction(
+            ChosenTurn(
                 action=MoveAction(direction=MoveDirection.EAST),
             ),
         ]
     )
 
-    async def propose() -> ChosenAction:
+    retry_feedback: list[str | None] = []
+
+    async def propose(feedback: str | None) -> ChosenTurn:
+        retry_feedback.append(feedback)
         return next(proposed_actions)
 
     result = asyncio.run(
@@ -279,7 +317,96 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
         )
     )
 
-    assert result == MoveAction(direction=MoveDirection.EAST)
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.EAST),
+    )
+    assert retry_feedback[0] is None
+    assert retry_feedback[1] is not None
+    assert (
+        "No visible soldier occupies the requested target position"
+        in retry_feedback[1]
+    )
+    assert '"kind":"shoot"' in retry_feedback[1]
+
+
+@pytest.mark.parametrize(
+    ("destination_is_visible", "destination_elevation", "has_cover", "expected_reason"),
+    [
+        (False, 0, True, "Moving east was rejected by the movement rules."),
+        (False, 2, False, "Moving east was rejected by the movement rules."),
+        (True, 0, True, "contains impassable cover"),
+        (True, 2, False, "Destination elevation differs by 2 levels"),
+    ],
+)
+def test_move_retry_feedback_only_explains_visible_terrain(
+    destination_is_visible: bool,
+    destination_elevation: int,
+    has_cover: bool,
+    expected_reason: str,
+) -> None:
+    soldier = Soldier(Team.BLUE, Position(x=1, y=0, z=0))
+    destination = Position(x=2, y=0, z=destination_elevation)
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[soldier],
+        surface={
+            Position(x=0, y=0, z=0),
+            soldier.position,
+            destination,
+        },
+        cover={destination} if has_cover else set(),
+    )
+    observed = ObservedSoldier(
+        team=Team.BLUE,
+        position=soldier.position,
+        survival_status=SurvivalState.ALIVE,
+        visible_soldiers=[],
+        available_terrain=(
+            [
+                TerrainCell(
+                    position=destination,
+                    has_cover=has_cover,
+                    has_concealment=False,
+                )
+            ]
+            if destination_is_visible
+            else []
+        ),
+    )
+    proposed_actions = iter(
+        [
+            ChosenTurn(action=MoveAction(direction=MoveDirection.EAST)),
+            ChosenTurn(action=MoveAction(direction=MoveDirection.WEST)),
+        ]
+    )
+    retry_feedback: list[str | None] = []
+
+    async def propose(feedback: str | None) -> ChosenTurn:
+        retry_feedback.append(feedback)
+        return next(proposed_actions)
+
+    result = asyncio.run(
+        _resolve_action(
+            propose,
+            observed,
+            battlefield,
+            soldier,
+            MovementResolver(),
+            ShootingResolver(),
+            max_attempts=2,
+        )
+    )
+
+    assert result == ChosenTurn(
+        action=MoveAction(direction=MoveDirection.WEST),
+    )
+    assert retry_feedback[1] is not None
+    assert expected_reason in retry_feedback[1]
+    if not destination_is_visible:
+        assert "cover" not in retry_feedback[1]
+        assert "elevation" not in retry_feedback[1]
+        assert destination.model_dump_json() not in retry_feedback[1]
 
 
 def test_action_resolution_accepts_valid_shoot_action() -> None:
@@ -291,8 +418,8 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
     )
     shoot_action = ShootAction(target_position=target_position)
 
-    async def propose() -> ChosenAction:
-        return ChosenAction(action=shoot_action)
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(action=shoot_action)
 
     result = asyncio.run(
         _resolve_action(
@@ -306,15 +433,37 @@ def test_action_resolution_accepts_valid_shoot_action() -> None:
         )
     )
 
-    assert result == shoot_action
+    assert result == ChosenTurn(action=shoot_action)
+
+
+def test_action_resolution_accepts_hold_action() -> None:
+    soldier = Soldier(Team.RED, Position(x=1, y=1, z=0))
+    observed = observation(soldier, [])
+
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(action=HoldAction())
+
+    result = asyncio.run(
+        _resolve_action(
+            propose,
+            observed,
+            Battlefield(width=3, height=3, soldiers=[soldier]),
+            soldier,
+            MovementResolver(),
+            ShootingResolver(),
+            max_attempts=1,
+        )
+    )
+
+    assert result == ChosenTurn(action=HoldAction())
 
 
 def test_action_resolution_returns_none_after_invalid_shoot_attempts() -> None:
     shooter = Soldier(Team.BLUE, Position(x=1, y=1, z=0))
     observed = observation(shooter, [])
 
-    async def propose() -> ChosenAction:
-        return ChosenAction(
+    async def propose(_: str | None) -> ChosenTurn:
+        return ChosenTurn(
             action=ShootAction(target_position=Position(x=4, y=3, z=0)),
         )
 

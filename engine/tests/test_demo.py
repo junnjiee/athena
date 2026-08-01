@@ -3,7 +3,7 @@ from io import StringIO
 from random import Random
 
 from athena import demo
-from athena.battlefield import Battlefield
+from athena.world_state import Battlefield
 from athena.demo import (
     both_teams_have_living_soldiers,
     render_demo_frame,
@@ -12,8 +12,18 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
-from athena.soldier import Soldier
-from athena.types import MoveAction, MoveDirection, Position, ShootAction, Team
+from athena.world_state import Soldier
+from athena.models import (
+    BroadcastDraft,
+    CommunicationGroup,
+    HoldAction,
+    MoveAction,
+    MoveDirection,
+    Position,
+    ReplayLog,
+    ShootAction,
+    Team,
+)
 
 
 def loop_for(soldiers: list[Soldier]) -> LoopEngine:
@@ -69,6 +79,64 @@ def test_render_demo_frame_labels_one_conflicting_move_as_accepted(capsys) -> No
     assert "soldier 0 blue: move east (rejected)" in output
     assert "soldier 1 red: move west (accepted)" in output
     assert "position (2,0,0) -> (1,0,0)" in output
+
+
+def test_render_demo_frame_shows_hold_action(capsys) -> None:
+    soldier = Soldier(Team.RED, Position(x=1, y=1, z=0))
+    loop = loop_for([soldier])
+    result = loop.execute_actions([HoldAction()])
+
+    render_demo_frame(
+        "After tick 1",
+        loop.battlefield,
+        loop.observed_soldiers_map(),
+        execution_result=result,
+    )
+
+    assert "soldier 0 red: hold" in capsys.readouterr().out
+
+
+def test_render_demo_frame_shows_team_broadcast(capsys) -> None:
+    group = CommunicationGroup(
+        group_id="blue-team",
+        name="Blue Team",
+        team=Team.BLUE,
+    )
+    blue = Soldier(
+        Team.BLUE,
+        Position(x=0, y=0, z=0),
+        communication_group_ids={group.group_id},
+    )
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[blue],
+        communication_groups=[group],
+    )
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+    result = loop.execute_actions(
+        [MoveAction(direction=MoveDirection.EAST)],
+        broadcasts=[
+            BroadcastDraft(
+                group_id=group.group_id,
+                content="Moving to the ridge.",
+            )
+        ],
+    )
+
+    render_demo_frame(
+        "After tick 1",
+        battlefield,
+        loop.observed_soldiers_map(),
+        execution_result=result,
+    )
+
+    output = capsys.readouterr().out
+    assert "soldier 0 -> blue-team: Moving to the ridge." in output
 
 
 def test_render_demo_frame_colors_elevated_cells(capsys) -> None:
@@ -128,6 +196,22 @@ def test_run_demo_reports_progress_until_requested_tick(monkeypatch) -> None:
         "After tick 3 - running tick 4 (waiting for agents)",
         "After tick 4 - tick limit reached",
     ]
+
+
+def test_run_demo_writes_replay_log(monkeypatch, tmp_path) -> None:
+    async def choose_none(**_: object) -> None:
+        return None
+
+    monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
+    monkeypatch.setattr(demo, "render_demo_frame", lambda *_args, **_kwargs: None)
+    output_path = tmp_path / "demo.json"
+
+    asyncio.run(demo.run_demo(ticks=2, replay_log_path=output_path))
+
+    replay_log = ReplayLog.model_validate_json(output_path.read_text())
+    assert [step.step for step in replay_log.steps] == [0, 1, 2]
+    assert all(step.shots == () for step in replay_log.steps)
+    assert all(step.messages == () for step in replay_log.steps)
 
 
 def test_battle_finishes_when_one_team_has_no_living_soldiers() -> None:
