@@ -42,6 +42,32 @@ Cesium globe (world terrain + satellite)
        exposed stretches, slow going + ETA / exposure / confidence in bottom bar
 ```
 
+### Plan → engine bridge
+
+A saved plan stores drawings as bare lon/lat, which tells the simulation engine
+nothing about *what ground* each drawing sits on. `GET /api/plans/:id/brief`
+answers both halves of that question:
+
+```
+GET /api/plans/:id/brief
+  └─ drawings[]  — every unit / objective / route, each carrying
+       ├─ kind + label   "deployment" / "fortification" / "objective" / "movement"
+       │                 → "red platoon deployment", "blue movement arrow (prowl)"
+       ├─ cell           { x, y, index } in simulation-grid space, plus that
+       │                 cell's military properties (cover, concealment,
+       │                 moveCostFactor, visibility, ambush, slope, elevation)
+       ├─ path           routes: the ordered cells the arrow crosses, start → end
+       ├─ footprint      objectives: every cell inside radiusMeters
+       └─ corridor       aggregate of the ground covered (class counts,
+                         dominant class, crossesWater, elevation range)
+```
+
+Cell space is stated in the payload itself (`cellSpace`): `x` = column west→east,
+`y` = row north→south, `index = y * width + x`, cells `cellMeters` square — the
+same row-major layout as the binary grid, so the engine never does lon/lat math.
+Nothing is persisted; the brief is derived from the stored grid on each request.
+See `server/src/services/planBrief.ts` and `server/src/lib/cells.ts`.
+
 ### Performance notes
 
 - The grid crosses the wire as one binary buffer (16-byte header + typed-array

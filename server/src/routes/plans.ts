@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { db } from '../db/client'
 import { battlegrounds, plans } from '../db/schema'
 import { getJob } from '../services/pipeline'
+import { buildPlanBrief } from '../services/planBrief'
 
 const lonLat = z.object({ longitude: z.number(), latitude: z.number() })
 
@@ -151,6 +152,41 @@ export function registerPlanRoutes(app: FastifyInstance): void {
         gridBufferBase64: row.battleground.gridBuffer.toString('base64'),
       },
     }
+  })
+
+  /** The drawn plan expressed over the terrain: every unit/objective/route
+   *  georeferenced onto simulation-grid cells and tagged with what kind of
+   *  drawing it is. This is the payload the simulation engine consumes -- it
+   *  never has to do lon/lat math or guess at a marker's intent. */
+  app.get<{ Params: { id: string } }>('/api/plans/:id/brief', async (req, reply) => {
+    const rows = await db
+      .select({ plan: plans, battleground: battlegrounds })
+      .from(plans)
+      .innerJoin(battlegrounds, eq(plans.battlegroundId, battlegrounds.id))
+      .where(eq(plans.id, req.params.id))
+      .limit(1)
+    const row = rows[0]
+    if (!row) return reply.status(404).send({ error: 'unknown plan' })
+
+    return buildPlanBrief({
+      plan: {
+        id: row.plan.id,
+        name: row.plan.name,
+        units: row.plan.units,
+        objectives: row.plan.objectives,
+        routes: row.plan.routes,
+      },
+      battleground: {
+        id: row.battleground.id,
+        name: row.battleground.name,
+        bbox: row.battleground.bbox,
+        width: row.battleground.width,
+        height: row.battleground.height,
+        cellMeters: row.battleground.cellMeters,
+        weather: row.battleground.weather,
+        gridBuffer: row.battleground.gridBuffer,
+      },
+    })
   })
 
   app.delete<{ Params: { id: string } }>('/api/plans/:id', async (req, reply) => {
