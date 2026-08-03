@@ -335,7 +335,7 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     [
         (False, 0, True, "Moving east was rejected by the movement rules."),
         (False, 2, False, "Moving east was rejected by the movement rules."),
-        (True, 0, True, "contains impassable cover"),
+        (True, 0, True, "is impassable terrain (Structure)"),
         (True, 2, False, "Destination elevation differs by 2 levels"),
     ],
 )
@@ -405,7 +405,7 @@ def test_move_retry_feedback_only_explains_visible_terrain(
     assert retry_feedback[1] is not None
     assert expected_reason in retry_feedback[1]
     if not destination_is_visible:
-        assert "cover" not in retry_feedback[1]
+        assert "impassable" not in retry_feedback[1]
         assert "elevation" not in retry_feedback[1]
         assert destination.model_dump_json() not in retry_feedback[1]
 
@@ -502,3 +502,64 @@ def test_ollama_action_resolution_still_rejects_shooting() -> None:
     )
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    ("protection", "expected_probability"),
+    [
+        (0.0, 0.90),
+        (0.15, 0.765),
+        (0.90, 0.09),
+    ],
+)
+def test_terrain_protection_reduces_hit_probability(
+    protection: float,
+    expected_probability: float,
+) -> None:
+    probability = ShootingResolver().hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=0),
+        protection,
+    )
+
+    assert probability == pytest.approx(expected_probability)
+
+
+def test_protection_can_drive_probability_below_the_marksmanship_floor() -> None:
+    # The floor bounds how badly a soldier shoots, not how well a target is
+    # sheltered, so hard cover is allowed to push the chance beneath it.
+    resolver = ShootingResolver()
+
+    unprotected = resolver.hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=20),
+    )
+    protected = resolver.hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=20),
+        0.9,
+    )
+
+    assert unprotected == pytest.approx(0.50)
+    assert protected < resolver.minimum_hit_probability
+
+
+def test_resolve_shot_reads_protection_from_the_target_cell() -> None:
+    shooter = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    target = Soldier(Team.RED, Position(x=1, y=0, z=0))
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[shooter, target],
+        terrain={target.position: TerrainClass.URBAN},
+    )
+
+    outcome = ShootingResolver(rng=Random(0)).resolve_shot(
+        battlefield.snapshot(),
+        0,
+        ShootAction(target_position=target.position),
+    )
+
+    assert outcome is not None
+    # Urban protection is 0.40, so 0.90 * 0.60.
+    assert outcome.hit_probability == pytest.approx(0.54)

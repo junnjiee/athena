@@ -50,7 +50,6 @@ HEIGHT = 15
 HILL_CENTER_X = 8
 HILL_CENTER_Y = 4
 HILL_SUMMIT_ELEVATION = 3
-CONCEALMENT_HIDE_PROBABILITY = 1.0
 FOOT_CONCEALMENT_CELLS = frozenset(
     (x, y)
     for x in (*range(4, 7), *range(10, 13))
@@ -248,9 +247,9 @@ def _compact_live_frame(
                 symbol = "*"
             elif len(soldiers) == 1:
                 symbol = soldier_symbol(soldiers[0])
-            elif position in battlefield.cover:
+            elif not battlefield.profile_for(position).passable:
                 symbol = "#"
-            elif position in battlefield.concealment:
+            elif battlefield.profile_for(position).concealment > 0:
                 symbol = "!"
             else:
                 symbol = "."
@@ -509,7 +508,7 @@ def build_battlefield() -> Battlefield:
     ]
 
     terrain = {
-        ground(x, y): TerrainClass.SCRUB
+        ground(x, y): TerrainClass.DENSE_FOREST
         for x, y in (*FOOT_CONCEALMENT_CELLS, (5, 6), (11, 6))
     }
     terrain.update(
@@ -600,9 +599,7 @@ async def run_demo(
     battlefield = build_battlefield()
     loop = LoopEngine(
         battlefield=battlefield,
-        vision_resolver=VisionResolver(
-            concealment_hide_probability=CONCEALMENT_HIDE_PROBABILITY
-        ),
+        vision_resolver=VisionResolver(),
         movement_resolver=HillAssaultMovementResolver(),
         action_chooser=build_action_chooser(model_spec),
     )

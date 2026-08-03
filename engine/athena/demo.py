@@ -202,9 +202,9 @@ def _print_demo_frame(
                 row.append("*")
             elif len(soldiers) == 1:
                 row.append(soldier_symbol(soldiers[0]))
-            elif position in battlefield.cover:
+            elif not battlefield.profile_for(position).passable:
                 row.append("#")
-            elif position in battlefield.concealment:
+            elif battlefield.profile_for(position).concealment > 0:
                 row.append("!")
             else:
                 row.append(".")
