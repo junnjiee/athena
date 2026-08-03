@@ -375,10 +375,10 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         Position(x=3, y=0, z=0),
         Position(x=4, y=0, z=0),
     ]
-    assert cells[2].has_concealment
-    assert not cells[2].has_cover
-    assert cells[4].has_cover
-    assert not cells[4].has_concealment
+    assert cells[2].terrain_class == TerrainClass.SCRUB
+    assert cells[2].terrain == "Scrub / Bush"
+    assert cells[4].terrain_class == TerrainClass.STRUCTURE
+    assert cells[0].terrain_class == TerrainClass.OPEN_GROUND
 
 
 def test_in_range_terrain_behind_hill_is_hidden() -> None:

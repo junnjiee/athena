@@ -1,6 +1,6 @@
 """Agent-local perception and visibility-history models."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from athena.models.actions import Action
 from athena.models.common import (
@@ -10,6 +10,7 @@ from athena.models.common import (
     Team,
 )
 from athena.models.communications import CommunicationGroup, TeamMessage
+from athena.terrain import TERRAIN_LABELS, TerrainClass
 
 
 class VisibleSoldier(BaseModel):
@@ -24,8 +25,13 @@ class TerrainCell(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     position: Position
-    has_cover: bool
-    has_concealment: bool
+    terrain_class: TerrainClass
+
+    @computed_field
+    @property
+    def terrain(self) -> str:
+        """The class name, so an agent reads terrain rather than an index."""
+        return TERRAIN_LABELS[self.terrain_class]
 
 
 class ObservedSoldier(BaseModel):

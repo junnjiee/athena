@@ -54,7 +54,7 @@ def test_render_demo_frame_shows_shot_and_casualty_transition(capsys) -> None:
     assert "B . r ." in output
     assert "soldier 0 blue: shoot (2,0,0) (hit, p=90%" in output
     assert "status alive -> casualty" in output
-    assert "terrain: 8 cells (0 cover, 0 concealment)" in output
+    assert "terrain: 8 cells (all open ground)" in output
 
 
 def test_render_demo_frame_labels_one_conflicting_move_as_accepted(capsys) -> None:
