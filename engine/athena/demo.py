@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import sys
 from collections import Counter
+from collections.abc import Iterable
 from contextlib import redirect_stdout
 from math import ceil
 from functools import partial
@@ -22,6 +23,12 @@ from athena.ollama_agent import (
     resolve_local_model,
 )
 from athena.world_state import Battlefield
+from athena.loaders import (
+    PayloadError,
+    build_battlefield_from_payload,
+    load_payload,
+    objective_briefing,
+)
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.replay import ReplayRecorder
@@ -105,6 +112,11 @@ MAX_RENDER_WIDTH = 60
 MAX_RENDER_HEIGHT = 40
 
 
+def _median(values: Iterable[int]) -> int:
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+
 def viewport_bounds(
     battlefield: Battlefield,
     max_width: int = MAX_RENDER_WIDTH,
@@ -123,10 +135,11 @@ def viewport_bounds(
     height = min(max_height, battlefield.height)
 
     if battlefield.soldiers:
-        xs = [soldier.position.x for soldier in battlefield.soldiers]
-        ys = [soldier.position.y for soldier in battlefield.soldiers]
-        center_x = (min(xs) + max(xs)) // 2
-        center_y = (min(ys) + max(ys)) // 2
+        # Median, not midrange: two forces facing each other across a large map
+        # put the midrange in the empty ground between them, framing nobody.
+        # The median sits inside whichever group is larger.
+        center_x = _median(soldier.position.x for soldier in battlefield.soldiers)
+        center_y = _median(soldier.position.y for soldier in battlefield.soldiers)
     else:
         center_x = battlefield.width // 2
         center_y = battlefield.height // 2
@@ -374,14 +387,8 @@ def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
     return Team.BLUE in living_teams and Team.RED in living_teams
 
 
-async def run_demo(
-    model_spec: str | None = None,
-    ticks: int = 60,
-    replay_log_path: str | Path | None = None,
-) -> None:
-    load_dotenv()
-    action_chooser = build_action_chooser(model_spec)
-
+def build_demo_battlefield() -> Battlefield:
+    """The hand-authored 12x8 scenario the demo has always run."""
     surface = {
         Position(
             x=x,
@@ -421,7 +428,7 @@ async def run_demo(
         communication_group_ids={"red-team"},
     )
 
-    battlefield = Battlefield(
+    return Battlefield(
         width=12,
         height=8,
         soldiers=[blue_1, blue_2, red_1, red_2],
@@ -449,6 +456,40 @@ async def run_demo(
             ),
         ],
     )
+
+
+def build_payload_battlefield(
+    payload_path: str | Path,
+    vision_range: float | None = None,
+) -> tuple[Battlefield, str]:
+    """Load a frontend terrain export into a battlefield plus its briefing."""
+    payload = load_payload(payload_path)
+    kwargs = {} if vision_range is None else {"vision_range": vision_range}
+    return build_battlefield_from_payload(payload, **kwargs), objective_briefing(
+        payload
+    )
+
+
+async def run_demo(
+    model_spec: str | None = None,
+    ticks: int = 60,
+    replay_log_path: str | Path | None = None,
+    payload_path: str | Path | None = None,
+    vision_range: float | None = None,
+) -> None:
+    load_dotenv()
+    action_chooser = build_action_chooser(model_spec)
+
+    if payload_path is None:
+        battlefield = build_demo_battlefield()
+    else:
+        battlefield, briefing = build_payload_battlefield(payload_path, vision_range)
+        print(
+            f"[athena] terrain: {battlefield.width}x{battlefield.height} from "
+            f"{payload_path}{briefing}",
+            file=sys.stderr,
+        )
+
     # build_action_chooser (above) already resolved which backend/model to use;
     # everything downstream (loop, rendering, output) is identical regardless.
     loop = LoopEngine(
@@ -533,6 +574,19 @@ def main() -> None:
         default=None,
         help="write result-only replay JSON to this path",
     )
+    parser.add_argument(
+        "--payload",
+        type=Path,
+        default=None,
+        help="load terrain and units from a frontend export instead of the "
+        "built-in 12x8 scenario",
+    )
+    parser.add_argument(
+        "--vision-range",
+        type=float,
+        default=None,
+        help="override every soldier's vision range, in cells",
+    )
     args = parser.parse_args()
     try:
         asyncio.run(
@@ -540,9 +594,11 @@ def main() -> None:
                 model_spec=args.model,
                 ticks=args.ticks,
                 replay_log_path=args.replay_log,
+                payload_path=args.payload,
+                vision_range=args.vision_range,
             )
         )
-    except OllamaUnavailable as exc:
+    except (OllamaUnavailable, PayloadError) as exc:
         raise SystemExit(f"error: {exc}")
 
 
