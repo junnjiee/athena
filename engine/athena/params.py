@@ -1,5 +1,31 @@
 """Tunable parameters for the Athena engine and its agents."""
 
+from athena.terrain import TerrainClass, TerrainProfile
+
+# Terrain
+TERRAIN_PROFILES: dict[TerrainClass, TerrainProfile] = {
+    #                            passable, move_cost, opacity/m, conceal, protect
+    TerrainClass.OPEN_GROUND: TerrainProfile(True, 1.0, 0.00, 0.00, 0.00),
+    TerrainClass.GRASSLAND: TerrainProfile(True, 1.1, 0.01, 0.10, 0.00),
+    TerrainClass.SCRUB: TerrainProfile(True, 1.6, 0.03, 0.45, 0.05),
+    TerrainClass.DENSE_FOREST: TerrainProfile(True, 2.0, 0.05, 0.70, 0.15),
+    TerrainClass.WETLAND: TerrainProfile(True, 2.5, 0.01, 0.15, 0.00),
+    TerrainClass.WATER: TerrainProfile(False, 4.0, 0.00, 0.00, 0.00),
+    TerrainClass.URBAN: TerrainProfile(True, 1.2, 0.10, 0.60, 0.40),
+    TerrainClass.STRUCTURE: TerrainProfile(False, 4.0, 1.00, 0.00, 0.90),
+    TerrainClass.ROAD: TerrainProfile(True, 0.8, 0.00, 0.00, 0.00),
+    TerrainClass.BARREN_ROCK: TerrainProfile(True, 1.4, 0.08, 0.20, 0.30),
+}
+"""Terrain effects per class.
+
+These are tunable simulation assumptions, not measured values. Opacity is
+calibrated so dense forest blocks sight at roughly 20 m (0.05/m) while a
+structure blocks immediately. Impassable classes keep a nominal move_cost so
+the table stays total.
+"""
+
+DEFAULT_TERRAIN_CLASS = TerrainClass.OPEN_GROUND
+
 # Vision
 DEFAULT_SOLDIER_VISION_RANGE = 10.0
 MAX_VISION_RANGE = 100.0

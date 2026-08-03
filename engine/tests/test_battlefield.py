@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from athena.world_state import Battlefield, Soldier
-from athena.models import CommunicationGroup, Position, Team
+from athena.models import CommunicationGroup, Position, Team, TerrainClass
 
 
 def test_position_requires_xyz_coordinates() -> None:
@@ -113,3 +113,87 @@ def test_rejects_cross_team_communication_group_membership() -> None:
             soldiers=[blue_soldier],
             communication_groups=[red_group],
         )
+
+
+def test_terrain_defaults_to_open_ground_everywhere() -> None:
+    battlefield = Battlefield(width=3, height=2, soldiers=[])
+
+    assert battlefield.terrain_classes == (TerrainClass.OPEN_GROUND,) * 6
+    assert battlefield.profile_at(2, 1).passable
+
+
+def test_sparse_terrain_mapping_places_classes_row_major() -> None:
+    battlefield = Battlefield(
+        width=3,
+        height=2,
+        soldiers=[],
+        terrain={
+            Position(x=2, y=1, z=0): TerrainClass.STRUCTURE,
+            Position(x=0, y=1, z=0): TerrainClass.DENSE_FOREST,
+        },
+    )
+
+    # Row-major: (x=0,y=1) is index 3 and (x=2,y=1) is index 5.
+    assert battlefield.terrain_classes[3] == TerrainClass.DENSE_FOREST
+    assert battlefield.terrain_classes[5] == TerrainClass.STRUCTURE
+    assert battlefield.terrain_at(2, 1) == TerrainClass.STRUCTURE
+    assert battlefield.terrain_at(1, 0) == TerrainClass.OPEN_GROUND
+
+
+def test_dense_terrain_sequence_is_accepted_for_bulk_import() -> None:
+    classes = [TerrainClass.ROAD] * 4
+    classes[1] = TerrainClass.WATER
+
+    battlefield = Battlefield(width=2, height=2, soldiers=[], terrain=classes)
+
+    assert battlefield.terrain_at(1, 0) == TerrainClass.WATER
+    assert not battlefield.profile_at(1, 0).passable
+    assert battlefield.profile_at(0, 0).move_cost == 0.8
+
+
+def test_dense_terrain_sequence_must_match_grid_size() -> None:
+    with pytest.raises(ValueError, match="expected 6"):
+        Battlefield(width=3, height=2, soldiers=[], terrain=[TerrainClass.ROAD] * 5)
+
+
+def test_terrain_mapping_rejects_out_of_bounds_position() -> None:
+    with pytest.raises(ValueError, match="outside the battlefield"):
+        Battlefield(
+            width=2,
+            height=2,
+            soldiers=[],
+            terrain={Position(x=9, y=0, z=0): TerrainClass.STRUCTURE},
+        )
+
+
+def test_terrain_classes_are_captured_in_snapshot() -> None:
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[],
+        terrain={Position(x=0, y=0, z=0): TerrainClass.WETLAND},
+    )
+
+    assert battlefield.snapshot().terrain_classes == (
+        TerrainClass.WETLAND,
+        TerrainClass.OPEN_GROUND,
+    )
+
+
+def test_impassable_and_concealing_classes_project_onto_legacy_sets() -> None:
+    # Transitional: resolvers still read these until WP2 moves them to profiles.
+    structure = Position(x=0, y=0, z=0)
+    forest = Position(x=1, y=0, z=0)
+
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[],
+        terrain={
+            structure: TerrainClass.STRUCTURE,
+            forest: TerrainClass.DENSE_FOREST,
+        },
+    )
+
+    assert battlefield.cover == frozenset({structure})
+    assert battlefield.concealment == frozenset({forest})

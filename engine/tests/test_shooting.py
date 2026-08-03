@@ -29,6 +29,7 @@ from athena.models import (
     SurvivalState,
     Team,
     TerrainCell,
+    TerrainClass,
     VisibleSoldier,
 )
 
@@ -355,7 +356,7 @@ def test_move_retry_feedback_only_explains_visible_terrain(
             soldier.position,
             destination,
         },
-        cover={destination} if has_cover else set(),
+        terrain={destination: TerrainClass.STRUCTURE} if has_cover else None,
     )
     observed = ObservedSoldier(
         team=Team.BLUE,

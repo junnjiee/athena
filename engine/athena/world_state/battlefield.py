@@ -1,9 +1,14 @@
+from collections.abc import Mapping, Sequence
+
 from athena.models import (
     BattlefieldSnapshot,
     CommunicationGroup,
     Position,
     SoldierSnapshot,
+    TerrainClass,
+    TerrainProfile,
 )
+from athena.params import DEFAULT_TERRAIN_CLASS, TERRAIN_PROFILES
 from athena.world_state.soldier import Soldier
 
 
@@ -12,8 +17,7 @@ class Battlefield:
     height: int
     surface: frozenset[Position]
     soldiers: list[Soldier]
-    cover: set[Position]
-    concealment: set[Position]
+    terrain_classes: tuple[TerrainClass, ...]
     communication_groups: tuple[CommunicationGroup, ...]
 
     def __init__(
@@ -22,12 +26,17 @@ class Battlefield:
         height: int,
         soldiers: list[Soldier],
         surface: set[Position] | frozenset[Position] | None = None,
-        cover: set[Position] | None = None,
-        concealment: set[Position] | None = None,
+        terrain: Mapping[Position, TerrainClass] | Sequence[int] | None = None,
         communication_groups: list[CommunicationGroup]
         | tuple[CommunicationGroup, ...]
         | None = None,
     ) -> None:
+        """Build a battlefield.
+
+        ``terrain`` accepts either a sparse mapping of position to class, which
+        suits hand-authored scenarios, or a dense row-major sequence of class
+        indices, which suits bulk import. Unlisted cells default to open ground.
+        """
         self.width = width
         self.height = height
         self.surface = frozenset(
@@ -40,12 +49,87 @@ class Battlefield:
             )
         )
         self.soldiers = soldiers
-        self.cover = cover or set()
-        self.concealment = concealment or set()
+        self.terrain_classes = self._build_terrain_classes(terrain)
         self.communication_groups = tuple(communication_groups or ())
         self._communication_groups_by_id = self._validate_communication_groups()
         self._surface_by_xy = self._validate_surface()
         self._validate_occupants()
+        self._cover, self._concealment = self._derive_legacy_terrain_sets()
+
+    def _build_terrain_classes(
+        self,
+        terrain: Mapping[Position, TerrainClass] | Sequence[int] | None,
+    ) -> tuple[TerrainClass, ...]:
+        cell_count = self.width * self.height
+
+        if terrain is None:
+            return (DEFAULT_TERRAIN_CLASS,) * cell_count
+
+        if isinstance(terrain, Mapping):
+            classes = [DEFAULT_TERRAIN_CLASS] * cell_count
+            for position, terrain_class in terrain.items():
+                if not self.in_bounds(position):
+                    raise ValueError(
+                        f"terrain position is outside the battlefield: {position}"
+                    )
+                classes[self._index(position.x, position.y)] = TerrainClass(
+                    terrain_class
+                )
+            return tuple(classes)
+
+        if len(terrain) != cell_count:
+            raise ValueError(
+                f"terrain grid has {len(terrain)} cells; "
+                f"expected {cell_count} for {self.width}x{self.height}"
+            )
+        return tuple(TerrainClass(value) for value in terrain)
+
+    def _index(self, x: int, y: int) -> int:
+        """Row-major offset into the flat terrain grid."""
+        return y * self.width + x
+
+    def _derive_legacy_terrain_sets(
+        self,
+    ) -> tuple[frozenset[Position], frozenset[Position]]:
+        """Project the class grid onto the old cover/concealment sets.
+
+        Transitional: the resolvers still test set membership. WP2 replaces
+        those tests with direct profile lookups and this method goes away.
+        Cached because vision tests membership once per cell along a sightline.
+        """
+        cover: set[Position] = set()
+        concealment: set[Position] = set()
+
+        for position in self.surface:
+            profile = self.profile_at(position.x, position.y)
+            if not profile.passable:
+                cover.add(position)
+            if profile.concealment > 0:
+                concealment.add(position)
+
+        return frozenset(cover), frozenset(concealment)
+
+    @property
+    def cover(self) -> frozenset[Position]:
+        """Transitional view of impassable, sight-blocking cells."""
+        return self._cover
+
+    @property
+    def concealment(self) -> frozenset[Position]:
+        """Transitional view of cells offering concealment."""
+        return self._concealment
+
+    def terrain_at(self, x: int, y: int) -> TerrainClass:
+        return self.terrain_classes[self._index(x, y)]
+
+    def profile_at(self, x: int, y: int) -> TerrainProfile:
+        return TERRAIN_PROFILES[self.terrain_at(x, y)]
+
+    def terrain_for(self, position: Position) -> TerrainClass:
+        return self.terrain_at(position.x, position.y)
+
+    def profile_for(self, position: Position) -> TerrainProfile:
+        return self.profile_at(position.x, position.y)
 
     def _validate_communication_groups(self) -> dict[str, CommunicationGroup]:
         groups_by_id: dict[str, CommunicationGroup] = {}
@@ -95,17 +179,6 @@ class Battlefield:
                         f"{group_id}"
                     )
 
-        for terrain_name, positions in (
-            ("cover", self.cover),
-            ("concealment", self.concealment),
-        ):
-            for position in positions:
-                if not self.is_surface_position(position):
-                    raise ValueError(
-                        f"{terrain_name} position is not on the battlefield surface: "
-                        f"{position}"
-                    )
-
     def in_bounds(self, position: Position) -> bool:
         return 0 <= position.x < self.width and 0 <= position.y < self.height
 
@@ -146,6 +219,5 @@ class Battlefield:
                 for index, soldier in enumerate(self.soldiers)
             ),
             communication_groups=self.communication_groups,
-            cover=frozenset(self.cover),
-            concealment=frozenset(self.concealment),
+            terrain_classes=self.terrain_classes,
         )

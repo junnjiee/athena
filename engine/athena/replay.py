@@ -45,8 +45,7 @@ class ReplayRecorder:
             width=initial_snapshot.width,
             height=initial_snapshot.height,
             surface=_sorted_positions(initial_snapshot.surface),
-            cover=_sorted_positions(initial_snapshot.cover),
-            concealment=_sorted_positions(initial_snapshot.concealment),
+            terrain_classes=initial_snapshot.terrain_classes,
             communication_groups=tuple(
                 ReplayCommunicationGroup(
                     group_id=group.group_id,

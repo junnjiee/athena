@@ -7,7 +7,7 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.models import Position, SurvivalState, Team
+from athena.models import Position, SurvivalState, Team, TerrainClass
 
 
 def surface_for(*positions: Position) -> set[Position]:
@@ -249,7 +249,7 @@ def test_cover_still_blocks_xy_sightline_on_elevated_surface() -> None:
         height=1,
         soldiers=[observer, target],
         surface=surface_for(observer.position, cover, target.position),
-        cover={cover},
+        terrain={cover: TerrainClass.STRUCTURE},
     )
 
     assert not VisionResolver().verify_los(battlefield, observer, target)
@@ -264,7 +264,7 @@ def test_friendly_soldier_still_ignores_hard_cover_below_sightline() -> None:
         height=1,
         soldiers=[observer, target],
         surface=surface_for(observer.position, cover, target.position),
-        cover={cover},
+        terrain={cover: TerrainClass.STRUCTURE},
     )
 
     assert VisionResolver().verify_los(battlefield, observer, target)
@@ -278,7 +278,7 @@ def test_concealment_hide_probability_uses_xyz_target_position() -> None:
         height=1,
         soldiers=[observer, target],
         surface={observer.position, target.position},
-        concealment={target.position},
+        terrain={target.position: TerrainClass.SCRUB},
     )
 
     assert VisionResolver(
@@ -300,8 +300,10 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         height=1,
         soldiers=[observer],
         surface={Position(x=x, y=0, z=0) for x in range(6)},
-        cover={distant_cover},
-        concealment={concealed_position},
+        terrain={
+            distant_cover: TerrainClass.STRUCTURE,
+            concealed_position: TerrainClass.SCRUB,
+        },
     )
     loop = LoopEngine(
         battlefield=battlefield,

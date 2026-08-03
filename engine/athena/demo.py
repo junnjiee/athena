@@ -36,6 +36,7 @@ from athena.models import (
     ShootAction,
     SurvivalState,
     Team,
+    TerrainClass,
 )
 
 OLLAMA_PREFIX = "ollama:"
@@ -323,19 +324,15 @@ async def run_demo(
         height=8,
         soldiers=[blue_1, blue_2, red_1, red_2],
         surface=surface,
-        cover={
-            ground(4, 2),
-            ground(5, 2),
-            ground(6, 4),
-            ground(7, 4),
-            ground(5, 6),
-        },
-        concealment={
-            ground(3, 4),
-            ground(4, 5),
-            ground(7, 2),
-            ground(8, 3),
-            ground(8, 6),
+        terrain={
+            **{
+                ground(x, y): TerrainClass.STRUCTURE
+                for x, y in ((4, 2), (5, 2), (6, 4), (7, 4), (5, 6))
+            },
+            **{
+                ground(x, y): TerrainClass.SCRUB
+                for x, y in ((3, 4), (4, 5), (7, 2), (8, 3), (8, 6))
+            },
         },
         communication_groups=[
             CommunicationGroup(

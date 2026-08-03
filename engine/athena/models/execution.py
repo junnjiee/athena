@@ -11,6 +11,7 @@ from athena.models.common import (
     Team,
 )
 from athena.models.observations import VisibilityObservation
+from athena.terrain import TerrainClass
 
 
 class SoldierSnapshot(BaseModel):
@@ -32,8 +33,8 @@ class BattlefieldSnapshot(BaseModel):
     surface: frozenset[Position]
     soldiers: tuple[SoldierSnapshot, ...]
     communication_groups: tuple[CommunicationGroup, ...]
-    cover: frozenset[Position]
-    concealment: frozenset[Position]
+    terrain_classes: tuple[TerrainClass, ...]
+    """Row-major class grid, one entry per width x height cell."""
 
 
 class ShotOutcome(BaseModel):
