@@ -11,11 +11,14 @@ from dotenv import load_dotenv
 
 from athena.agent import choose_action
 from athena.demo import (
-    ELEVATION_COLORS,
     OLLAMA_PREFIX,
     both_teams_have_living_soldiers,
+    cell_symbol,
+    elevation_bounds,
+    elevation_color,
     render_demo_frame as render_verbose_demo_frame,
     soldier_symbol,
+    terrain_legend,
 )
 from athena.loop import ActionChooser, LoopEngine
 from athena.models import (
@@ -231,6 +234,7 @@ def _compact_live_frame(
 ) -> str:
     lines = [label]
     map_lines: list[str] = []
+    lowest, highest = elevation_bounds(battlefield)
     for y in range(battlefield.height):
         row: list[str] = []
         for x in range(battlefield.width):
@@ -238,23 +242,8 @@ def _compact_live_frame(
             if position is None:
                 raise RuntimeError(f"battlefield surface missing position at {(x, y)}")
 
-            soldiers = [
-                soldier
-                for soldier in battlefield.soldiers
-                if soldier.position == position
-            ]
-            if len(soldiers) > 1:
-                symbol = "*"
-            elif len(soldiers) == 1:
-                symbol = soldier_symbol(soldiers[0])
-            elif not battlefield.profile_for(position).passable:
-                symbol = "#"
-            elif battlefield.profile_for(position).concealment > 0:
-                symbol = "!"
-            else:
-                symbol = "."
-
-            if color := ELEVATION_COLORS.get(position.z):
+            symbol = cell_symbol(battlefield, position)
+            if color := elevation_color(position.z, lowest, highest):
                 symbol = f"\033[38;5;{color}m{symbol}\033[0m"
             row.append(symbol)
         map_lines.append(" ".join(row))
@@ -273,9 +262,8 @@ def _compact_live_frame(
         else:
             lines.append(map_line)
 
-    lines.append(
-        "B/R=living b/r=casualty x=dead #=cover !=concealment *=multiple"
-    )
+    lines.append("B/R=living b/r=casualty x=dead *=multiple")
+    lines.append(terrain_legend(battlefield))
     team_counts: list[str] = []
     for team in (Team.BLUE, Team.RED):
         soldiers = [
