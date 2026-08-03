@@ -15,6 +15,7 @@ from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
 from athena.models import (
     BroadcastDraft,
+    TerrainClass,
     CommunicationGroup,
     HoldAction,
     MoveAction,
@@ -224,3 +225,76 @@ def test_battle_finishes_when_one_team_has_no_living_soldiers() -> None:
     loop.execute_actions([ShootAction(target_position=red.position), None])
 
     assert not both_teams_have_living_soldiers(loop.battlefield)
+
+
+def test_each_terrain_class_renders_a_distinct_glyph() -> None:
+    assert len(set(demo.TERRAIN_GLYPHS.values())) == len(TerrainClass)
+    assert set(demo.TERRAIN_GLYPHS) == set(TerrainClass)
+
+
+def test_terrain_legend_names_only_the_classes_present() -> None:
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[],
+        terrain={Position(x=1, y=0, z=0): TerrainClass.ROAD},
+    )
+
+    legend = demo.terrain_legend(battlefield)
+
+    assert legend == ".=Open Ground ==Road"
+    assert "Water" not in legend
+
+
+def test_flat_ground_is_left_uncoloured() -> None:
+    assert demo.elevation_color(0, 0, 0) is None
+    assert demo.elevation_color(5, 5, 5) is None
+
+
+def test_elevation_ramp_bands_relative_to_the_maps_own_range() -> None:
+    # The lowest band stays uncoloured; the highest reaches the end of the ramp.
+    assert demo.elevation_color(0, 0, 3) is None
+    assert demo.elevation_color(3, 0, 3) == demo.ELEVATION_RAMP[-1]
+    # A 26-level import spans the same ramp as a 3-level demo hill.
+    assert demo.elevation_color(17, 17, 42) is None
+    assert demo.elevation_color(42, 17, 42) == demo.ELEVATION_RAMP[-1]
+    assert demo.elevation_color(30, 17, 42) in demo.ELEVATION_RAMP
+
+
+def test_small_maps_render_whole() -> None:
+    battlefield = Battlefield(width=12, height=8, soldiers=[])
+
+    assert demo.viewport_bounds(battlefield) == (0, 0, 12, 8)
+
+
+def test_large_maps_window_onto_the_soldiers() -> None:
+    soldier = Soldier(Team.BLUE, Position(x=180, y=127, z=0))
+    battlefield = Battlefield(width=354, height=400, soldiers=[soldier])
+
+    x0, y0, x1, y1 = demo.viewport_bounds(battlefield, max_width=60, max_height=40)
+
+    assert (x1 - x0, y1 - y0) == (60, 40)
+    assert x0 <= soldier.position.x < x1
+    assert y0 <= soldier.position.y < y1
+
+
+def test_viewport_clamps_to_the_grid_at_the_edges() -> None:
+    corner = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    battlefield = Battlefield(width=354, height=400, soldiers=[corner])
+
+    assert demo.viewport_bounds(battlefield, max_width=60, max_height=40) == (
+        0,
+        0,
+        60,
+        40,
+    )
+
+    far = Soldier(Team.RED, Position(x=353, y=399, z=0))
+    battlefield = Battlefield(width=354, height=400, soldiers=[far])
+
+    assert demo.viewport_bounds(battlefield, max_width=60, max_height=40) == (
+        294,
+        360,
+        354,
+        400,
+    )

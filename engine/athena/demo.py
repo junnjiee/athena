@@ -3,6 +3,7 @@ import asyncio
 import sys
 from collections import Counter
 from contextlib import redirect_stdout
+from math import ceil
 from functools import partial
 from io import StringIO
 from pathlib import Path
@@ -37,15 +38,111 @@ from athena.models import (
     ShootAction,
     SurvivalState,
     Team,
+    TERRAIN_LABELS,
     TerrainClass,
 )
 
 OLLAMA_PREFIX = "ollama:"
-ELEVATION_COLORS = {
-    1: 226,  # Yellow.
-    2: 208,  # Orange.
-    3: 94,  # Brown.
+
+TERRAIN_GLYPHS: dict[TerrainClass, str] = {
+    TerrainClass.OPEN_GROUND: ".",
+    TerrainClass.GRASSLAND: ",",
+    TerrainClass.SCRUB: ";",
+    TerrainClass.DENSE_FOREST: "^",
+    TerrainClass.WETLAND: "_",
+    TerrainClass.WATER: "~",
+    TerrainClass.URBAN: "o",
+    TerrainClass.STRUCTURE: "#",
+    TerrainClass.ROAD: "=",
+    TerrainClass.BARREN_ROCK: "%",
 }
+
+ELEVATION_RAMP = (148, 226, 214, 208, 130, 94)
+"""256-colour codes for rising ground, pale green through dark brown.
+
+The lowest band is deliberately left uncoloured so flat terrain renders as
+plain text rather than a wash of colour.
+"""
+
+
+def elevation_color(elevation: int, lowest: int, highest: int) -> int | None:
+    """Pick a ramp colour for an elevation within the map's own range.
+
+    Banding is relative to the surface actually present, so a map spanning
+    three levels and one spanning twenty-six both use the full ramp. Returns
+    None for flat maps and for the lowest band.
+    """
+    if highest <= lowest:
+        return None
+
+    span = highest - lowest
+    band = ceil((elevation - lowest) / span * len(ELEVATION_RAMP))
+    if band <= 0:
+        return None
+
+    return ELEVATION_RAMP[min(band, len(ELEVATION_RAMP)) - 1]
+
+
+def elevation_bounds(battlefield: Battlefield) -> tuple[int, int]:
+    elevations = [position.z for position in battlefield.surface]
+    return min(elevations), max(elevations)
+
+
+def cell_symbol(battlefield: Battlefield, position: Position) -> str:
+    """Glyph for a cell: occupants win, otherwise the terrain class."""
+    soldiers = [
+        soldier for soldier in battlefield.soldiers if soldier.position == position
+    ]
+    if len(soldiers) > 1:
+        return "*"
+    if len(soldiers) == 1:
+        return soldier_symbol(soldiers[0])
+
+    return TERRAIN_GLYPHS[battlefield.terrain_for(position)]
+
+
+MAX_RENDER_WIDTH = 60
+MAX_RENDER_HEIGHT = 40
+
+
+def viewport_bounds(
+    battlefield: Battlefield,
+    max_width: int = MAX_RENDER_WIDTH,
+    max_height: int = MAX_RENDER_HEIGHT,
+) -> tuple[int, int, int, int]:
+    """Half-open (x0, y0, x1, y1) window of the grid to draw.
+
+    Each cell prints as a glyph plus a space, so a 354-cell row would need 708
+    terminal columns. Maps larger than the cap are windowed onto the soldiers
+    instead of drawn whole; maps that already fit are returned untouched.
+    """
+    if battlefield.width <= max_width and battlefield.height <= max_height:
+        return 0, 0, battlefield.width, battlefield.height
+
+    width = min(max_width, battlefield.width)
+    height = min(max_height, battlefield.height)
+
+    if battlefield.soldiers:
+        xs = [soldier.position.x for soldier in battlefield.soldiers]
+        ys = [soldier.position.y for soldier in battlefield.soldiers]
+        center_x = (min(xs) + max(xs)) // 2
+        center_y = (min(ys) + max(ys)) // 2
+    else:
+        center_x = battlefield.width // 2
+        center_y = battlefield.height // 2
+
+    x0 = max(0, min(center_x - width // 2, battlefield.width - width))
+    y0 = max(0, min(center_y - height // 2, battlefield.height - height))
+    return x0, y0, x0 + width, y0 + height
+
+
+def terrain_legend(battlefield: Battlefield) -> str:
+    """Legend covering only the classes this battlefield actually contains."""
+    present = sorted(set(battlefield.terrain_classes))
+    return " ".join(
+        f"{TERRAIN_GLYPHS[terrain_class]}={TERRAIN_LABELS[terrain_class]}"
+        for terrain_class in present
+    )
 
 
 def adapt_local_action_chooser(model: str) -> ActionChooser:
@@ -186,39 +283,33 @@ def _print_demo_frame(
     execution_result: ExecutionResult | None = None,
 ) -> None:
     print(label)
-    for y in range(battlefield.height):
+    lowest, highest = elevation_bounds(battlefield)
+    x0, y0, x1, y1 = viewport_bounds(battlefield)
+    if (x1 - x0, y1 - y0) != (battlefield.width, battlefield.height):
+        print(
+            f"viewport x={x0}..{x1 - 1} y={y0}..{y1 - 1} "
+            f"of {battlefield.width}x{battlefield.height}"
+        )
+
+    for y in range(y0, y1):
         row: list[str] = []
 
-        for x in range(battlefield.width):
+        for x in range(x0, x1):
             position = battlefield.position_at(x, y)
             if position is None:
                 raise RuntimeError(f"battlefield surface missing position at {(x, y)}")
-            soldiers = [
-                soldier
-                for soldier in battlefield.soldiers
-                if soldier.position == position
-            ]
 
-            if len(soldiers) > 1:
-                row.append("*")
-            elif len(soldiers) == 1:
-                row.append(soldier_symbol(soldiers[0]))
-            elif not battlefield.profile_for(position).passable:
-                row.append("#")
-            elif battlefield.profile_for(position).concealment > 0:
-                row.append("!")
-            else:
-                row.append(".")
-
-            if color := ELEVATION_COLORS.get(position.z):
-                row[-1] = f"\033[38;5;{color}m{row[-1]}\033[0m"
+            symbol = cell_symbol(battlefield, position)
+            if color := elevation_color(position.z, lowest, highest):
+                symbol = f"\033[38;5;{color}m{symbol}\033[0m"
+            row.append(symbol)
 
         print(" ".join(row))
 
     print(
-        "B/R=living blue/red b/r=blue/red casualty "
-        "x=dead #=cover !=concealment *=multiple"
+        "B/R=living blue/red b/r=blue/red casualty x=dead *=multiple"
     )
+    print(terrain_legend(battlefield))
     print()
     if execution_result is not None:
         render_execution_result(execution_result)
