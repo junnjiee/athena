@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
 import { CesiumGlobe } from '../components/globe/CesiumGlobe'
 import { MapControls } from '../components/globe/MapControls'
@@ -20,55 +20,29 @@ import { WeatherPanel } from '../components/panels/WeatherPanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
+import { AssistantDock } from '../components/assistant/AssistantDock'
 import { useMapControls } from '../hooks/useMapControls'
-import { useBattleground } from '../state/battleground'
+import { useBattleground, waitForBattlefield } from '../state/battleground'
+import { usePlan } from '../state/plan'
+import { registerAssistantHost } from '../assistant/bridge'
+import { defaultLoadout, useSettings } from '../state/settings'
 import { analyzePlan } from '../lib/validate'
 import { toMGRS } from '../lib/coords'
 import { savePlan } from '../lib/api'
-import { computeRectangleStats } from '../lib/selectionGeometry'
+import {
+  computeRectangleStats,
+  flyToSelectionPreview,
+  MAX_SELECTION_EXTENT_METERS,
+} from '../lib/selectionGeometry'
 import { photoSource } from '../lib/photoTiles'
 import { TileStatsHud } from '../components/panels/TileStatsHud'
 import { XRayToggle } from '../components/panels/XRayToggle'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
-import type {
-  ForceSide,
-  LonLat,
-  NewRouteInput,
-  PlaceableMode,
-  PlacedObjective,
-  PlacedRoute,
-  PlacedUnit,
-  SymbolKind,
-  ToolMode,
-} from '../types/entities'
-import { DEFAULT_LOADOUT, DEFAULT_MOVEMENT, type MovementLoadout, type MovementType } from '../types/movement'
-
-const NATO = [
-  'Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliett',
-  'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango',
-  'Uniform', 'Victor', 'Whiskey', 'X-ray', 'Yankee', 'Zulu',
-]
-
-/** Every non-objective placeable tool -> the unit fields it stamps down. */
-const UNIT_PLACEMENT: Record<
-  Exclude<PlaceableMode, 'place-objective'>,
-  { side: ForceSide; symbolKind: SymbolKind; typeLabel: string }
-> = {
-  'place-blue-section': { side: 'blue', symbolKind: 'blueSection', typeLabel: 'Blue Force Section' },
-  'place-blue-platoon': { side: 'blue', symbolKind: 'bluePlatoon', typeLabel: 'Blue Force Platoon' },
-  'place-red-section': { side: 'red', symbolKind: 'redSection', typeLabel: 'Red Force Section' },
-  'place-red-platoon': { side: 'red', symbolKind: 'redPlatoon', typeLabel: 'Red Force Platoon' },
-  'place-trench': { side: 'red', symbolKind: 'trench', typeLabel: 'Trench Position' },
-  'place-prepared-trench': { side: 'red', symbolKind: 'preparedTrench', typeLabel: 'Prepared Trench' },
-}
+import type { LonLat, PlaceableMode, ToolMode } from '../types/entities'
+import type { MovementLoadout, MovementType } from '../types/movement'
 
 export function BattlegroundSelectorPage() {
-  // Pure read (safe under StrictMode's dev-mode double-invoke of lazy
-  // initializers) -- actually consuming/clearing it happens once in the
-  // effect below instead, since that has a side effect on the store.
-  const [initialPlan] = useState(() => useBattleground.getState().pendingPlan)
-
   const [toolMode, setToolMode] = useState<ToolMode>('navigate')
   // A loaded plan's meta/grid/features are already restored into the store by
   // loadSaved() before this page mounts -- synthesize a matching `selection`
@@ -88,14 +62,14 @@ export function BattlegroundSelectorPage() {
   })
   const [resetToken, setResetToken] = useState(0)
   const [activeTab, setActiveTab] = useState<HeaderTab>('layers')
-  const [battlegroundName, setBattlegroundName] = useState(initialPlan?.name ?? '')
   const [nameEditSignal, setNameEditSignal] = useState(0)
-  const [units, setUnits] = useState<PlacedUnit[]>(initialPlan?.units ?? [])
-  const [objectives, setObjectives] = useState<PlacedObjective[]>(initialPlan?.objectives ?? [])
-  const [routes, setRoutes] = useState<PlacedRoute[]>(initialPlan?.routes ?? [])
   const [isDrawingRoute, setIsDrawingRoute] = useState(false)
-  const [movementType, setMovementType] = useState<MovementType>(DEFAULT_MOVEMENT)
-  const [loadout, setLoadout] = useState<MovementLoadout>(DEFAULT_LOADOUT)
+  // Seeded from saved preferences (Settings page) rather than the module-level
+  // constants, then owned locally so the movement panel can override per route.
+  const [movementType, setMovementType] = useState<MovementType>(
+    () => useSettings.getState().defaultMovementType,
+  )
+  const [loadout, setLoadout] = useState<MovementLoadout>(() => defaultLoadout())
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [showSimulationExport, setShowSimulationExport] = useState(false)
@@ -109,7 +83,21 @@ export function BattlegroundSelectorPage() {
   const generate = useBattleground((s) => s.generate)
   const clearBattleground = useBattleground((s) => s.clear)
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
-  const consumePendingPlan = useBattleground((s) => s.consumePendingPlan)
+
+  const battlegroundName = usePlan((s) => s.planName)
+  const setBattlegroundName = usePlan((s) => s.setPlanName)
+  const units = usePlan((s) => s.units)
+  const objectives = usePlan((s) => s.objectives)
+  const routes = usePlan((s) => s.routes)
+  const placeElement = usePlan((s) => s.place)
+  const addRoute = usePlan((s) => s.addRoute)
+  const moveUnit = usePlan((s) => s.moveUnit)
+  const moveObjective = usePlan((s) => s.moveObjective)
+  const rotateUnit = usePlan((s) => s.rotateUnit)
+  const deleteUnit = usePlan((s) => s.deleteUnit)
+  const deleteObjective = usePlan((s) => s.deleteObjective)
+  const deleteRoute = usePlan((s) => s.deleteRoute)
+  const clearPlan = usePlan((s) => s.clearPlan)
 
   const showTopo = viewMode === 'topo' && phase === 'ready' && grid !== null
   const photoAvailable = photoSource() !== null
@@ -127,13 +115,15 @@ export function BattlegroundSelectorPage() {
     setPlanAnalysis(analyzePlan(routes, grid))
   }, [routes, grid, setPlanAnalysis])
 
-  // initialPlan (above) already seeded this page's local plan state from
-  // whatever PlansPage handed off before navigating here -- this just clears
-  // the store's one-shot slot so a later remount of this page (e.g. browser
-  // back/forward) doesn't re-seed the same stale plan a second time.
+  // Apply the operator's night-overlay preference each time a battlefield
+  // becomes ready. Keyed on the reveal token rather than `phase` so re-running
+  // the pipeline over new ground re-applies it, while a manual toggle mid-
+  // session isn't stomped on the next unrelated render.
+  const revealToken = useBattleground((s) => s.revealToken)
   useEffect(() => {
-    if (initialPlan) consumePendingPlan()
-  }, [initialPlan, consumePendingPlan])
+    if (revealToken === 0) return
+    useBattleground.getState().setNight(useSettings.getState().nightByDefault)
+  }, [revealToken])
 
   // Escape deselects, mirroring the Escape-cancels convention already used by
   // both route-drawing surfaces (useRouteDrawing.ts, TopoPlanOverlay.tsx).
@@ -142,14 +132,13 @@ export function BattlegroundSelectorPage() {
   // Backspace is just normal text editing, not a delete-element shortcut.
   useEffect(() => {
     if (!selectedUnitId) return
+    const id = selectedUnitId
     function onKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') {
         setSelectedUnitId(null)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        const id = selectedUnitId
-        setUnits((prev) => prev.filter((u) => u.id !== id))
-        setRoutes((prev) => prev.filter((r) => r.startUnitId !== id && !(r.endRef?.kind === 'unit' && r.endRef.id === id)))
+        usePlan.getState().deleteElement(id)
         setSelectedUnitId(null)
       }
     }
@@ -174,9 +163,107 @@ export function BattlegroundSelectorPage() {
     elevationExaggerated,
   } = useMapControls()
 
-  const centerLabel = selection
-    ? toMGRS(selection.stats.centerLongitude, selection.stats.centerLatitude)
-    : null
+  const useMGRS = useSettings((s) => s.useMGRS)
+  const assistantEnabled = useSettings((s) => s.assistantEnabled)
+
+  const centerLabel = !selection
+    ? null
+    : useMGRS
+      ? toMGRS(selection.stats.centerLongitude, selection.stats.centerLatitude)
+      : `${selection.stats.centerLatitude.toFixed(5)}, ${selection.stats.centerLongitude.toFixed(5)}`
+
+  /** Shared by the Save Plan button and the assistant's save_plan tool. Reads
+   *  the plan straight from the store so a voice-driven save can't race the
+   *  page's own render of it. */
+  const persistPlan = useCallback(async (name?: string) => {
+    const battleground = useBattleground.getState().meta
+    if (!battleground) throw new Error('no battlefield is generated yet')
+    const plan = usePlan.getState()
+    return savePlan({
+      battlegroundId: battleground.id,
+      name: (name ?? plan.planName).trim() || 'Untitled Plan',
+      units: plan.units,
+      objectives: plan.objectives,
+      routes: plan.routes,
+    })
+  }, [])
+
+  // The assistant's tools run outside this component, so hand them the
+  // imperative capabilities only this page owns (camera, selection rectangle,
+  // view mode). Everything else they need is in the stores. `selection` is read
+  // through a ref so the handlers stay stable across redraws of the box.
+  const selectionRef = useRef(selection)
+  useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+
+  useEffect(() => {
+    return registerAssistantHost({
+      async searchGround(query) {
+        const viewer = getViewer()
+        if (!viewer) throw new Error('the map is still loading')
+        const results = await new Cesium.IonGeocoderService({ scene: viewer.scene }).geocode(query)
+        // A geocoder hit is either a point or a bounding rectangle; both reduce
+        // to one cartographic centre for the assistant's purposes.
+        const hits = results.map((result) => {
+          const center =
+            result.destination instanceof Cesium.Rectangle
+              ? Cesium.Rectangle.center(result.destination)
+              : Cesium.Cartographic.fromCartesian(result.destination)
+          return {
+            name: result.displayName,
+            longitude: Cesium.Math.toDegrees(center.longitude),
+            latitude: Cesium.Math.toDegrees(center.latitude),
+          }
+        })
+        if (results.length > 0) viewer.camera.flyTo({ destination: results[0].destination })
+        return hits
+      },
+
+      selectArea(longitude, latitude, sizeMeters) {
+        const half = Math.min(Math.max(sizeMeters, 50), MAX_SELECTION_EXTENT_METERS * 2) / 2
+        const metersPerDegreeLat = 111_320
+        const metersPerDegreeLon = metersPerDegreeLat * Math.cos((latitude * Math.PI) / 180)
+        const rectangle = Cesium.Rectangle.fromDegrees(
+          longitude - half / metersPerDegreeLon,
+          latitude - half / metersPerDegreeLat,
+          longitude + half / metersPerDegreeLon,
+          latitude + half / metersPerDegreeLat,
+        )
+        const stats = computeRectangleStats(rectangle)
+        setSelection({ rectangle, stats })
+        setSelectionZoomCap(rectangle)
+        const viewer = getViewer()
+        if (viewer) {
+          applyGlobeClipping(viewer, rectangle)
+          flyToSelectionPreview(viewer, rectangle)
+        }
+        setToolMode('navigate')
+        return { widthMeters: stats.widthMeters, heightMeters: stats.heightMeters }
+      },
+
+      async generateBattleground(name) {
+        const current = selectionRef.current
+        if (!current) throw new Error('no ground is selected yet — select an area first')
+        usePlan.getState().setPlanName(name)
+        const r = current.rectangle
+        await useBattleground.getState().generate(
+          {
+            west: Cesium.Math.toDegrees(r.west),
+            south: Cesium.Math.toDegrees(r.south),
+            east: Cesium.Math.toDegrees(r.east),
+            north: Cesium.Math.toDegrees(r.north),
+          },
+          name,
+        )
+        await waitForBattlefield()
+      },
+
+      setViewMode,
+      flyTo: flyToPositions,
+      savePlan: persistPlan,
+    })
+  }, [getViewer, setSelectionZoomCap, flyToPositions, persistPlan])
 
   function handleGenerate() {
     if (!selection) return
@@ -202,13 +289,7 @@ export function BattlegroundSelectorPage() {
     if (!meta) return
     setSaveState('saving')
     try {
-      await savePlan({
-        battlegroundId: meta.id,
-        name: battlegroundName.trim() || 'Untitled Plan',
-        units,
-        objectives,
-        routes,
-      })
+      await persistPlan()
       setSaveState('saved')
       setTimeout(() => setSaveState('idle'), 2400)
     } catch {
@@ -218,63 +299,21 @@ export function BattlegroundSelectorPage() {
   }
 
   function handlePlace(mode: PlaceableMode, position: LonLat) {
-    if (mode === 'place-objective') {
-      setObjectives((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          name: `OBJ ${NATO[prev.length % 26].toUpperCase()}`,
-          description: 'Capture & Hold',
-          position,
-          radiusMeters: 150,
-        },
-      ])
-      return
-    }
-    const { side, symbolKind, typeLabel } = UNIT_PLACEMENT[mode]
-    setUnits((prev) => {
-      const sideCount = prev.filter((u) => u.side === side).length
-      return [
-        ...prev,
-        { id: crypto.randomUUID(), side, symbolKind, name: NATO[sideCount % 26], typeLabel, position, rotationRadians: 0 },
-      ]
-    })
-  }
-
-  function handleRouteComplete(input: NewRouteInput) {
-    setRoutes((prev) => [...prev, { id: crypto.randomUUID(), ...input }])
+    placeElement(mode, position)
   }
 
   function handleSelectUnit(id: string | null) {
     setSelectedUnitId(id)
   }
 
-  function handleMoveUnit(id: string, position: LonLat) {
-    setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, position } : u)))
-  }
-
-  function handleMoveObjective(id: string, position: LonLat) {
-    setObjectives((prev) => prev.map((o) => (o.id === id ? { ...o, position } : o)))
-  }
-
-  function handleRotateUnit(id: string, rotationRadians: number) {
-    setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, rotationRadians } : u)))
-  }
-
   function handleDeleteUnit(id: string) {
-    setUnits((prev) => prev.filter((u) => u.id !== id))
-    setRoutes((prev) => prev.filter((r) => r.startUnitId !== id && !(r.endRef?.kind === 'unit' && r.endRef.id === id)))
+    deleteUnit(id)
     if (selectedUnitId === id) setSelectedUnitId(null)
   }
 
   function handleDeleteObjective(id: string) {
-    setObjectives((prev) => prev.filter((o) => o.id !== id))
-    setRoutes((prev) => prev.filter((r) => !(r.endRef?.kind === 'objective' && r.endRef.id === id)))
+    deleteObjective(id)
     if (selectedUnitId === id) setSelectedUnitId(null)
-  }
-
-  function handleDeleteRoute(id: string) {
-    setRoutes((prev) => prev.filter((r) => r.id !== id))
   }
 
   function handleNameChange(name: string) {
@@ -290,10 +329,7 @@ export function BattlegroundSelectorPage() {
     const viewer = getViewer()
     if (viewer) clearGlobeClipping(viewer)
     if (planningMode) {
-      setBattlegroundName('')
-      setUnits([])
-      setObjectives([])
-      setRoutes([])
+      clearPlan()
       setToolMode('navigate')
       setViewMode('globe')
       setSelectedUnitId(null)
@@ -339,12 +375,12 @@ export function BattlegroundSelectorPage() {
           loadout={loadout}
           selectedUnitId={selectedUnitId}
           onSelectUnit={handleSelectUnit}
-          onMoveUnit={handleMoveUnit}
-          onMoveObjective={handleMoveObjective}
-          onRotateUnit={handleRotateUnit}
+          onMoveUnit={moveUnit}
+          onMoveObjective={moveObjective}
+          onRotateUnit={rotateUnit}
           onSetToolMode={setToolMode}
           onPlace={handlePlace}
-          onRouteComplete={handleRouteComplete}
+          onRouteComplete={addRoute}
           onRouteDrawingChange={setIsDrawingRoute}
         />
       </div>
@@ -361,12 +397,12 @@ export function BattlegroundSelectorPage() {
           loadout={loadout}
           selectedUnitId={selectedUnitId}
           onSelectUnit={handleSelectUnit}
-          onMoveUnit={handleMoveUnit}
-          onMoveObjective={handleMoveObjective}
-          onRotateUnit={handleRotateUnit}
+          onMoveUnit={moveUnit}
+          onMoveObjective={moveObjective}
+          onRotateUnit={rotateUnit}
           onSetToolMode={setToolMode}
           onPlace={handlePlace}
-          onRouteComplete={handleRouteComplete}
+          onRouteComplete={addRoute}
           onRouteDrawingChange={setIsDrawingRoute}
         />
       )}
@@ -405,7 +441,7 @@ export function BattlegroundSelectorPage() {
                     onLocate={flyToPositions}
                     onDeleteUnit={handleDeleteUnit}
                     onDeleteObjective={handleDeleteObjective}
-                    onDeleteRoute={handleDeleteRoute}
+                    onDeleteRoute={deleteRoute}
                   />
                 )}
                 {selection === null && (
@@ -465,6 +501,7 @@ export function BattlegroundSelectorPage() {
               <div className="pointer-events-auto flex flex-col items-end gap-2">
                 {showHud && <TileStatsHud />}
                 {viewMode === 'photo' && <XRayToggle />}
+                {assistantEnabled && <AssistantDock />}
                 <ViewModeToggle
                   mode={viewMode}
                   onChange={setViewMode}

@@ -4,6 +4,7 @@ import { ClipboardList, Loader2, MapPin, Trash2 } from 'lucide-react'
 import { Sidebar } from '../components/layout/Sidebar'
 import { deletePlan, fetchPlan, listPlans } from '../lib/api'
 import { useBattleground } from '../state/battleground'
+import { usePlan } from '../state/plan'
 import type { PlanSummary } from '../types/plan'
 
 type LoadState =
@@ -23,7 +24,7 @@ export function PlansPage() {
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const loadSaved = useBattleground((s) => s.loadSaved)
-  const setPendingPlan = useBattleground((s) => s.setPendingPlan)
+  const seedFromSaved = usePlan((s) => s.seedFromSaved)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export function PlansPage() {
     try {
       const saved = await fetchPlan(id)
       loadSaved(saved.meta, saved.grid, saved.features)
-      setPendingPlan({
+      seedFromSaved({
         name: saved.plan.name,
         units: saved.plan.units,
         objectives: saved.plan.objectives,
