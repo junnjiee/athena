@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useConversation } from '@elevenlabs/react'
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ConversationProvider, useConversation } from '@elevenlabs/react'
 import { AlertCircle, Loader2, Mic, MicOff, Radio, X } from 'lucide-react'
 import { assistantTools } from '../../assistant/tools'
 
 /**
  * Voice assistant dock.
  *
- * ElevenLabs hosts the voice loop; this component owns the session lifecycle and
- * exposes `assistantTools` as client tools the agent can call against the live
- * map. The API key never reaches the browser — `/api/assistant/session` mints a
- * short-lived WebRTC conversation token server-side.
+ * ElevenLabs hosts the voice loop; this owns the session lifecycle and exposes
+ * `assistantTools` as client tools the agent calls against the live map. The API
+ * key never reaches the browser — `/api/assistant/session` mints a short-lived
+ * WebRTC conversation token server-side.
  */
 
 interface TranscriptEntry {
@@ -18,10 +18,9 @@ interface TranscriptEntry {
   text: string
 }
 
-type Status =
+type Phase =
   | { kind: 'idle' }
   | { kind: 'connecting' }
-  | { kind: 'live' }
   | { kind: 'unconfigured'; message: string }
   | { kind: 'error'; message: string }
 
@@ -29,27 +28,49 @@ const MAX_TRANSCRIPT = 40
 
 /** Client tools are plain functions returning a string the agent speaks back.
  *  Wrapped so a thrown error becomes a sentence rather than killing the turn. */
-function toClientTools(): Record<string, (args: Record<string, unknown>) => Promise<string>> {
-  return Object.fromEntries(
-    Object.entries(assistantTools).map(([name, handler]) => [
-      name,
-      async (args: Record<string, unknown> = {}) => {
-        try {
-          return await handler(args)
-        } catch (error: unknown) {
-          return error instanceof Error
-            ? `That failed: ${error.message}`
-            : 'That failed for an unknown reason.'
-        }
-      },
-    ]),
-  )
+const clientTools = Object.fromEntries(
+  Object.entries(assistantTools).map(([name, handler]) => [
+    name,
+    async (args: Record<string, unknown> = {}) => {
+      try {
+        return await handler(args)
+      } catch (error: unknown) {
+        return error instanceof Error
+          ? `That failed: ${error.message}`
+          : 'That failed for an unknown reason.'
+      }
+    },
+  ]),
+)
+
+/**
+ * The assistant is an accessory to the map, never a reason to lose it. Any
+ * throw from the SDK or a tool is caught here so the battlefield keeps
+ * rendering with a small inline notice instead of a blank screen.
+ */
+class AssistantErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="glass-deep pointer-events-auto flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-(--text-dim)">
+          <AlertCircle className="h-3.5 w-3.5 text-(--hostile)" strokeWidth={1.75} />
+          Assistant unavailable
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
-export function AssistantDock() {
+function DockBody() {
   const [open, setOpen] = useState(false)
-  const [status, setStatus] = useState<Status>({ kind: 'idle' })
-  const [muted, setMuted] = useState(false)
+  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const entryId = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -59,19 +80,15 @@ export function AssistantDock() {
   }, [])
 
   const conversation = useConversation({
-    clientTools: toClientTools(),
-    onConnect: () => setStatus({ kind: 'live' }),
-    onDisconnect: () => setStatus({ kind: 'idle' }),
-    onMessage: ({ message, source }: { message: string; source: string }) => {
+    onConnect: () => setPhase({ kind: 'idle' }),
+    onMessage: ({ message, source }) => {
       addEntry(source === 'user' ? 'commander' : 'athena', message)
     },
-    onError: (error: unknown) => {
-      setStatus({
-        kind: 'error',
-        message: error instanceof Error ? error.message : 'Voice session failed.',
-      })
-    },
+    onError: (message: string) => setPhase({ kind: 'error', message }),
   })
+
+  const { status, isSpeaking, isMuted, setMuted, startSession, endSession } = conversation
+  const live = status === 'connected'
 
   // Pin the transcript to the newest line.
   useEffect(() => {
@@ -79,29 +96,16 @@ export function AssistantDock() {
   }, [transcript])
 
   // Leaving the page mid-conversation should hang up, not leave a live mic.
-  // `conversation` is deliberately not a dependency: re-running this on every
-  // hook identity change would tear down a healthy session mid-sentence.
-  const endSession = useCallback(async () => {
-    try {
-      await conversation.endSession()
-    } catch {
-      // Already closed, or never opened — nothing to clean up.
-    }
-  }, [conversation])
-
   const endSessionRef = useRef(endSession)
   useEffect(() => {
     endSessionRef.current = endSession
   }, [endSession])
-
   useEffect(() => {
-    return () => {
-      void endSessionRef.current()
-    }
+    return () => endSessionRef.current()
   }, [])
 
   const start = useCallback(async () => {
-    setStatus({ kind: 'connecting' })
+    setPhase({ kind: 'connecting' })
     setTranscript([])
 
     let conversationToken: string
@@ -109,25 +113,25 @@ export function AssistantDock() {
       const res = await fetch('/api/assistant/session')
       const body = (await res.json()) as { conversationToken?: string; error?: string }
       if (res.status === 503) {
-        setStatus({ kind: 'unconfigured', message: body.error ?? 'Assistant is not configured.' })
+        setPhase({ kind: 'unconfigured', message: body.error ?? 'Assistant is not configured.' })
         return
       }
       if (!res.ok || !body.conversationToken) {
-        setStatus({ kind: 'error', message: body.error ?? `Session request failed (${res.status}).` })
+        setPhase({ kind: 'error', message: body.error ?? `Session request failed (${res.status}).` })
         return
       }
       conversationToken = body.conversationToken
     } catch {
-      setStatus({ kind: 'error', message: 'Could not reach the Athena service.' })
+      setPhase({ kind: 'error', message: 'Could not reach the Athena service.' })
       return
     }
 
+    // Prompt for the mic before handing off, so a denial reads as a permission
+    // problem rather than an opaque SDK connection error.
     try {
-      // Prompt for the mic before handing off, so a denial is reported here
-      // rather than surfacing as an opaque SDK connection error.
       await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      setStatus({
+      setPhase({
         kind: 'error',
         message: 'Microphone access denied. Allow it in your browser to use voice.',
       })
@@ -135,32 +139,19 @@ export function AssistantDock() {
     }
 
     try {
-      await conversation.startSession({ conversationToken, connectionType: 'webrtc' })
+      startSession({ conversationToken, connectionType: 'webrtc' })
     } catch (error: unknown) {
-      setStatus({
+      setPhase({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Could not start the voice session.',
       })
     }
-  }, [conversation])
+  }, [startSession])
 
-  const stop = useCallback(async () => {
-    await endSession()
-    setStatus({ kind: 'idle' })
+  const stop = useCallback(() => {
+    endSession()
+    setPhase({ kind: 'idle' })
   }, [endSession])
-
-  const toggleMute = useCallback(async () => {
-    const next = !muted
-    setMuted(next)
-    try {
-      await conversation.setVolume({ volume: next ? 0 : 1 })
-    } catch {
-      // Volume is cosmetic; a failure here shouldn't break the session.
-    }
-  }, [conversation, muted])
-
-  const live = status.kind === 'live'
-  const speaking = live && conversation.isSpeaking
 
   if (!open) {
     return (
@@ -175,40 +166,40 @@ export function AssistantDock() {
     )
   }
 
+  const connecting = phase.kind === 'connecting' || status === 'connecting'
+
   return (
     <div className="glass-deep pointer-events-auto flex w-80 flex-col gap-3 rounded-2xl p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Radio
-            className={`h-4 w-4 ${speaking ? 'animate-pulse text-(--accent)' : live ? 'text-(--accent)' : 'text-(--text-dim)'}`}
+            className={`h-4 w-4 ${isSpeaking ? 'animate-pulse text-(--accent)' : live ? 'text-(--accent)' : 'text-(--text-dim)'}`}
             strokeWidth={1.75}
           />
           <span className="text-sm text-(--text-h)">Athena</span>
           <span className="text-xs text-(--text-dim)">
-            {status.kind === 'connecting'
-              ? 'connecting…'
-              : speaking
-                ? 'speaking'
-                : live
-                  ? 'listening'
-                  : 'off air'}
+            {connecting ? 'connecting…' : isSpeaking ? 'speaking' : live ? 'listening' : 'off air'}
           </span>
         </div>
         <div className="flex items-center gap-1">
           {live && (
             <button
               type="button"
-              onClick={() => void toggleMute()}
-              title={muted ? 'Unmute Athena' : 'Mute Athena'}
+              onClick={() => setMuted(!isMuted)}
+              title={isMuted ? 'Unmute your microphone' : 'Mute your microphone'}
               className="rounded-md p-1.5 text-(--text-dim) transition-colors hover:text-(--text-h)"
             >
-              {muted ? <MicOff className="h-4 w-4" strokeWidth={1.75} /> : <Mic className="h-4 w-4" strokeWidth={1.75} />}
+              {isMuted ? (
+                <MicOff className="h-4 w-4 text-(--hostile)" strokeWidth={1.75} />
+              ) : (
+                <Mic className="h-4 w-4" strokeWidth={1.75} />
+              )}
             </button>
           )}
           <button
             type="button"
             onClick={() => {
-              void stop()
+              stop()
               setOpen(false)
             }}
             title="Close"
@@ -219,13 +210,13 @@ export function AssistantDock() {
         </div>
       </div>
 
-      {(status.kind === 'unconfigured' || status.kind === 'error') && (
+      {(phase.kind === 'unconfigured' || phase.kind === 'error') && (
         <div className="flex items-start gap-2 rounded-lg bg-black/20 p-2.5 text-xs text-(--text)">
           <AlertCircle
-            className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${status.kind === 'error' ? 'text-(--hostile)' : 'text-(--text-dim)'}`}
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${phase.kind === 'error' ? 'text-(--hostile)' : 'text-(--text-dim)'}`}
             strokeWidth={1.75}
           />
-          <span>{status.message}</span>
+          <span>{phase.message}</span>
         </div>
       )}
 
@@ -233,9 +224,7 @@ export function AssistantDock() {
         <div ref={scrollRef} className="flex max-h-56 flex-col gap-2 overflow-y-auto">
           {transcript.map((entry) => (
             <div key={entry.id} className="text-xs leading-relaxed">
-              <span
-                className={entry.role === 'athena' ? 'text-(--accent)' : 'text-(--text-dim)'}
-              >
+              <span className={entry.role === 'athena' ? 'text-(--accent)' : 'text-(--text-dim)'}>
                 {entry.role === 'athena' ? 'ATHENA' : 'YOU'}
               </span>{' '}
               <span className="text-(--text)">{entry.text}</span>
@@ -244,7 +233,7 @@ export function AssistantDock() {
         </div>
       )}
 
-      {!live && transcript.length === 0 && status.kind === 'idle' && (
+      {!live && transcript.length === 0 && phase.kind === 'idle' && (
         <p className="text-xs leading-relaxed text-(--text-dim)">
           Ask Athena to find ground, generate a battlefield, place units, draw routes, or analyse
           the plan.
@@ -253,15 +242,15 @@ export function AssistantDock() {
 
       <button
         type="button"
-        disabled={status.kind === 'connecting'}
-        onClick={() => (live ? void stop() : void start())}
+        disabled={connecting}
+        onClick={() => (live ? stop() : void start())}
         className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
           live
             ? 'glass text-(--text) hover:text-(--text-h)'
             : 'bg-(--accent) text-(--panel-bg-solid) hover:bg-(--accent-hover) disabled:bg-white/10 disabled:text-(--text-dim)'
         }`}
       >
-        {status.kind === 'connecting' ? (
+        {connecting ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
             Connecting
@@ -276,5 +265,15 @@ export function AssistantDock() {
         )}
       </button>
     </div>
+  )
+}
+
+export function AssistantDock() {
+  return (
+    <AssistantErrorBoundary>
+      <ConversationProvider clientTools={clientTools}>
+        <DockBody />
+      </ConversationProvider>
+    </AssistantErrorBoundary>
   )
 }
