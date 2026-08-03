@@ -5,7 +5,12 @@ import urllib.error
 import urllib.request
 from typing import Awaitable, Callable
 
-from athena.params import MAX_ACTION_ATTEMPTS, MAX_ELEVATION_CHANGE
+from athena.params import (
+    MAX_ACTION_ATTEMPTS,
+    MAX_ELEVATION_CHANGE,
+    build_terrain_guidance,
+    impassable_terrain_names,
+)
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
@@ -24,7 +29,8 @@ def build_system_prompt(max_elevation_change: int) -> str:
     return (
         "You are a soldier-agent in a grid battlefield simulation. "
         "Choose exactly one move action. The available_terrain cells describe every grid cell in your local "
-        "range, including elevation, cover, and concealment; use them to navigate. "
+        "range, including elevation and a terrain name; use them to navigate. "
+        f"{build_terrain_guidance()} "
         "Return only the structured action."
         "\n\nTeam objectives:"
         "\n- Blue: advance toward the right/east side of the battlefield."
@@ -33,7 +39,7 @@ def build_system_prompt(max_elevation_change: int) -> str:
         "\n- Shooting; this backend supports movement only."
         "\n- Moving outside the battlefield."
         "\n- Moving more than one grid cell."
-        "\n- Moving into a cover cell."
+        f"\n- Moving into impassable terrain ({impassable_terrain_names()})."
         "\n- Moving to a cell whose elevation differs by more than "
         f"{elevation_limit}."
         "\n- Moving into a cell occupied by a casualty or dead soldier."

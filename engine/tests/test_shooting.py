@@ -7,7 +7,11 @@ from athena.agent import (
     SYSTEM_PROMPT,
     _resolve_action,
 )
-from athena.params import build_system_prompt as build_openrouter_system_prompt
+from athena.params import (
+    TERRAIN_PROFILES,
+    build_system_prompt as build_openrouter_system_prompt,
+    impassable_terrain_names,
+)
 from athena.world_state import Battlefield
 from athena.ollama_agent import (
     SYSTEM_PROMPT as OLLAMA_SYSTEM_PROMPT,
@@ -18,6 +22,7 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
+    TERRAIN_LABELS,
     ChosenAction,
     ChosenTurn,
     HoldAction,
@@ -91,7 +96,7 @@ def test_agent_prompts_list_illegal_movement_actions(prompt: str) -> None:
     assert "\n\nIllegal actions:\n" in prompt
     assert "- Moving outside the battlefield." in prompt
     assert "- Moving more than one grid cell." in prompt
-    assert "- Moving into a cover cell." in prompt
+    assert "- Moving into impassable terrain (Water, Structure)." in prompt
     assert "elevation differs by more than one level" in prompt
     assert "cell occupied by a casualty or dead soldier" in prompt
     assert "cell occupied by a stationary living soldier" in prompt
@@ -331,7 +336,12 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
 
 
 @pytest.mark.parametrize(
-    ("destination_is_visible", "destination_elevation", "has_cover", "expected_reason"),
+    (
+        "destination_is_visible",
+        "destination_elevation",
+        "destination_impassable",
+        "expected_reason",
+    ),
     [
         (False, 0, True, "Moving east was rejected by the movement rules."),
         (False, 2, False, "Moving east was rejected by the movement rules."),
@@ -342,7 +352,7 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
 def test_move_retry_feedback_only_explains_visible_terrain(
     destination_is_visible: bool,
     destination_elevation: int,
-    has_cover: bool,
+    destination_impassable: bool,
     expected_reason: str,
 ) -> None:
     soldier = Soldier(Team.BLUE, Position(x=1, y=0, z=0))
@@ -356,7 +366,9 @@ def test_move_retry_feedback_only_explains_visible_terrain(
             soldier.position,
             destination,
         },
-        terrain={destination: TerrainClass.STRUCTURE} if has_cover else None,
+        terrain=(
+            {destination: TerrainClass.STRUCTURE} if destination_impassable else None
+        ),
     )
     observed = ObservedSoldier(
         team=Team.BLUE,
@@ -367,8 +379,11 @@ def test_move_retry_feedback_only_explains_visible_terrain(
             [
                 TerrainCell(
                     position=destination,
-                    has_cover=has_cover,
-                    has_concealment=False,
+                    terrain_class=(
+                        TerrainClass.STRUCTURE
+                        if destination_impassable
+                        else TerrainClass.OPEN_GROUND
+                    ),
                 )
             ]
             if destination_is_visible
@@ -563,3 +578,36 @@ def test_resolve_shot_reads_protection_from_the_target_cell() -> None:
     assert outcome is not None
     # Urban protection is 0.40, so 0.90 * 0.60.
     assert outcome.hit_probability == pytest.approx(0.54)
+
+
+def test_prompt_terrain_vocabulary_is_derived_from_the_profile_table() -> None:
+    # Generated rather than hand-written so the prompt cannot drift from the
+    # values the resolvers use.
+    impassable = {
+        TERRAIN_LABELS[terrain_class]
+        for terrain_class, profile in TERRAIN_PROFILES.items()
+        if not profile.passable
+    }
+
+    for label in impassable:
+        assert label in impassable_terrain_names()
+        assert label in SYSTEM_PROMPT
+
+    passable_only = {
+        TERRAIN_LABELS[terrain_class]
+        for terrain_class, profile in TERRAIN_PROFILES.items()
+        if profile.passable
+    }
+    assert not (passable_only & set(impassable_terrain_names().split(", ")))
+
+
+def test_terrain_cell_serializes_a_readable_class_name() -> None:
+    cell = TerrainCell(
+        position=Position(x=0, y=0, z=0),
+        terrain_class=TerrainClass.DENSE_FOREST,
+    )
+
+    assert cell.terrain == "Dense Forest"
+    assert '"terrain":"Dense Forest"' in cell.model_dump_json()
+    # The index survives the round trip so engine consumers keep the enum.
+    assert TerrainCell.model_validate_json(cell.model_dump_json()) == cell

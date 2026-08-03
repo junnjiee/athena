@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import sys
+from collections import Counter
 from contextlib import redirect_stdout
 from functools import partial
 from io import StringIO
@@ -231,8 +232,18 @@ def _print_demo_frame(
         ]
         visible_soldiers_text = ", ".join(visible_soldiers) or "none"
         terrain_cells = observation.available_terrain
-        cover_count = sum(cell.has_cover for cell in terrain_cells)
-        concealment_count = sum(cell.has_concealment for cell in terrain_cells)
+        # Open ground is the default and says nothing; only name what stands out.
+        notable_terrain = Counter(
+            cell.terrain
+            for cell in terrain_cells
+            if cell.terrain_class != TerrainClass.OPEN_GROUND
+        )
+        terrain_summary = (
+            ", ".join(
+                f"{count} {name}" for name, count in notable_terrain.most_common()
+            )
+            or "all open ground"
+        )
 
         print(
             f"  soldier {index} "
@@ -242,7 +253,7 @@ def _print_demo_frame(
             f"[{observation.survival_status.value}] "
             f"sees: {visible_soldiers_text}; "
             f"terrain: {len(terrain_cells)} cells "
-            f"({cover_count} cover, {concealment_count} concealment)"
+            f"({terrain_summary})"
         )
 
     print()

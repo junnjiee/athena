@@ -121,13 +121,10 @@ class LoopEngine:
                         observer.vision_range,
                     ):
                         continue
-                    # WP3 replaces these flags with the terrain class itself.
-                    profile = self.battlefield.profile_for(position)
                     cells.append(
                         TerrainCell(
                             position=position,
-                            has_cover=not profile.passable,
-                            has_concealment=profile.concealment > 0,
+                            terrain_class=self.battlefield.terrain_for(position),
                         )
                     )
 
