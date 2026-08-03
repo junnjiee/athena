@@ -1,4 +1,5 @@
 import asyncio
+import json
 from io import StringIO
 from random import Random
 
@@ -276,6 +277,71 @@ def test_large_maps_window_onto_the_soldiers() -> None:
     assert (x1 - x0, y1 - y0) == (60, 40)
     assert x0 <= soldier.position.x < x1
     assert y0 <= soldier.position.y < y1
+
+
+def test_viewport_centres_on_the_larger_group_not_the_empty_middle() -> None:
+    # Two forces facing each other across a large map: the midrange of their
+    # positions is empty ground, so a midrange-centred window frames nobody.
+    north = [
+        Soldier(Team.RED, Position(x=180, y=80 + offset, z=0)) for offset in range(5)
+    ]
+    south = [Soldier(Team.BLUE, Position(x=180, y=320 + offset, z=0)) for offset in (0, 1)]
+    battlefield = Battlefield(
+        width=354, height=400, soldiers=[*north, *south]
+    )
+
+    x0, y0, x1, y1 = demo.viewport_bounds(battlefield, max_width=60, max_height=40)
+
+    assert any(y0 <= soldier.position.y < y1 for soldier in north)
+
+
+def test_run_demo_builds_the_battlefield_from_a_payload(monkeypatch, tmp_path) -> None:
+    payload = tmp_path / "payload.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "terrain": {
+                    "bbox": {"west": 0.0, "south": 0.0, "east": 1.0, "north": 1.0},
+                    "width": 2,
+                    "height": 2,
+                    "cellMeters": 1,
+                    "classNames": {"3": "Dense Forest"},
+                    "cells": {
+                        "elevation": [0.0, 0.0, 0.0, 0.0],
+                        "cls": [3, 3, 3, 3],
+                    },
+                },
+                "units": [
+                    {
+                        "id": "b",
+                        "side": "blue",
+                        "name": "Alpha",
+                        "position": {"longitude": 0.1, "latitude": 0.1},
+                    }
+                ],
+                "objectives": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    rendered: list[Battlefield] = []
+
+    async def choose_none(**_: object) -> None:
+        return None
+
+    monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
+    monkeypatch.setattr(
+        demo,
+        "render_demo_frame",
+        lambda _label, battlefield, *_a, **_k: rendered.append(battlefield),
+    )
+
+    asyncio.run(demo.run_demo(ticks=0, payload_path=payload))
+
+    battlefield = rendered[0]
+    assert (battlefield.width, battlefield.height) == (2, 2)
+    assert battlefield.terrain_at(0, 0) == TerrainClass.DENSE_FOREST
+    assert [soldier.team for soldier in battlefield.soldiers] == [Team.BLUE]
 
 
 def test_viewport_clamps_to_the_grid_at_the_edges() -> None:
