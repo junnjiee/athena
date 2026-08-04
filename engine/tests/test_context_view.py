@@ -142,7 +142,9 @@ def test_observation_without_sightings_says_none() -> None:
     assert "Visible soldiers: none." in render_observation(observation())
 
 
-def test_history_replays_each_past_tick() -> None:
+def test_history_reports_the_track_without_repeating_terrain() -> None:
+    # Terrain does not move, so a remembered tick that redrew its surroundings
+    # would only duplicate what the current observation already draws.
     context = AgentContext(
         current_observation=observation(),
         visibility_history=(
@@ -160,8 +162,8 @@ def test_history_replays_each_past_tick() -> None:
 
     assert "t4: at (0,1)" in rendered
     assert "east" in rendered
-    assert "Terrain you saw" in rendered
-    assert "~=Water" in rendered
+    assert "Water" not in rendered
+    assert "~" not in rendered
 
 
 def test_first_tick_history_says_so() -> None:

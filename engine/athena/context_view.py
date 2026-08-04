@@ -131,25 +131,32 @@ def render_observation(observed: ObservedSoldier) -> str:
 
 
 def _render_history(history: Sequence[VisibilityObservation]) -> str:
-    """Replay past ticks: where the soldier stood, what it did, what it saw."""
+    """Summarise past ticks as a track, not as repeated terrain.
+
+    Every remembered tick carries its own copy of the terrain around it, and
+    the deque holds ten. Terrain does not move and a soldier barely does, so
+    those copies are near-identical to each other and to the current
+    observation, which already draws the same ground in full. What earlier
+    ticks uniquely hold is the soldier's own track and what it met along it.
+
+    This does lose ground seen earlier and no longer in sight. Recovering that
+    properly means accumulating a remembered map per soldier, which is a
+    different feature; repeating the last ten windows was never that, because
+    at a walking pace they overlap almost entirely.
+    """
     if not history:
         return "Recent ticks: none, this is your first."
 
-    blocks = []
+    lines = []
     for observation in history:
         action = observation.submitted_action
         did = "did nothing" if action is None else action.model_dump_json()
-        blocks.append(
-            f"t{observation.tick}: at ({observation.position.x},"
+        lines.append(
+            f"  t{observation.tick}: at ({observation.position.x},"
             f"{observation.position.y}), {did}, "
-            f"{len(observation.visible_soldiers)} soldiers in sight\n"
-            + render_terrain(
-                observation.available_terrain,
-                observation.position,
-                caption="Terrain you saw",
-            )
+            f"{len(observation.visible_soldiers)} soldiers in sight"
         )
-    return "Recent ticks, oldest first:\n" + "\n\n".join(blocks)
+    return "Recent ticks, oldest first:\n" + "\n".join(lines)
 
 
 def render_agent_context(context: AgentContext) -> str:
