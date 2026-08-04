@@ -11,6 +11,7 @@ from athena.params import (
     build_terrain_guidance,
     impassable_terrain_names,
 )
+from athena.context_view import render_observation
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.world_state import Soldier
@@ -158,7 +159,7 @@ def _request_local_action(
                 "role": "system",
                 "content": build_system_prompt(max_elevation_change),
             },
-            {"role": "user", "content": observed_soldier.model_dump_json()},
+            {"role": "user", "content": render_observation(observed_soldier)},
         ],
         "format": _CHOSEN_ACTION_SCHEMA,
         "stream": False,

@@ -45,24 +45,12 @@ from athena.models import (
     ShootAction,
     SurvivalState,
     Team,
+    TERRAIN_GLYPHS,
     TERRAIN_LABELS,
     TerrainClass,
 )
 
 OLLAMA_PREFIX = "ollama:"
-
-TERRAIN_GLYPHS: dict[TerrainClass, str] = {
-    TerrainClass.OPEN_GROUND: ".",
-    TerrainClass.GRASSLAND: ",",
-    TerrainClass.SCRUB: ";",
-    TerrainClass.DENSE_FOREST: "^",
-    TerrainClass.WETLAND: "_",
-    TerrainClass.WATER: "~",
-    TerrainClass.URBAN: "o",
-    TerrainClass.STRUCTURE: "#",
-    TerrainClass.ROAD: "=",
-    TerrainClass.BARREN_ROCK: "%",
-}
 
 ELEVATION_RAMP = (148, 226, 214, 208, 130, 94)
 """256-colour codes for rising ground, pale green through dark brown.

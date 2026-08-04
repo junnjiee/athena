@@ -11,6 +11,7 @@ from athena.params import (
     VISIBILITY_HISTORY_LIMIT,
     build_system_prompt,
 )
+from athena.context_view import render_agent_context
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -133,7 +134,7 @@ async def choose_action(
     structured_llm = llm.with_structured_output(ChosenTurn, method="json_schema")
 
     async def propose(retry_feedback: str | None) -> ChosenTurn:
-        human_message = agent_context.model_dump_json()
+        human_message = render_agent_context(agent_context)
         if retry_feedback is not None:
             human_message = f"{human_message}\n\nRetry feedback:\n{retry_feedback}"
         chosen = await structured_llm.ainvoke(
