@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from io import StringIO
 from random import Random
 
@@ -262,37 +263,26 @@ def test_elevation_ramp_bands_relative_to_the_maps_own_range() -> None:
     assert demo.elevation_color(30, 17, 42) in demo.ELEVATION_RAMP
 
 
-def test_small_maps_render_whole() -> None:
+def test_small_maps_render_at_full_resolution() -> None:
     battlefield = Battlefield(width=12, height=8, soldiers=[])
 
-    assert demo.viewport_bounds(battlefield) == (0, 0, 12, 8)
+    rows = demo.map_frame(battlefield, columns=118).splitlines()
+
+    # One glyph per cell, space separated, every row present.
+    assert len(rows) == 8
+    assert all(len(row) == 12 * 2 - 1 for row in rows)
 
 
-def test_large_maps_window_onto_the_soldiers() -> None:
-    soldier = Soldier(Team.BLUE, Position(x=180, y=127, z=0))
-    battlefield = Battlefield(width=354, height=400, soldiers=[soldier])
+def test_maps_too_wide_for_the_terminal_are_aggregated_not_cropped() -> None:
+    battlefield = Battlefield(width=354, height=400, soldiers=[])
 
-    x0, y0, x1, y1 = demo.viewport_bounds(battlefield, max_width=60, max_height=40)
+    rows = demo.map_frame(battlefield, columns=118).splitlines()
 
-    assert (x1 - x0, y1 - y0) == (60, 40)
-    assert x0 <= soldier.position.x < x1
-    assert y0 <= soldier.position.y < y1
-
-
-def test_viewport_centres_on_the_larger_group_not_the_empty_middle() -> None:
-    # Two forces facing each other across a large map: the midrange of their
-    # positions is empty ground, so a midrange-centred window frames nobody.
-    north = [
-        Soldier(Team.RED, Position(x=180, y=80 + offset, z=0)) for offset in range(5)
-    ]
-    south = [Soldier(Team.BLUE, Position(x=180, y=320 + offset, z=0)) for offset in (0, 1)]
-    battlefield = Battlefield(
-        width=354, height=400, soldiers=[*north, *south]
-    )
-
-    x0, y0, x1, y1 = demo.viewport_bounds(battlefield, max_width=60, max_height=40)
-
-    assert any(y0 <= soldier.position.y < y1 for soldier in north)
+    assert rows[0].startswith("354x400 at 3x6 m/char")
+    body = rows[1:]
+    # Every cell is represented: 400 rows of 6, 354 columns of 3.
+    assert len(body) == 400 // 6 + 1
+    assert all(len(row) == 118 for row in body)
 
 
 def test_run_demo_builds_the_battlefield_from_a_payload(monkeypatch, tmp_path) -> None:
@@ -344,15 +334,18 @@ def test_run_demo_builds_the_battlefield_from_a_payload(monkeypatch, tmp_path) -
     assert [soldier.team for soldier in battlefield.soldiers] == [Team.BLUE]
 
 
-def test_full_map_covers_the_whole_grid_without_cropping() -> None:
-    battlefield = Battlefield(width=354, height=400, soldiers=[])
+def test_every_soldier_appears_on_an_aggregated_map() -> None:
+    # Cropping used to hide most of the force; aggregation must not.
+    soldiers = [
+        Soldier(Team.RED, Position(x=77, y=83, z=0)),
+        Soldier(Team.BLUE, Position(x=294, y=321, z=0)),
+    ]
+    battlefield = Battlefield(width=354, height=400, soldiers=soldiers)
 
-    frame = demo.full_map_frame(battlefield, columns=118)
-    rows = frame.splitlines()[1:-1]
+    frame = demo.map_frame(battlefield, columns=118)
 
-    # 3x6 m blocks over 354x400: every cell is represented, nothing cropped.
-    assert len(rows) == 400 // 6 + 1
-    assert all(len(row) == 118 for row in rows)
+    assert "R" in frame
+    assert "B" in frame
 
 
 def test_full_map_surfaces_rare_classes_over_the_dominant_one() -> None:
@@ -364,7 +357,7 @@ def test_full_map_surfaces_rare_classes_over_the_dominant_one() -> None:
         width=120, height=120, soldiers=[], terrain=terrain
     )
 
-    frame = demo.full_map_frame(battlefield, columns=60)
+    frame = demo.map_frame(battlefield, columns=60)
 
     assert demo.TERRAIN_GLYPHS[TerrainClass.ROAD] in frame
 
@@ -408,23 +401,17 @@ def test_payload_can_be_loaded_without_units(tmp_path) -> None:
     assert without_units.terrain_classes == with_units.terrain_classes
 
 
-def test_viewport_clamps_to_the_grid_at_the_edges() -> None:
+def test_soldiers_in_the_far_corners_still_render() -> None:
+    # The trailing partial block must be emitted, or the last row and column
+    # of the map would silently vanish.
     corner = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
-    battlefield = Battlefield(width=354, height=400, soldiers=[corner])
-
-    assert demo.viewport_bounds(battlefield, max_width=60, max_height=40) == (
-        0,
-        0,
-        60,
-        40,
-    )
-
     far = Soldier(Team.RED, Position(x=353, y=399, z=0))
-    battlefield = Battlefield(width=354, height=400, soldiers=[far])
+    battlefield = Battlefield(width=354, height=400, soldiers=[corner, far])
 
-    assert demo.viewport_bounds(battlefield, max_width=60, max_height=40) == (
-        294,
-        360,
-        354,
-        400,
-    )
+    rows = [
+        re.sub(r"\033\[[0-9;]*m", "", row)
+        for row in demo.map_frame(battlefield, columns=118).splitlines()[1:]
+    ]
+
+    assert rows[0].startswith("B")
+    assert rows[-1].endswith("R")

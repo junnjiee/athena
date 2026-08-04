@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import sys
 from collections import Counter
-from collections.abc import Iterable
 from contextlib import redirect_stdout
 from math import ceil
 from functools import partial
@@ -109,54 +108,43 @@ def cell_symbol(battlefield: Battlefield, position: Position) -> str:
     return TERRAIN_GLYPHS[battlefield.terrain_for(position)]
 
 
-MAX_RENDER_WIDTH = 60
-MAX_RENDER_HEIGHT = 40
+DEFAULT_RENDER_COLUMNS = 118
+DEFAULT_PAYLOAD_PATH = Path("payload.txt")
 
 
-def _median(values: Iterable[int]) -> int:
-    ordered = sorted(values)
-    return ordered[len(ordered) // 2]
+def map_frame(battlefield: Battlefield, columns: int = DEFAULT_RENDER_COLUMNS) -> str:
+    """Render the entire map, never cropping.
 
-
-def viewport_bounds(
-    battlefield: Battlefield,
-    max_width: int = MAX_RENDER_WIDTH,
-    max_height: int = MAX_RENDER_HEIGHT,
-) -> tuple[int, int, int, int]:
-    """Half-open (x0, y0, x1, y1) window of the grid to draw.
-
-    Each cell prints as a glyph plus a space, so a 354-cell row would need 708
-    terminal columns. Maps larger than the cap are windowed onto the soldiers
-    instead of drawn whole; maps that already fit are returned untouched.
+    Cells print at full resolution while the map fits the terminal, and are
+    aggregated into blocks once it does not. Coverage is preserved either way;
+    only resolution is traded.
     """
-    if battlefield.width <= max_width and battlefield.height <= max_height:
-        return 0, 0, battlefield.width, battlefield.height
-
-    width = min(max_width, battlefield.width)
-    height = min(max_height, battlefield.height)
-
-    if battlefield.soldiers:
-        # Median, not midrange: two forces facing each other across a large map
-        # put the midrange in the empty ground between them, framing nobody.
-        # The median sits inside whichever group is larger.
-        center_x = _median(soldier.position.x for soldier in battlefield.soldiers)
-        center_y = _median(soldier.position.y for soldier in battlefield.soldiers)
-    else:
-        center_x = battlefield.width // 2
-        center_y = battlefield.height // 2
-
-    x0 = max(0, min(center_x - width // 2, battlefield.width - width))
-    y0 = max(0, min(center_y - height // 2, battlefield.height - height))
-    return x0, y0, x0 + width, y0 + height
+    if battlefield.width * 2 <= columns:
+        return _detailed_map(battlefield)
+    return _aggregated_map(battlefield, columns)
 
 
-def full_map_frame(battlefield: Battlefield, columns: int = 118) -> str:
-    """Render the whole grid at once, aggregated to fit the terminal width.
+def _detailed_map(battlefield: Battlefield) -> str:
+    """One glyph per cell, space separated."""
+    lowest, highest = elevation_bounds(battlefield)
+    lines = []
+    for y in range(battlefield.height):
+        row: list[str] = []
+        for x in range(battlefield.width):
+            position = battlefield.position_at(x, y)
+            if position is None:
+                raise RuntimeError(f"battlefield surface missing position at {(x, y)}")
 
-    Unlike viewport_bounds this never crops; it trades resolution for coverage,
-    which is what you want when inspecting terrain rather than following a
-    fight.
-    """
+            symbol = cell_symbol(battlefield, position)
+            if color := elevation_color(position.z, lowest, highest):
+                symbol = f"\033[38;5;{color}m{symbol}\033[0m"
+            row.append(symbol)
+        lines.append(" ".join(row))
+    return "\n".join(lines)
+
+
+def _aggregated_map(battlefield: Battlefield, columns: int) -> str:
+    """One glyph per block of cells, sized to fit the terminal width."""
     width, height = battlefield.width, battlefield.height
     block_x = max(1, -(-width // max(1, columns)))
     # Terminal cells are about twice as tall as wide, so the vertical block is
@@ -209,7 +197,6 @@ def full_map_frame(battlefield: Battlefield, columns: int = 118) -> str:
             row.append(f"\033[38;5;{color}m{glyph}\033[0m" if color else glyph)
         lines.append("".join(row))
 
-    lines.append(terrain_legend(battlefield))
     return "\n".join(lines)
 
 
@@ -360,29 +347,7 @@ def _print_demo_frame(
     execution_result: ExecutionResult | None = None,
 ) -> None:
     print(label)
-    lowest, highest = elevation_bounds(battlefield)
-    x0, y0, x1, y1 = viewport_bounds(battlefield)
-    if (x1 - x0, y1 - y0) != (battlefield.width, battlefield.height):
-        print(
-            f"viewport x={x0}..{x1 - 1} y={y0}..{y1 - 1} "
-            f"of {battlefield.width}x{battlefield.height}"
-        )
-
-    for y in range(y0, y1):
-        row: list[str] = []
-
-        for x in range(x0, x1):
-            position = battlefield.position_at(x, y)
-            if position is None:
-                raise RuntimeError(f"battlefield surface missing position at {(x, y)}")
-
-            symbol = cell_symbol(battlefield, position)
-            if color := elevation_color(position.z, lowest, highest):
-                symbol = f"\033[38;5;{color}m{symbol}\033[0m"
-            row.append(symbol)
-
-        print(" ".join(row))
-
+    print(map_frame(battlefield, get_terminal_size(fallback=(DEFAULT_RENDER_COLUMNS, 24)).columns))
     print(
         "B/R=living blue/red b/r=blue/red casualty x=dead *=multiple"
     )
@@ -537,22 +502,6 @@ def build_payload_battlefield(
     )
 
 
-def show_full_map(
-    payload_path: str | Path,
-    include_units: bool = True,
-    columns: int | None = None,
-) -> None:
-    """Print the whole map once and return, without running a simulation."""
-    battlefield, briefing = build_payload_battlefield(
-        payload_path, include_units=include_units
-    )
-    if columns is None:
-        columns = get_terminal_size(fallback=(118, 24)).columns
-    print(full_map_frame(battlefield, columns))
-    if briefing:
-        print(f"\nObjectives:{briefing}")
-
-
 async def run_demo(
     model_spec: str | None = None,
     ticks: int = 60,
@@ -663,9 +612,8 @@ def main() -> None:
     parser.add_argument(
         "--payload",
         type=Path,
-        default=None,
-        help="load terrain and units from a frontend export instead of the "
-        "built-in 12x8 scenario",
+        default=DEFAULT_PAYLOAD_PATH,
+        help=f"frontend terrain export to load (default: {DEFAULT_PAYLOAD_PATH})",
     )
     parser.add_argument(
         "--vision-range",
@@ -674,26 +622,13 @@ def main() -> None:
         help="override every soldier's vision range, in cells",
     )
     parser.add_argument(
-        "--full-map",
-        action="store_true",
-        help="print the whole map, aggregated to fit the terminal, and exit "
-        "without simulating",
-    )
-    parser.add_argument(
         "--no-units",
         action="store_true",
         help="load terrain only, leaving the map empty of soldiers",
     )
     args = parser.parse_args()
 
-    if args.full_map or args.no_units:
-        if args.payload is None:
-            raise SystemExit("error: --full-map and --no-units require --payload")
-
     try:
-        if args.full_map:
-            show_full_map(args.payload, include_units=not args.no_units)
-            return
         asyncio.run(
             run_demo(
                 model_spec=args.model,
