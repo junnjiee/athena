@@ -344,6 +344,70 @@ def test_run_demo_builds_the_battlefield_from_a_payload(monkeypatch, tmp_path) -
     assert [soldier.team for soldier in battlefield.soldiers] == [Team.BLUE]
 
 
+def test_full_map_covers_the_whole_grid_without_cropping() -> None:
+    battlefield = Battlefield(width=354, height=400, soldiers=[])
+
+    frame = demo.full_map_frame(battlefield, columns=118)
+    rows = frame.splitlines()[1:-1]
+
+    # 3x6 m blocks over 354x400: every cell is represented, nothing cropped.
+    assert len(rows) == 400 // 6 + 1
+    assert all(len(row) == 118 for row in rows)
+
+
+def test_full_map_surfaces_rare_classes_over_the_dominant_one() -> None:
+    # A single road cell inside a block of forest must survive aggregation;
+    # majority-wins would erase every road on a mostly-forest map.
+    terrain = [TerrainClass.DENSE_FOREST] * (120 * 120)
+    terrain[5 * 120 + 5] = TerrainClass.ROAD
+    battlefield = Battlefield(
+        width=120, height=120, soldiers=[], terrain=terrain
+    )
+
+    frame = demo.full_map_frame(battlefield, columns=60)
+
+    assert demo.TERRAIN_GLYPHS[TerrainClass.ROAD] in frame
+
+
+def test_payload_can_be_loaded_without_units(tmp_path) -> None:
+    payload = tmp_path / "payload.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "terrain": {
+                    "bbox": {"west": 0.0, "south": 0.0, "east": 1.0, "north": 1.0},
+                    "width": 2,
+                    "height": 2,
+                    "cellMeters": 1,
+                    "classNames": {"3": "Dense Forest"},
+                    "cells": {
+                        "elevation": [0.0, 0.0, 0.0, 0.0],
+                        "cls": [3, 3, 3, 3],
+                    },
+                },
+                "units": [
+                    {
+                        "id": "b",
+                        "side": "blue",
+                        "name": "Alpha",
+                        "position": {"longitude": 0.1, "latitude": 0.1},
+                    }
+                ],
+                "objectives": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with_units, _ = demo.build_payload_battlefield(payload)
+    without_units, _ = demo.build_payload_battlefield(payload, include_units=False)
+
+    assert len(with_units.soldiers) == 1
+    assert without_units.soldiers == []
+    # Terrain is unaffected by dropping the units.
+    assert without_units.terrain_classes == with_units.terrain_classes
+
+
 def test_viewport_clamps_to_the_grid_at_the_edges() -> None:
     corner = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
     battlefield = Battlefield(width=354, height=400, soldiers=[corner])

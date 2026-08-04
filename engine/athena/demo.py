@@ -8,6 +8,7 @@ from math import ceil
 from functools import partial
 from io import StringIO
 from pathlib import Path
+from shutil import get_terminal_size
 
 from dotenv import load_dotenv
 
@@ -147,6 +148,69 @@ def viewport_bounds(
     x0 = max(0, min(center_x - width // 2, battlefield.width - width))
     y0 = max(0, min(center_y - height // 2, battlefield.height - height))
     return x0, y0, x0 + width, y0 + height
+
+
+def full_map_frame(battlefield: Battlefield, columns: int = 118) -> str:
+    """Render the whole grid at once, aggregated to fit the terminal width.
+
+    Unlike viewport_bounds this never crops; it trades resolution for coverage,
+    which is what you want when inspecting terrain rather than following a
+    fight.
+    """
+    width, height = battlefield.width, battlefield.height
+    block_x = max(1, -(-width // max(1, columns)))
+    # Terminal cells are about twice as tall as wide, so the vertical block is
+    # twice the horizontal one to keep the map's real proportions.
+    block_y = block_x * 2
+
+    # Majority would paint a mostly-forest map entirely as forest and hide
+    # every road and building. Rarer classes carry the information, so each
+    # block reports the least common class it contains.
+    frequency = Counter(battlefield.terrain_classes)
+    salience = {
+        terrain_class: rank
+        for rank, terrain_class in enumerate(
+            sorted(frequency, key=lambda cls: frequency[cls])
+        )
+    }
+    occupants = {
+        (soldier.position.x // block_x, soldier.position.y // block_y): soldier
+        for soldier in battlefield.soldiers
+    }
+    lowest, highest = elevation_bounds(battlefield)
+    elevation_by_xy = {
+        (position.x, position.y): position.z for position in battlefield.surface
+    }
+
+    lines = [
+        f"{width}x{height} at {block_x}x{block_y} m/char  "
+        f"elevation {lowest}..{highest}  {len(battlefield.soldiers)} units"
+    ]
+    for top in range(0, height, block_y):
+        row = []
+        for left in range(0, width, block_x):
+            soldier = occupants.get((left // block_x, top // block_y))
+            if soldier is not None:
+                row.append(f"\033[1;97m{soldier_symbol(soldier)}\033[0m")
+                continue
+
+            rarest = None
+            total = count = 0
+            for y in range(top, min(top + block_y, height)):
+                for x in range(left, min(left + block_x, width)):
+                    terrain_class = battlefield.terrain_at(x, y)
+                    if rarest is None or salience[terrain_class] < salience[rarest]:
+                        rarest = terrain_class
+                    total += elevation_by_xy[(x, y)]
+                    count += 1
+
+            glyph = TERRAIN_GLYPHS[rarest]
+            color = elevation_color(round(total / count), lowest, highest)
+            row.append(f"\033[38;5;{color}m{glyph}\033[0m" if color else glyph)
+        lines.append("".join(row))
+
+    lines.append(terrain_legend(battlefield))
+    return "\n".join(lines)
 
 
 def terrain_legend(battlefield: Battlefield) -> str:
@@ -461,13 +525,32 @@ def build_demo_battlefield() -> Battlefield:
 def build_payload_battlefield(
     payload_path: str | Path,
     vision_range: float | None = None,
+    include_units: bool = True,
 ) -> tuple[Battlefield, str]:
     """Load a frontend terrain export into a battlefield plus its briefing."""
     payload = load_payload(payload_path)
-    kwargs = {} if vision_range is None else {"vision_range": vision_range}
+    kwargs: dict[str, object] = {"include_units": include_units}
+    if vision_range is not None:
+        kwargs["vision_range"] = vision_range
     return build_battlefield_from_payload(payload, **kwargs), objective_briefing(
         payload
     )
+
+
+def show_full_map(
+    payload_path: str | Path,
+    include_units: bool = True,
+    columns: int | None = None,
+) -> None:
+    """Print the whole map once and return, without running a simulation."""
+    battlefield, briefing = build_payload_battlefield(
+        payload_path, include_units=include_units
+    )
+    if columns is None:
+        columns = get_terminal_size(fallback=(118, 24)).columns
+    print(full_map_frame(battlefield, columns))
+    if briefing:
+        print(f"\nObjectives:{briefing}")
 
 
 async def run_demo(
@@ -476,6 +559,7 @@ async def run_demo(
     replay_log_path: str | Path | None = None,
     payload_path: str | Path | None = None,
     vision_range: float | None = None,
+    include_units: bool = True,
 ) -> None:
     load_dotenv()
     action_chooser = build_action_chooser(model_spec)
@@ -483,7 +567,9 @@ async def run_demo(
     if payload_path is None:
         battlefield = build_demo_battlefield()
     else:
-        battlefield, briefing = build_payload_battlefield(payload_path, vision_range)
+        battlefield, briefing = build_payload_battlefield(
+            payload_path, vision_range, include_units
+        )
         print(
             f"[athena] terrain: {battlefield.width}x{battlefield.height} from "
             f"{payload_path}{briefing}",
@@ -587,8 +673,27 @@ def main() -> None:
         default=None,
         help="override every soldier's vision range, in cells",
     )
+    parser.add_argument(
+        "--full-map",
+        action="store_true",
+        help="print the whole map, aggregated to fit the terminal, and exit "
+        "without simulating",
+    )
+    parser.add_argument(
+        "--no-units",
+        action="store_true",
+        help="load terrain only, leaving the map empty of soldiers",
+    )
     args = parser.parse_args()
+
+    if args.full_map or args.no_units:
+        if args.payload is None:
+            raise SystemExit("error: --full-map and --no-units require --payload")
+
     try:
+        if args.full_map:
+            show_full_map(args.payload, include_units=not args.no_units)
+            return
         asyncio.run(
             run_demo(
                 model_spec=args.model,
@@ -596,6 +701,7 @@ def main() -> None:
                 replay_log_path=args.replay_log,
                 payload_path=args.payload,
                 vision_range=args.vision_range,
+                include_units=not args.no_units,
             )
         )
     except (OllamaUnavailable, PayloadError) as exc:

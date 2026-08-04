@@ -249,6 +249,7 @@ def build_battlefield_from_payload(
     payload: TerrainPayload,
     *,
     vision_range: float = DEFAULT_SOLDIER_VISION_RANGE,
+    include_units: bool = True,
 ) -> Battlefield:
     """Turn a parsed export into a battlefield.
 
@@ -269,7 +270,7 @@ def build_battlefield_from_payload(
 
     taken: set[tuple[int, int]] = set()
     soldiers = []
-    for unit in payload.units:
+    for unit in payload.units if include_units else ():
         team = _team_for(unit)
         x, y = _place(unit, grid, classes, taken)
         soldiers.append(
