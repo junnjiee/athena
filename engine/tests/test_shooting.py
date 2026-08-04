@@ -86,7 +86,7 @@ def test_hold_action_serializes_without_parameters() -> None:
 def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
     assert "hold position, move one grid cell, or shoot" in SYSTEM_PROMPT
     assert "x, y, and z" in SYSTEM_PROMPT
-    assert "available_terrain cells" in SYSTEM_PROMPT
+    assert "terrain is drawn as a map" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in OLLAMA_SYSTEM_PROMPT
 
@@ -125,7 +125,7 @@ def test_agent_prompts_use_effective_engine_limits() -> None:
     )
     ollama_prompt = build_ollama_system_prompt(max_elevation_change=2)
 
-    assert "up to 7 prior tick observations" in openrouter_prompt
+    assert "up to 7 prior ticks" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in ollama_prompt
 
