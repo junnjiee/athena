@@ -448,3 +448,47 @@ def test_terrain_los_blocked_by_tall_wall() -> None:
         Position(x=2, y=0, z=1),
         observer_vision_range=6,
     )
+
+
+def forest_battlefield(width: int, soldiers: list[Soldier]) -> Battlefield:
+    """Flat ground, uniformly dense forest, so only opacity can block."""
+    return Battlefield(
+        width=width,
+        height=1,
+        soldiers=soldiers,
+        surface={Position(x=x, y=0, z=0) for x in range(width)},
+        terrain=tuple([int(TerrainClass.DENSE_FOREST)] * width),
+    )
+
+
+def test_terrain_beyond_opaque_foliage_is_not_reported() -> None:
+    # Dense forest is 0.05 opacity/m, so sight accumulates to opaque at ~21 m.
+    # Ground past that point must not be reported, or a soldier is handed
+    # terrain it cannot see through.
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=30)
+    resolver = VisionResolver()
+    battlefield = forest_battlefield(40, [observer])
+
+    assert resolver.verify_terrain_los(
+        battlefield, observer.position, Position(x=15, y=0, z=0), 30
+    )
+    assert not resolver.verify_terrain_los(
+        battlefield, observer.position, Position(x=25, y=0, z=0), 30
+    )
+
+
+def test_terrain_visibility_matches_soldier_visibility() -> None:
+    # The cell an enemy stands on must not outlive the enemy: if foliage hides
+    # the soldier, it hides the ground too.
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=30)
+    target = Soldier(Team.RED, Position(x=25, y=0, z=0), vision_range=30)
+    battlefield = forest_battlefield(40, [observer, target])
+
+    # A roll that never hides isolates opacity from the concealment check.
+    resolver = VisionResolver(rng=Random())
+    resolver.rng.random = lambda: 1.0
+
+    assert not resolver.verify_los(battlefield, observer, target)
+    assert not resolver.verify_terrain_los(
+        battlefield, observer.position, target.position, 30
+    )

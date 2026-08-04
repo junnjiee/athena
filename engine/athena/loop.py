@@ -94,8 +94,10 @@ class LoopEngine:
 
     def nearby_terrain_map(self) -> list[list[TerrainCell]]:
         """
-        Cells each soldier has line of sight to: within (capped) vision range and
-        not hidden behind intervening terrain.
+        Cells each soldier has line of sight to: within (capped) vision range,
+        not behind a rise, and not beyond the point where intervening terrain
+        has accumulated to opaque -- the same tests that decide whether an
+        enemy standing on the cell would be seen.
 
         Only the local vision window is scanned, sized by the capped range.
         Iterating y-then-x yields cells in (y, x) order.

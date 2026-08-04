@@ -79,7 +79,17 @@ class VisionResolver:
         cell_position: Position,
         observer_vision_range: float,
     ) -> bool:
-        """Whether an observer can perceive a terrain cell: in range and not hidden behind intervening terrain."""
+        """Whether an observer can perceive a terrain cell.
+
+        Terrain is perceived, not recalled from a map, so a cell must clear the
+        same sightline tests as a soldier standing on it: within range, not
+        behind a rise, and not beyond the point where intervening foliage or
+        walls have accumulated to opaque.
+
+        Concealment is deliberately not applied. It models a soldier actively
+        using cover to avoid being picked out, which ground cannot do, and it is
+        a random roll -- terrain would flicker in and out between ticks.
+        """
         if not self.is_in_vision_range(
             observer_position,
             cell_position,
@@ -87,7 +97,14 @@ class VisionResolver:
         ):
             return False
 
-        return not self._terrain_blocks_los(
+        if self._terrain_blocks_los(
+            battlefield,
+            observer_position,
+            cell_position,
+        ):
+            return False
+
+        return not self._opacity_blocks_los(
             battlefield,
             observer_position,
             cell_position,
