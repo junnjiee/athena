@@ -46,19 +46,38 @@ const DEFAULT_OBJECTIVE_RADIUS_M = 150
 
 /** A plan restored from the Plans page, ready to seed the drawing surfaces. */
 export interface SavedPlanContents {
+  id: string
+  /** the plan's own title */
   name: string
+  /** the ground it was drawn on, from the battleground snapshot */
+  groundName: string
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
 }
 
 interface PlanState {
+  /** Name of the ground being planned on -- edited in the header, and what the
+   *  terrain pipeline records as the battleground's name. */
   planName: string
+  /** The plan's own title, independent of the ground. Empty means "untitled",
+   *  and the UI falls back to showing the ground name. Two courses of action on
+   *  the same battleground differ only by this. */
+  planTitle: string
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
+  /** Row this drawing came from, or was last written to. Null means unsaved, so
+   *  the next save inserts; non-null means the next save overwrites that row.
+   *  Without this, every press of Save Plan left another near-identical copy. */
+  savedPlanId: string | null
 
   setPlanName: (name: string) => void
+  setPlanTitle: (title: string) => void
+  /** Records the row a fresh save landed in, so the next save updates it. */
+  markSaved: (id: string) => void
+  /** Detaches the drawing from its saved row so the next save forks a copy. */
+  forkPlan: () => void
   /** Places a unit/objective for a placement tool, naming it by NATO sequence.
    *  Returns the new element's id so a caller can select or reference it. */
   place: (mode: PlaceableMode, position: LonLat) => string
@@ -78,12 +97,22 @@ interface PlanState {
   seedFromSaved: (plan: SavedPlanContents) => void
 }
 
-const EMPTY = { planName: '', units: [], objectives: [], routes: [] }
+const EMPTY = {
+  planName: '',
+  planTitle: '',
+  units: [],
+  objectives: [],
+  routes: [],
+  savedPlanId: null,
+}
 
 export const usePlan = create<PlanState>((set, get) => ({
   ...EMPTY,
 
   setPlanName: (name) => set({ planName: name }),
+  setPlanTitle: (title) => set({ planTitle: title }),
+  markSaved: (id) => set({ savedPlanId: id }),
+  forkPlan: () => set({ savedPlanId: null }),
 
   place(mode, position) {
     const id = crypto.randomUUID()
@@ -169,10 +198,12 @@ export const usePlan = create<PlanState>((set, get) => ({
 
   seedFromSaved: (plan) =>
     set({
-      planName: plan.name,
+      planName: plan.groundName,
+      planTitle: plan.name,
       units: plan.units,
       objectives: plan.objectives,
       routes: plan.routes,
+      savedPlanId: plan.id,
     }),
 }))
 

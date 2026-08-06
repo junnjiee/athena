@@ -7,6 +7,7 @@ export interface PlanSummary {
   name: string
   battlegroundName: string
   createdAt: string
+  updatedAt: string
 }
 
 /** Full plan + terrain snapshot as returned by GET /api/plans/:id. */

@@ -55,6 +55,18 @@ const savePlanBody = z.object({
   routes: z.array(placedRouteSchema),
 })
 
+/** A plan update never moves a plan to different ground, so battlegroundId is
+ *  deliberately absent -- the terrain a plan was drawn on is immutable. */
+const updatePlanBody = z.object({
+  name: z.string().trim().min(1).max(120),
+  units: z.array(placedUnitSchema),
+  objectives: z.array(placedObjectiveSchema),
+  routes: z.array(placedRouteSchema),
+})
+
+/** Rename touches nothing but the title, so the drawing needn't be re-sent. */
+const renamePlanBody = z.object({ name: z.string().trim().min(1).max(120) })
+
 export function registerPlanRoutes(app: FastifyInstance): void {
   app.post('/api/plans', async (req, reply) => {
     const parsed = savePlanBody.safeParse(req.body)
@@ -103,6 +115,26 @@ export function registerPlanRoutes(app: FastifyInstance): void {
     return reply.status(201).send({ id: planId })
   })
 
+  /** Forks a plan onto the same ground under a new name. Terrain is shared by
+   *  reference -- battlegrounds are immutable once written, so the copy points
+   *  at the same row rather than duplicating a megabyte of grid. */
+  app.post<{ Params: { id: string } }>('/api/plans/:id/duplicate', async (req, reply) => {
+    const rows = await db.select().from(plans).where(eq(plans.id, req.params.id)).limit(1)
+    const source = rows[0]
+    if (!source) return reply.status(404).send({ error: 'unknown plan' })
+
+    const id = randomUUID()
+    await db.insert(plans).values({
+      id,
+      battlegroundId: source.battlegroundId,
+      name: `${source.name} (copy)`.slice(0, 120),
+      units: source.units,
+      objectives: source.objectives,
+      routes: source.routes,
+    })
+    return reply.status(201).send({ id })
+  })
+
   app.get('/api/plans', async () => {
     const rows = await db
       .select({
@@ -110,10 +142,11 @@ export function registerPlanRoutes(app: FastifyInstance): void {
         name: plans.name,
         battlegroundName: battlegrounds.name,
         createdAt: plans.createdAt,
+        updatedAt: plans.updatedAt,
       })
       .from(plans)
       .innerJoin(battlegrounds, eq(plans.battlegroundId, battlegrounds.id))
-      .orderBy(desc(plans.createdAt))
+      .orderBy(desc(plans.updatedAt))
     return rows
   })
 
@@ -152,6 +185,42 @@ export function registerPlanRoutes(app: FastifyInstance): void {
         gridBufferBase64: row.battleground.gridBuffer.toString('base64'),
       },
     }
+  })
+
+  /** Overwrites a plan's drawing in place. The client tracks the id it loaded
+   *  or last saved, so re-saving updates that row instead of accumulating a new
+   *  one per save (which is what POST /api/plans did on its own). */
+  app.put<{ Params: { id: string } }>('/api/plans/:id', async (req, reply) => {
+    const parsed = updatePlanBody.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    }
+    const { name, units, objectives, routes } = parsed.data
+
+    const updated = await db
+      .update(plans)
+      .set({ name, units, objectives, routes, updatedAt: new Date() })
+      .where(eq(plans.id, req.params.id))
+      .returning({ id: plans.id })
+
+    if (updated.length === 0) return reply.status(404).send({ error: 'unknown plan' })
+    return { id: updated[0].id }
+  })
+
+  app.patch<{ Params: { id: string } }>('/api/plans/:id/name', async (req, reply) => {
+    const parsed = renamePlanBody.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    }
+
+    const updated = await db
+      .update(plans)
+      .set({ name: parsed.data.name, updatedAt: new Date() })
+      .where(eq(plans.id, req.params.id))
+      .returning({ id: plans.id })
+
+    if (updated.length === 0) return reply.status(404).send({ error: 'unknown plan' })
+    return { id: updated[0].id }
   })
 
   /** The drawn plan expressed over the terrain: every unit/objective/route

@@ -159,27 +159,63 @@ describe('deleting elements cascades to attached routes', () => {
 })
 
 describe('loading and clearing', () => {
-  test('seedFromSaved replaces the whole drawing', () => {
+  test('seedFromSaved replaces the drawing and keeps plan/ground names apart', () => {
     usePlan.getState().place('place-blue-section', AT)
     usePlan.getState().seedFromSaved({
-      name: 'Ridge Probe',
+      id: 'plan-1',
+      name: 'Left Flank',
+      groundName: 'Ridge Probe',
       units: [],
       objectives: [],
       routes: [],
     })
 
-    expect(usePlan.getState().planName).toBe('Ridge Probe')
-    expect(usePlan.getState().units).toHaveLength(0)
+    const state = usePlan.getState()
+    expect(state.planTitle).toBe('Left Flank')
+    expect(state.planName).toBe('Ridge Probe')
+    expect(state.units).toHaveLength(0)
   })
 
-  test('clearPlan empties everything including the name', () => {
-    usePlan.getState().setPlanName('Something')
+  test('a loaded plan remembers its row, so the next save overwrites it', () => {
+    usePlan.getState().seedFromSaved({
+      id: 'plan-1',
+      name: 'Left Flank',
+      groundName: 'Ridge Probe',
+      units: [],
+      objectives: [],
+      routes: [],
+    })
+    expect(usePlan.getState().savedPlanId).toBe('plan-1')
+  })
+
+  test('an unsaved drawing has no row, so the next save inserts', () => {
+    usePlan.getState().place('place-blue-section', AT)
+    expect(usePlan.getState().savedPlanId).toBeNull()
+  })
+
+  test('markSaved records the row a fresh save landed in', () => {
+    usePlan.getState().markSaved('plan-2')
+    expect(usePlan.getState().savedPlanId).toBe('plan-2')
+  })
+
+  test('forkPlan detaches the drawing so the next save copies it', () => {
+    usePlan.getState().markSaved('plan-2')
+    usePlan.getState().forkPlan()
+    expect(usePlan.getState().savedPlanId).toBeNull()
+  })
+
+  test('clearPlan empties everything including both names and the saved row', () => {
+    usePlan.getState().setPlanName('Ground')
+    usePlan.getState().setPlanTitle('Course A')
+    usePlan.getState().markSaved('plan-3')
     const unit = usePlan.getState().place('place-blue-section', AT)
     addRouteFrom(unit)
 
     usePlan.getState().clearPlan()
     const state = usePlan.getState()
     expect(state.planName).toBe('')
+    expect(state.planTitle).toBe('')
+    expect(state.savedPlanId).toBeNull()
     expect(state.units).toHaveLength(0)
     expect(state.routes).toHaveLength(0)
   })

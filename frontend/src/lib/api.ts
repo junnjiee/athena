@@ -57,6 +57,42 @@ export async function savePlan(payload: {
   return body.id
 }
 
+/** Overwrites an existing plan. Paired with `savePlan`: the page keeps the id
+ *  it loaded or last saved and calls this instead, so re-saving edits the plan
+ *  rather than leaving a trail of near-identical copies. */
+export async function updatePlan(
+  id: string,
+  payload: {
+    name: string
+    units: PlacedUnit[]
+    objectives: PlacedObjective[]
+    routes: PlacedRoute[]
+  },
+): Promise<void> {
+  const res = await fetch(`/api/plans/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function renamePlan(id: string, name: string): Promise<void> {
+  const res = await fetch(`/api/plans/${id}/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function duplicatePlan(id: string): Promise<string> {
+  const res = await fetch(`/api/plans/${id}/duplicate`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { id: string }
+  return body.id
+}
+
 export async function listPlans(): Promise<PlanSummary[]> {
   const res = await fetch('/api/plans')
   if (!res.ok) throw new Error(await readError(res))

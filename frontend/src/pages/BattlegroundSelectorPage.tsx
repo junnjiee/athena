@@ -28,7 +28,7 @@ import { registerAssistantHost } from '../assistant/bridge'
 import { defaultLoadout, useSettings } from '../state/settings'
 import { analyzePlan } from '../lib/validate'
 import { toMGRS } from '../lib/coords'
-import { savePlan } from '../lib/api'
+import { savePlan, updatePlan } from '../lib/api'
 import {
   computeRectangleStats,
   flyToSelectionPreview,
@@ -175,17 +175,28 @@ export function BattlegroundSelectorPage() {
   /** Shared by the Save Plan button and the assistant's save_plan tool. Reads
    *  the plan straight from the store so a voice-driven save can't race the
    *  page's own render of it. */
-  const persistPlan = useCallback(async (name?: string) => {
+  const persistPlan = useCallback(async (name?: string, forceNew = false) => {
     const battleground = useBattleground.getState().meta
     if (!battleground) throw new Error('no battlefield is generated yet')
     const plan = usePlan.getState()
-    return savePlan({
-      battlegroundId: battleground.id,
-      name: (name ?? plan.planName).trim() || 'Untitled Plan',
+    const payload = {
+      // A plan's own title wins; otherwise it inherits the ground's name.
+      name: (name ?? plan.planTitle ?? '').trim() || plan.planName.trim() || 'Untitled Plan',
       units: plan.units,
       objectives: plan.objectives,
       routes: plan.routes,
-    })
+    }
+
+    // Overwrite the row this drawing came from, unless it has never been saved
+    // or the operator explicitly asked to fork it.
+    if (plan.savedPlanId && !forceNew) {
+      await updatePlan(plan.savedPlanId, payload)
+      return plan.savedPlanId
+    }
+
+    const id = await savePlan({ battlegroundId: battleground.id, ...payload })
+    usePlan.getState().markSaved(id)
+    return id
   }, [])
 
   // The assistant's tools run outside this component, so hand them the
@@ -285,11 +296,11 @@ export function BattlegroundSelectorPage() {
     )
   }
 
-  async function handleSavePlan() {
+  async function handleSavePlan(forceNew = false) {
     if (!meta) return
     setSaveState('saving')
     try {
-      await persistPlan()
+      await persistPlan(undefined, forceNew)
       setSaveState('saved')
       setTimeout(() => setSaveState('idle'), 2400)
     } catch {
@@ -536,7 +547,8 @@ export function BattlegroundSelectorPage() {
           canRunSimulation={phase === 'ready'}
           planName={battlegroundName}
           onRunSimulation={() => setShowSimulationExport(true)}
-          onSavePlan={handleSavePlan}
+          onSavePlan={() => void handleSavePlan(false)}
+          onSaveAsNew={() => void handleSavePlan(true)}
           saveState={saveState}
         />
       </div>
