@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { templateFor } from './orbat'
+import type { Echelon } from '../types/orbat'
 import type {
   ForceSide,
   LonLat,
@@ -40,6 +42,15 @@ export const UNIT_PLACEMENT: Record<
   'place-red-platoon': { side: 'red', symbolKind: 'redPlatoon', typeLabel: 'Red Force Platoon' },
   'place-trench': { side: 'red', symbolKind: 'trench', typeLabel: 'Trench Position' },
   'place-prepared-trench': { side: 'red', symbolKind: 'preparedTrench', typeLabel: 'Prepared Trench' },
+}
+
+/** Which ORBAT echelon each troop-placing tool draws its establishment from.
+ *  Trench tools are absent: fortifications are ground, not a unit. */
+const ECHELON_BY_MODE: Partial<Record<PlaceableMode, Echelon>> = {
+  'place-blue-section': 'section',
+  'place-blue-platoon': 'platoon',
+  'place-red-section': 'section',
+  'place-red-platoon': 'platoon',
 }
 
 const DEFAULT_OBJECTIVE_RADIUS_M = 150
@@ -134,6 +145,10 @@ export const usePlan = create<PlanState>((set, get) => ({
     }
 
     const { side, symbolKind, typeLabel } = UNIT_PLACEMENT[mode]
+    // Trenches are ground, not troops, so they carry no establishment.
+    const echelon = ECHELON_BY_MODE[mode]
+    const template = echelon ? templateFor(side, echelon) : null
+
     set((s) => {
       const sideCount = s.units.filter((u) => u.side === side).length
       return {
@@ -144,9 +159,14 @@ export const usePlan = create<PlanState>((set, get) => ({
             side,
             symbolKind,
             name: NATO[sideCount % NATO.length],
-            typeLabel,
+            typeLabel: template?.name ?? typeLabel,
             position,
             rotationRadians: 0,
+            ...(template && {
+              templateId: template.id,
+              strength: template.strength,
+              visionRangeM: template.visionRangeM,
+            }),
           },
         ],
       }

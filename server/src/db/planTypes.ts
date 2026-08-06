@@ -20,6 +20,13 @@ export interface PlacedUnit {
   position: LonLat
   symbolKind: SymbolKind
   rotationRadians: number
+  /** ORBAT establishment fields; absent on fortifications and on plans saved
+   *  before unit templates existed. */
+  templateId?: string
+  /** soldiers in the unit — one simulation agent each */
+  strength?: number
+  /** maps to the engine Soldier's vision_range, metres */
+  visionRangeM?: number
 }
 
 export interface PlacedObjective {

@@ -21,6 +21,15 @@ export interface PlacedUnit {
   /** Facing of the shape, clockwise-from-north radians (0 = default
    *  orientation) -- same convention as lib/bearing.ts's bearingRadians. */
   rotationRadians: number
+  /** ORBAT template this was stamped from (state/orbat.ts). Optional because
+   *  plans saved before templates existed have none, and because the operator
+   *  can delete every template and still place bare markers. */
+  templateId?: string
+  /** Soldiers in the unit -- one simulation agent each. */
+  strength?: number
+  /** How far a soldier of this unit can see, metres. Maps to the engine
+   *  Soldier's vision_range. */
+  visionRangeM?: number
 }
 
 export interface PlacedObjective {

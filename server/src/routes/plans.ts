@@ -17,6 +17,12 @@ const placedUnitSchema = z.object({
   position: lonLat,
   symbolKind: z.enum(['blueSection', 'bluePlatoon', 'redSection', 'redPlatoon', 'trench', 'preparedTrench']),
   rotationRadians: z.number(),
+  // ORBAT establishment (#58). Optional so plans saved before templates
+  // existed still load, and so fortifications -- which have no establishment
+  // -- round-trip unchanged.
+  templateId: z.string().optional(),
+  strength: z.number().int().positive().optional(),
+  visionRangeM: z.number().positive().optional(),
 })
 
 const placedObjectiveSchema = z.object({

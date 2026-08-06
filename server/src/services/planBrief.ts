@@ -100,6 +100,11 @@ export interface DeploymentDrawing extends DrawingBase {
   facingRadians: number
   /** null when the marker was placed outside the battleground bbox */
   cell: PlacedCell | null
+  /** Establishment from the commander's ORBAT: how many soldiers to spawn and
+   *  how far each can see. Null when the marker carries no template -- a
+   *  fortification, or a plan drawn before templates existed -- in which case
+   *  the engine applies its own defaults. */
+  establishment: { strength: number; visionRangeM: number } | null
 }
 
 export interface ObjectiveDrawing extends DrawingBase {
@@ -293,6 +298,10 @@ function unitDrawing(unit: PlacedUnit, geo: GridGeo, channels: GridChannels): De
     position: unit.position,
     facingRadians: unit.rotationRadians,
     cell: cell && sampleCell(channels, cell),
+    establishment:
+      unit.strength !== undefined && unit.visionRangeM !== undefined
+        ? { strength: unit.strength, visionRangeM: unit.visionRangeM }
+        : null,
   }
 }
 

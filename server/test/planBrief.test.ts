@@ -117,6 +117,25 @@ describe('what kind of drawing is it', () => {
     expect(drawing.echelon).toBe('platoon')
   })
 
+  test('a unit placed from an ORBAT template carries its establishment', () => {
+    const [drawing] = brief({
+      units: [unit({ templateId: 'tmpl-1', strength: 7, visionRangeM: 300 })],
+    }).drawings as DeploymentDrawing[]
+    expect(drawing.establishment).toEqual({ strength: 7, visionRangeM: 300 })
+  })
+
+  test('a unit with no template has no establishment, so the engine defaults', () => {
+    const [drawing] = brief({ units: [unit()] }).drawings as DeploymentDrawing[]
+    expect(drawing.establishment).toBeNull()
+  })
+
+  test('a half-specified establishment is treated as none rather than guessed', () => {
+    const [drawing] = brief({
+      units: [unit({ strength: 7 })],
+    }).drawings as DeploymentDrawing[]
+    expect(drawing.establishment).toBeNull()
+  })
+
   test('trenches are fortifications, not troop deployments', () => {
     const drawings = brief({
       units: [

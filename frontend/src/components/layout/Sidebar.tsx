@@ -9,7 +9,7 @@ const NAV_ITEMS = [
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
   { label: 'Simulations', icon: Activity, path: null },
   { label: 'Intel', icon: Radar, path: null },
-  { label: 'Units', icon: Users, path: null },
+  { label: 'Units', icon: Users, path: '/units' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 

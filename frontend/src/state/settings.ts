@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { persistedStorage } from './persistence'
 import {
   DEFAULT_BODY_MASS_KG,
   DEFAULT_MOVEMENT,
@@ -71,7 +72,7 @@ export const useSettings = create<SettingsState>()(
       setAssistantEnabled: (assistantEnabled) => set({ assistantEnabled }),
       resetToDefaults: () => set({ ...DEFAULTS }),
     }),
-    { name: 'athena-settings' },
+    { name: 'athena-settings', storage: persistedStorage },
   ),
 )
 
