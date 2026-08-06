@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { label: 'Battleground', icon: Map, path: '/' },
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
   { label: 'Simulations', icon: Activity, path: null },
-  { label: 'Intel', icon: Radar, path: null },
+  { label: 'Intel', icon: Radar, path: '/intel' },
   { label: 'Units', icon: Users, path: '/units' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ]
