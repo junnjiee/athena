@@ -15,6 +15,7 @@ from athena.agent import choose_action
 from athena.params import (
     COMMUNICATION_HISTORY_LIMIT,
     MAX_ACTION_ATTEMPTS,
+    TERRAIN_PROFILES,
     VISIBILITY_HISTORY_LIMIT,
 )
 from athena.ollama_agent import (
@@ -27,7 +28,6 @@ from athena.loaders import (
     PayloadError,
     build_battlefield_from_payload,
     load_payload,
-    objective_briefing,
 )
 from athena.loop import ActionChooser, LoopEngine
 from athena.resolvers.movement import MovementResolver
@@ -98,6 +98,33 @@ def cell_symbol(battlefield: Battlefield, position: Position) -> str:
 
 DEFAULT_RENDER_COLUMNS = 118
 DEFAULT_PAYLOAD_PATH = Path("payload.txt")
+
+BLUE_CELLS = ((80, 192), (80, 194), (80, 196), (81, 193), (81, 195), (82, 194))
+RED_CELLS = ((94, 193), (94, 196))
+VISION_RANGE = 10.0
+"""Where the two sides start, in grid cells on the loaded export.
+
+Mixed ground was chosen over the export's dominant forest so terrain actually
+informs a decision: dense forest to the west, urban blocks to the east, a road
+running between them. Blue is west and Red east because the objectives send
+Blue east and Red west -- deployed north and south they would advance away from
+each other. The closest pair is about twelve metres apart, just outside the
+vision range above, so contact comes after a few ticks rather than at tick 0.
+"""
+
+GROUP_ABBREVIATIONS = {"blue-team": "BT", "red-team": "RT"}
+DIRECTION_ABBREVIATIONS = {
+    "north": "N",
+    "northeast": "NE",
+    "east": "E",
+    "southeast": "SE",
+    "south": "S",
+    "southwest": "SW",
+    "west": "W",
+    "northwest": "NW",
+}
+RULE_WIDTH = 120
+"""Cap on the tick separator, so it never soft-wraps a narrow terminal."""
 
 
 def map_frame(battlefield: Battlefield, columns: int = DEFAULT_RENDER_COLUMNS) -> str:
@@ -186,6 +213,237 @@ def _aggregated_map(battlefield: Battlefield, columns: int) -> str:
         lines.append("".join(row))
 
     return "\n".join(lines)
+
+
+def _ruler_lines(x0: int, x1: int) -> list[str]:
+    """Column ruler. A hundreds row appears once the box runs past x=99.
+
+    Solid digit rows rather than sparse labels every ten columns: labels would
+    take more than one character and break the one-character-per-cell alignment
+    that the whole view depends on. Read the rows downward to get x to the
+    nearest ten, then count across. Digits are the real coordinates, so a box
+    starting at x=74 opens with a 7, not a 0.
+    """
+    rows = []
+    if x1 >= 100:
+        rows.append(
+            f"{'':<5}" + "".join(str(x // 100 % 10) for x in range(x0, x1 + 1))
+        )
+    rows.append(f"{'':<5}" + "".join(str(x // 10 % 10) for x in range(x0, x1 + 1)))
+    return rows
+
+
+def full_bounds(battlefield: Battlefield) -> tuple[int, int, int, int]:
+    """The whole map, as an inclusive box."""
+    return 0, 0, battlefield.width - 1, battlefield.height - 1
+
+
+def soldier_bounds(
+    battlefield: Battlefield, margin: int = 6
+) -> tuple[int, int, int, int]:
+    """The smallest box holding every soldier, plus a margin of ground.
+
+    Every soldier, not just the living ones: a casualty or a body is still
+    something you want to see, and tracking only the living would let bodies
+    fall out of view as the fight moves on.
+
+    Deliberately uncapped. The box is defined by the soldiers, so a soldier
+    cannot fall outside it -- that guarantee is the whole point, and capping
+    would have to break it or start aggregating cells. If the sides scatter to
+    opposite corners this returns the full map, which is merely the behaviour
+    without the flag.
+    """
+    if not battlefield.soldiers:
+        return full_bounds(battlefield)
+
+    xs = [soldier.position.x for soldier in battlefield.soldiers]
+    ys = [soldier.position.y for soldier in battlefield.soldiers]
+    return (
+        max(0, min(xs) - margin),
+        max(0, min(ys) - margin),
+        min(battlefield.width - 1, max(xs) + margin),
+        min(battlefield.height - 1, max(ys) + margin),
+    )
+
+
+def map_lines(
+    battlefield: Battlefield,
+    bounds: tuple[int, int, int, int],
+    color: bool = True,
+) -> list[str]:
+    """A box of the battlefield at one character per cell, never aggregated.
+
+    Colour is emitted run-length -- an escape only where the elevation band
+    changes -- rather than around every cell. On a full 354x400 export that is
+    the difference between a ~2 MB frame and a ~183 KB one, and since bands are
+    contiguous the output is identical on screen.
+    """
+    x0, y0, x1, y1 = bounds
+    lowest, highest = elevation_bounds(battlefield)
+    elevation = {
+        (position.x, position.y): position.z for position in battlefield.surface
+    }
+    occupants: dict[tuple[int, int], str] = {}
+    for soldier in battlefield.soldiers:
+        key = (soldier.position.x, soldier.position.y)
+        occupants[key] = "*" if key in occupants else soldier_symbol(soldier)
+
+    lines = _ruler_lines(x0, x1)
+    for y in range(y0, y1 + 1):
+        row = [f"{y:<5}"]
+        shade_now: int | None = None
+        for x in range(x0, x1 + 1):
+            occupant = occupants.get((x, y))
+            if occupant is not None:
+                # Bold white, so eight soldiers stay findable among 141,600 cells.
+                row.append(f"\033[1;97m{occupant}\033[0m" if color else occupant)
+                shade_now = None
+                continue
+
+            glyph = TERRAIN_GLYPHS[battlefield.terrain_at(x, y)]
+            shade = (
+                elevation_color(elevation[(x, y)], lowest, highest) if color else None
+            )
+            if shade != shade_now:
+                row.append(f"\033[38;5;{shade}m" if shade else "\033[0m")
+                shade_now = shade
+            row.append(glyph)
+        if shade_now is not None:
+            row.append("\033[0m")
+        lines.append("".join(row))
+    return lines
+
+
+def window_legend(
+    battlefield: Battlefield, bounds: tuple[int, int, int, int]
+) -> str:
+    """Legend covering only the classes inside the drawn box.
+
+    terrain_legend names every class on the map, which on a minimap would list
+    ground the viewer cannot see.
+    """
+    x0, y0, x1, y1 = bounds
+    present = sorted(
+        {
+            battlefield.terrain_at(x, y)
+            for y in range(y0, y1 + 1)
+            for x in range(x0, x1 + 1)
+        }
+    )
+    return " ".join(
+        f"{TERRAIN_GLYPHS[terrain_class]}={TERRAIN_LABELS[terrain_class]}"
+        for terrain_class in present
+    )
+
+
+def _agent_id(index: int, team: Team) -> str:
+    return f"{team.value[0].upper()}{index}"
+
+
+def _visible_ids(observation: ObservedSoldier, battlefield: Battlefield) -> str:
+    """Name the soldiers an observation can see, by agent id."""
+    ids = []
+    for seen in observation.visible_soldiers:
+        for index, soldier in enumerate(battlefield.soldiers):
+            if (
+                soldier.team == seen.team
+                and soldier.position == seen.position
+                and soldier.survival_status == seen.survival_status
+            ):
+                ids.append(_agent_id(index, soldier.team))
+                break
+    return ",".join(ids) or "-"
+
+
+def _action_text(
+    index: int,
+    action,
+    execution_result: ExecutionResult | None,
+) -> str:
+    if execution_result is None:
+        return "waiting"
+    if action is None:
+        return "none"
+    if isinstance(action, HoldAction):
+        return "hold"
+    if isinstance(action, MoveAction):
+        moved = (
+            execution_result.before.soldiers[index].position
+            != execution_result.after.soldiers[index].position
+        )
+        code = DIRECTION_ABBREVIATIONS.get(action.direction.value, action.direction.value)
+        return f"move {code} {'ok' if moved else 'rejected'}"
+
+    outcome = next(
+        (o for o in execution_result.shot_outcomes if o.shooter_index == index),
+        None,
+    )
+    target = next(
+        (
+            _agent_id(other, snapshot.team)
+            for other, snapshot in enumerate(execution_result.before.soldiers)
+            if snapshot.position == action.target_position
+        ),
+        "?",
+    )
+    if outcome is None:
+        return f"shoot {target} invalid"
+    return f"shoot {target} {'hit' if outcome.hit else 'miss'}"
+
+
+def _panel_lines(
+    battlefield: Battlefield,
+    observations: list[ObservedSoldier],
+    execution_result: ExecutionResult | None,
+) -> list[str]:
+    """Per-soldier state: what it did, what it sees, what it said.
+
+    Positions and sightings come from the live battlefield and the current
+    observations, so the panel describes the same instant as the map above it.
+    """
+    messages = {
+        message.sender_index: message
+        for message in (execution_result.team_messages if execution_result else ())
+    }
+    actions = execution_result.actions if execution_result else ()
+
+    lines = ["ID   pos        action/result   V: current view   C: comms"]
+    for index, observation in enumerate(observations):
+        soldier = battlefield.soldiers[index]
+        action = actions[index] if index < len(actions) else None
+        line = (
+            f"{_agent_id(index, soldier.team):<4} "
+            f"{soldier.position.x},{soldier.position.y:<6} "
+            f"{_action_text(index, action, execution_result):<15} "
+            f"V:{_visible_ids(observation, battlefield):<15} "
+            f"[{soldier.survival_status.value[0].upper()}]"
+        )
+        if message := messages.get(index):
+            group = GROUP_ABBREVIATIONS.get(message.group_id, message.group_id)
+            line += f" C:{group} {' '.join(message.content.split())}"
+        lines.append(line)
+
+    if execution_result is not None:
+        submitted = sum(isinstance(a, MoveAction) for a in execution_result.actions)
+        accepted = sum(
+            before.position != after.position
+            for before, after in zip(
+                execution_result.before.soldiers, execution_result.after.soldiers
+            )
+        )
+        holds = sum(isinstance(a, HoldAction) for a in execution_result.actions)
+        shots = sum(isinstance(a, ShootAction) for a in execution_result.actions)
+        hits = sum(outcome.hit for outcome in execution_result.shot_outcomes)
+        lines.append(
+            f"Last: moves {accepted}/{submitted}, holds {holds}, "
+            f"hits {hits}/{shots}, messages {len(execution_result.team_messages)}"
+        )
+    return lines
+
+
+def _tick_rule(label: str, columns: int) -> str:
+    text = f"== {label} "
+    return text + "=" * max(0, min(columns, RULE_WIDTH) - len(text))
 
 
 def terrain_legend(battlefield: Battlefield) -> str:
@@ -395,6 +653,75 @@ def render_demo_frame(
     sys.stdout.flush()
 
 
+def scroll_frame(
+    label: str,
+    battlefield: Battlefield,
+    observations: list[ObservedSoldier],
+    execution_result: ExecutionResult | None = None,
+    columns: int = DEFAULT_RENDER_COLUMNS,
+    color: bool = True,
+    minimap: bool = False,
+) -> str:
+    """One tick: a rule, the map, then the per-soldier panel beneath it."""
+    bounds = soldier_bounds(battlefield) if minimap else full_bounds(battlefield)
+    x0, y0, x1, y1 = bounds
+
+    lines = [_tick_rule(label, columns)]
+    if minimap:
+        # The box moves with the soldiers, so it has to say where it is.
+        lines.append(
+            f"   x {x0}..{x1}, y {y0}..{y1} "
+            f"({x1 - x0 + 1}x{y1 - y0 + 1} of {battlefield.width}x"
+            f"{battlefield.height})"
+        )
+    lines.extend(map_lines(battlefield, bounds, color))
+    lines.append("")
+    lines.append(
+        f"B/R=living b/r=casualty x=dead *=multiple   "
+        f"{window_legend(battlefield, bounds)}"[:columns]
+    )
+    tallies = []
+    for team in (Team.BLUE, Team.RED):
+        soldiers = [s for s in battlefield.soldiers if s.team == team]
+        alive = sum(s.survival_status == SurvivalState.ALIVE for s in soldiers)
+        casualties = sum(s.survival_status == SurvivalState.CASUALTY for s in soldiers)
+        dead = sum(s.survival_status == SurvivalState.DEAD for s in soldiers)
+        tallies.append(f"{team.value.title()} A{alive} C{casualties} D{dead}")
+    lines.append(
+        " | ".join(tallies) + f" | separation {closest_separation(battlefield):.1f} m"
+    )
+    lines.extend(_panel_lines(battlefield, observations, execution_result))
+    return "\n".join(lines) + "\n"
+
+
+def render_scroll_frame(
+    label: str,
+    battlefield: Battlefield,
+    observations: list[ObservedSoldier],
+    execution_result: ExecutionResult | None = None,
+    color: bool = True,
+    minimap: bool = False,
+) -> None:
+    """Append a frame below the last, in one flushed write.
+
+    Deliberately no clear-screen and no alternate buffer: the point is that
+    every past tick stays in scrollback.
+    """
+    sys.stdout.write(
+        "\n"
+        + scroll_frame(
+            label,
+            battlefield,
+            observations,
+            execution_result,
+            get_terminal_size(fallback=(100, 24)).columns,
+            color,
+            minimap,
+        )
+    )
+    sys.stdout.flush()
+
+
 def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
     living_teams = {
         soldier.team
@@ -404,122 +731,135 @@ def both_teams_have_living_soldiers(battlefield: Battlefield) -> bool:
     return Team.BLUE in living_teams and Team.RED in living_teams
 
 
-def build_demo_battlefield() -> Battlefield:
-    """The hand-authored 12x8 scenario the demo has always run."""
-    surface = {
-        Position(
-            x=x,
-            y=y,
-            z=max(0, 3 - abs(6 - x)),
-        )
-        for x in range(12)
-        for y in range(8)
-    }
-    surface_by_xy = {(position.x, position.y): position for position in surface}
+def build_battlefield(payload_path: str | Path = DEFAULT_PAYLOAD_PATH) -> Battlefield:
+    """Load the export's terrain, then put our own troops on it.
 
-    def ground(x: int, y: int) -> Position:
-        return surface_by_xy[(x, y)]
+    The export decides where the ground is; the scenario decides who stands on
+    it. Its own laydown is not usable: it spreads seven echelons up to 240 cells
+    apart, so at any vision range the engine uses the two sides never see each
+    other and the run reaches its tick limit without a shot.
+    """
+    payload = load_payload(payload_path)
+    terrain = build_battlefield_from_payload(payload, include_units=False)
+    heights = {(position.x, position.y): position.z for position in terrain.surface}
 
-    blue_1 = Soldier(
-        team=Team.BLUE,
-        position=ground(1, 2),
-        vision_range=6,
-        communication_group_ids={"blue-team"},
-    )
-    blue_2 = Soldier(
-        team=Team.BLUE,
-        position=ground(1, 5),
-        vision_range=6,
-        communication_group_ids={"blue-team"},
-    )
-    red_1 = Soldier(
-        team=Team.RED,
-        position=ground(10, 2),
-        vision_range=6,
-        communication_group_ids={"red-team"},
-    )
-    red_2 = Soldier(
-        team=Team.RED,
-        position=ground(10, 5),
-        vision_range=6,
-        communication_group_ids={"red-team"},
-    )
+    soldiers = []
+    for team, cells in ((Team.BLUE, BLUE_CELLS), (Team.RED, RED_CELLS)):
+        for x, y in cells:
+            if not (0 <= x < terrain.width and 0 <= y < terrain.height):
+                raise PayloadError(
+                    f"({x},{y}) is outside the {terrain.width}x{terrain.height} map"
+                )
+            terrain_class = terrain.terrain_at(x, y)
+            if not TERRAIN_PROFILES[terrain_class].passable:
+                raise PayloadError(
+                    f"({x},{y}) is {TERRAIN_LABELS[terrain_class]}, "
+                    "which no soldier can stand on"
+                )
+            soldiers.append(
+                Soldier(
+                    team=team,
+                    position=Position(x=x, y=y, z=heights[(x, y)]),
+                    vision_range=VISION_RANGE,
+                    communication_group_ids={f"{team.value}-team"},
+                )
+            )
 
     return Battlefield(
-        width=12,
-        height=8,
-        soldiers=[blue_1, blue_2, red_1, red_2],
-        surface=surface,
-        terrain={
-            **{
-                ground(x, y): TerrainClass.STRUCTURE
-                for x, y in ((4, 2), (5, 2), (6, 4), (7, 4), (5, 6))
-            },
-            **{
-                ground(x, y): TerrainClass.SCRUB
-                for x, y in ((3, 4), (4, 5), (7, 2), (8, 3), (8, 6))
-            },
-        },
+        width=terrain.width,
+        height=terrain.height,
+        soldiers=soldiers,
+        surface=terrain.surface,
+        terrain=terrain.terrain_classes,
         communication_groups=[
             CommunicationGroup(
-                group_id="blue-team",
-                name="Blue team",
-                team=Team.BLUE,
-            ),
-            CommunicationGroup(
-                group_id="red-team",
-                name="Red team",
-                team=Team.RED,
-            ),
+                group_id=f"{team.value}-team",
+                name=f"{team.value.capitalize()} team",
+                team=team,
+            )
+            for team in (Team.BLUE, Team.RED)
         ],
     )
 
 
-def build_payload_battlefield(
-    payload_path: str | Path,
-    vision_range: float | None = None,
-    include_units: bool = True,
-) -> tuple[Battlefield, str]:
-    """Load a frontend terrain export into a battlefield plus its briefing."""
-    payload = load_payload(payload_path)
-    kwargs: dict[str, object] = {"include_units": include_units}
-    if vision_range is not None:
-        kwargs["vision_range"] = vision_range
-    return build_battlefield_from_payload(payload, **kwargs), objective_briefing(
-        payload
+def closest_separation(battlefield: Battlefield) -> float:
+    """Distance between the nearest Blue-Red pair, in metres."""
+    blue = [s for s in battlefield.soldiers if s.team == Team.BLUE]
+    red = [s for s in battlefield.soldiers if s.team == Team.RED]
+    if not blue or not red:
+        return 0.0
+    return min(
+        (
+            (b.position.x - r.position.x) ** 2
+            + (b.position.y - r.position.y) ** 2
+            + (b.position.z - r.position.z) ** 2
+        )
+        ** 0.5
+        for b in blue
+        for r in red
     )
+
+
+def pin_red(chooser: ActionChooser) -> ActionChooser:
+    """Hold Red in place: it still decides, but cannot move off its position.
+
+    Converting the action after the fact rather than skipping Red's turn keeps
+    it able to shoot and to radio, so Blue advances against a defence that
+    reacts. Skipping the call would make Red inert scenery.
+    """
+
+    async def choose(**kwargs):
+        turn = await chooser(**kwargs)
+        soldier = kwargs["soldier"]
+        if (
+            turn is not None
+            and soldier.team == Team.RED
+            and isinstance(turn.action, MoveAction)
+        ):
+            return turn.model_copy(update={"action": HoldAction()})
+        return turn
+
+    return choose
 
 
 async def run_demo(
     model_spec: str | None = None,
     ticks: int = 60,
     replay_log_path: str | Path | None = None,
-    payload_path: str | Path | None = None,
-    vision_range: float | None = None,
-    include_units: bool = True,
+    payload_path: str | Path = DEFAULT_PAYLOAD_PATH,
+    color: bool = True,
+    minimap: bool = False,
 ) -> None:
     load_dotenv()
-    action_chooser = build_action_chooser(model_spec)
+    battlefield = build_battlefield(payload_path)
 
-    if payload_path is None:
-        battlefield = build_demo_battlefield()
-    else:
-        battlefield, briefing = build_payload_battlefield(
-            payload_path, vision_range, include_units
-        )
+    print(
+        f"[athena] terrain: {battlefield.width}x{battlefield.height} from "
+        f"{payload_path}; closest blue-red pair "
+        f"{closest_separation(battlefield):.1f} m, vision range {VISION_RANGE:.0f} m",
+        file=sys.stderr,
+    )
+    # Warn against the box actually being drawn. In minimap mode that is the
+    # starting box, which grows as the soldiers spread -- so this is a floor,
+    # not a promise.
+    bounds = soldier_bounds(battlefield) if minimap else full_bounds(battlefield)
+    required = bounds[2] - bounds[0] + 1 + 5
+    actual = get_terminal_size(fallback=(100, 24)).columns
+    if actual < required:
+        growth = " and it grows as the soldiers spread" if minimap else ""
         print(
-            f"[athena] terrain: {battlefield.width}x{battlefield.height} from "
-            f"{payload_path}{briefing}",
+            f"[athena] the map needs {required} columns; terminal is {actual}"
+            f"{growth} - rows will soft-wrap and the ruler will not line up.",
             file=sys.stderr,
         )
 
-    # build_action_chooser (above) already resolved which backend/model to use;
-    # everything downstream (loop, rendering, output) is identical regardless.
+    # build_action_chooser resolves which backend/model to use; everything
+    # downstream (loop, rendering, output) is identical regardless.
     loop = LoopEngine(
         battlefield=battlefield,
         vision_resolver=VisionResolver(),
         movement_resolver=MovementResolver(),
-        action_chooser=action_chooser,
+        action_chooser=pin_red(build_action_chooser(model_spec)),
     )
     replay_recorder = (
         ReplayRecorder(battlefield.snapshot())
@@ -527,21 +867,18 @@ async def run_demo(
         else None
     )
 
-    use_live_screen = sys.stdout.isatty()
-    if use_live_screen:
-        sys.stdout.write("\033[?1049h\033[?25l")
-        sys.stdout.flush()
-
     try:
         initial_label = (
             "Initial - running tick 1 (waiting for agents)"
             if ticks > 0
             else "Initial"
         )
-        render_demo_frame(
+        render_scroll_frame(
             initial_label,
             battlefield,
             loop.observed_soldiers_map(),
+            color=color,
+            minimap=minimap,
         )
         for tick_index in range(ticks):
             result = await loop.tick()
@@ -561,22 +898,19 @@ async def run_demo(
                     f"{completed_tick + 1} (waiting for agents)"
                 )
 
-            render_demo_frame(
+            render_scroll_frame(
                 label,
                 battlefield,
                 loop.observed_soldiers_map(),
                 execution_result=result,
+                color=color,
+                minimap=minimap,
             )
             if battle_finished:
                 break
     finally:
-        try:
-            if replay_recorder is not None and replay_log_path is not None:
-                replay_recorder.save(replay_log_path)
-        finally:
-            if use_live_screen:
-                sys.stdout.write("\033[?25h\033[?1049l")
-                sys.stdout.flush()
+        if replay_recorder is not None and replay_log_path is not None:
+            replay_recorder.save(replay_log_path)
 
 
 def main() -> None:
@@ -604,27 +938,59 @@ def main() -> None:
         help=f"frontend terrain export to load (default: {DEFAULT_PAYLOAD_PATH})",
     )
     parser.add_argument(
-        "--vision-range",
-        type=float,
-        default=None,
-        help="override every soldier's vision range, in cells",
+        "--no-color",
+        dest="color",
+        action="store_false",
+        help="plain glyphs; much smaller frames, and the sane choice when "
+        "redirecting output to a file",
     )
     parser.add_argument(
-        "--no-units",
+        "--minimap",
         action="store_true",
-        help="load terrain only, leaving the map empty of soldiers",
+        help="draw only the ground the soldiers occupy, plus a margin, instead "
+        "of the whole map. Still one character per cell; the box grows to keep "
+        "every soldier inside it",
+    )
+    parser.add_argument(
+        "--deployment",
+        action="store_true",
+        help="print the start positions and exit, without calling any model",
     )
     args = parser.parse_args()
 
     try:
+        if args.deployment:
+            battlefield = build_battlefield(args.payload)
+            bounds = (
+                soldier_bounds(battlefield)
+                if args.minimap
+                else full_bounds(battlefield)
+            )
+            print("\n".join(map_lines(battlefield, bounds, color=args.color)))
+            print()
+            for index, soldier in enumerate(battlefield.soldiers):
+                position = soldier.position
+                terrain_class = battlefield.terrain_at(position.x, position.y)
+                print(
+                    f"    {_agent_id(index, soldier.team):<4} "
+                    f"({position.x},{position.y},{position.z})  "
+                    f"{TERRAIN_LABELS[terrain_class]}"
+                )
+            print(
+                f"\n    closest blue-red pair "
+                f"{closest_separation(battlefield):.1f} m, "
+                f"vision range {VISION_RANGE:.0f} m"
+            )
+            return
+
         asyncio.run(
             run_demo(
                 model_spec=args.model,
                 ticks=args.ticks,
                 replay_log_path=args.replay_log,
                 payload_path=args.payload,
-                vision_range=args.vision_range,
-                include_units=not args.no_units,
+                color=args.color,
+                minimap=args.minimap,
             )
         )
     except (OllamaUnavailable, PayloadError) as exc:

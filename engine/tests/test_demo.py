@@ -4,12 +4,15 @@ import re
 from io import StringIO
 from random import Random
 
+import pytest
+
 from athena import demo
 from athena.world_state import Battlefield
 from athena.demo import (
     both_teams_have_living_soldiers,
     render_demo_frame,
 )
+from athena.loaders import PayloadError
 from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -25,8 +28,25 @@ from athena.models import (
     Position,
     ReplayLog,
     ShootAction,
+    SurvivalState,
     Team,
 )
+
+
+def stub_battlefield() -> Battlefield:
+    """A tiny battlefield standing in for the terrain export.
+
+    run_demo now always loads an export, so the loop tests patch this in rather
+    than reading the multi-megabyte payload from the working directory.
+    """
+    return Battlefield(
+        width=4,
+        height=2,
+        soldiers=[
+            Soldier(Team.BLUE, Position(x=0, y=0, z=0)),
+            Soldier(Team.RED, Position(x=3, y=0, z=0)),
+        ],
+    )
 
 
 def loop_for(soldiers: list[Soldier]) -> LoopEngine:
@@ -184,9 +204,10 @@ def test_run_demo_reports_progress_until_requested_tick(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
+    monkeypatch.setattr(demo, "build_battlefield", lambda *_a, **_k: stub_battlefield())
     monkeypatch.setattr(
         demo,
-        "render_demo_frame",
+        "render_scroll_frame",
         lambda label, *_args, **_kwargs: labels.append(label),
     )
 
@@ -206,7 +227,8 @@ def test_run_demo_writes_replay_log(monkeypatch, tmp_path) -> None:
         return None
 
     monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
-    monkeypatch.setattr(demo, "render_demo_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(demo, "build_battlefield", lambda *_a, **_k: stub_battlefield())
+    monkeypatch.setattr(demo, "render_scroll_frame", lambda *_args, **_kwargs: None)
     output_path = tmp_path / "demo.json"
 
     asyncio.run(demo.run_demo(ticks=2, replay_log_path=output_path))
@@ -285,53 +307,57 @@ def test_maps_too_wide_for_the_terminal_are_aggregated_not_cropped() -> None:
     assert all(len(row) == 118 for row in body)
 
 
-def test_run_demo_builds_the_battlefield_from_a_payload(monkeypatch, tmp_path) -> None:
+PAYLOAD_2X2 = {
+    "terrain": {
+        "bbox": {"west": 0.0, "south": 0.0, "east": 1.0, "north": 1.0},
+        "width": 2,
+        "height": 2,
+        "cellMeters": 1,
+        "classNames": {"3": "Dense Forest"},
+        "cells": {"elevation": [0.0, 0.0, 0.0, 0.0], "cls": [3, 3, 3, 3]},
+    },
+    "units": [
+        {
+            "id": "b",
+            "side": "blue",
+            "name": "Alpha",
+            "position": {"longitude": 0.1, "latitude": 0.1},
+        }
+    ],
+    "objectives": [],
+}
+
+
+def write_payload(tmp_path) -> object:
     payload = tmp_path / "payload.json"
-    payload.write_text(
-        json.dumps(
-            {
-                "terrain": {
-                    "bbox": {"west": 0.0, "south": 0.0, "east": 1.0, "north": 1.0},
-                    "width": 2,
-                    "height": 2,
-                    "cellMeters": 1,
-                    "classNames": {"3": "Dense Forest"},
-                    "cells": {
-                        "elevation": [0.0, 0.0, 0.0, 0.0],
-                        "cls": [3, 3, 3, 3],
-                    },
-                },
-                "units": [
-                    {
-                        "id": "b",
-                        "side": "blue",
-                        "name": "Alpha",
-                        "position": {"longitude": 0.1, "latitude": 0.1},
-                    }
-                ],
-                "objectives": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    rendered: list[Battlefield] = []
+    payload.write_text(json.dumps(PAYLOAD_2X2), encoding="utf-8")
+    return payload
 
-    async def choose_none(**_: object) -> None:
-        return None
 
-    monkeypatch.setattr(demo, "build_action_chooser", lambda _: choose_none)
-    monkeypatch.setattr(
-        demo,
-        "render_demo_frame",
-        lambda _label, battlefield, *_a, **_k: rendered.append(battlefield),
-    )
+def test_the_scenario_places_troops_and_ignores_the_exports_own_units(
+    monkeypatch, tmp_path
+) -> None:
+    # The export ships one blue unit; the scenario's own laydown replaces it,
+    # because the export spreads its echelons too far apart to ever make contact.
+    monkeypatch.setattr(demo, "BLUE_CELLS", ((0, 0),))
+    monkeypatch.setattr(demo, "RED_CELLS", ((1, 1),))
 
-    asyncio.run(demo.run_demo(ticks=0, payload_path=payload))
+    battlefield = demo.build_battlefield(write_payload(tmp_path))
 
-    battlefield = rendered[0]
     assert (battlefield.width, battlefield.height) == (2, 2)
     assert battlefield.terrain_at(0, 0) == TerrainClass.DENSE_FOREST
-    assert [soldier.team for soldier in battlefield.soldiers] == [Team.BLUE]
+    assert [
+        (soldier.team, soldier.position.x, soldier.position.y)
+        for soldier in battlefield.soldiers
+    ] == [(Team.BLUE, 0, 0), (Team.RED, 1, 1)]
+
+
+def test_a_deployment_cell_off_the_map_is_rejected(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(demo, "BLUE_CELLS", ((0, 0),))
+    monkeypatch.setattr(demo, "RED_CELLS", ((9, 9),))
+
+    with pytest.raises(PayloadError, match=r"\(9,9\) is outside the 2x2 map"):
+        demo.build_battlefield(write_payload(tmp_path))
 
 
 def test_every_soldier_appears_on_an_aggregated_map() -> None:
@@ -362,43 +388,105 @@ def test_full_map_surfaces_rare_classes_over_the_dominant_one() -> None:
     assert demo.TERRAIN_GLYPHS[TerrainClass.ROAD] in frame
 
 
-def test_payload_can_be_loaded_without_units(tmp_path) -> None:
+def test_a_deployment_cell_on_impassable_ground_is_rejected(
+    monkeypatch, tmp_path
+) -> None:
+    # Structure is impassable, so a soldier cannot be deployed onto it. Catching
+    # this at build time beats discovering it when the first move is rejected.
     payload = tmp_path / "payload.json"
-    payload.write_text(
-        json.dumps(
-            {
-                "terrain": {
-                    "bbox": {"west": 0.0, "south": 0.0, "east": 1.0, "north": 1.0},
-                    "width": 2,
-                    "height": 2,
-                    "cellMeters": 1,
-                    "classNames": {"3": "Dense Forest"},
-                    "cells": {
-                        "elevation": [0.0, 0.0, 0.0, 0.0],
-                        "cls": [3, 3, 3, 3],
-                    },
-                },
-                "units": [
-                    {
-                        "id": "b",
-                        "side": "blue",
-                        "name": "Alpha",
-                        "position": {"longitude": 0.1, "latitude": 0.1},
-                    }
-                ],
-                "objectives": [],
-            }
+    impassable = json.loads(json.dumps(PAYLOAD_2X2))
+    impassable["terrain"]["classNames"] = {"3": "Dense Forest", "7": "Structure"}
+    impassable["terrain"]["cells"]["cls"] = [3, 7, 3, 3]
+    payload.write_text(json.dumps(impassable), encoding="utf-8")
+
+    monkeypatch.setattr(demo, "BLUE_CELLS", ((1, 0),))
+    monkeypatch.setattr(demo, "RED_CELLS", ((0, 1),))
+
+    with pytest.raises(PayloadError, match="no soldier can stand on"):
+        demo.build_battlefield(payload)
+
+
+def bounded_battlefield(soldiers: list[Soldier]) -> Battlefield:
+    return Battlefield(width=40, height=30, soldiers=soldiers)
+
+
+def test_minimap_bounds_contain_every_soldier_whatever_their_state() -> None:
+    # The guarantee is that the box is defined by the soldiers, so a casualty
+    # or a body cannot fall outside it and quietly vanish from the view.
+    soldiers = [
+        Soldier(Team.BLUE, Position(x=20, y=15, z=0)),
+        Soldier(
+            Team.BLUE,
+            Position(x=31, y=22, z=0),
+            survival_status=SurvivalState.CASUALTY,
         ),
-        encoding="utf-8",
+        Soldier(
+            Team.RED,
+            Position(x=8, y=4, z=0),
+            survival_status=SurvivalState.DEAD,
+        ),
+    ]
+    battlefield = bounded_battlefield(soldiers)
+
+    x0, y0, x1, y1 = demo.soldier_bounds(battlefield)
+
+    for soldier in battlefield.soldiers:
+        assert x0 <= soldier.position.x <= x1
+        assert y0 <= soldier.position.y <= y1
+
+
+def test_minimap_bounds_clamp_to_the_map() -> None:
+    # A soldier in the corner would push the margin negative, and one on the
+    # far edge past the last column.
+    battlefield = bounded_battlefield(
+        [
+            Soldier(Team.BLUE, Position(x=0, y=0, z=0)),
+            Soldier(Team.RED, Position(x=39, y=29, z=0)),
+        ]
     )
 
-    with_units, _ = demo.build_payload_battlefield(payload)
-    without_units, _ = demo.build_payload_battlefield(payload, include_units=False)
+    assert demo.soldier_bounds(battlefield) == (0, 0, 39, 29)
 
-    assert len(with_units.soldiers) == 1
-    assert without_units.soldiers == []
-    # Terrain is unaffected by dropping the units.
-    assert without_units.terrain_classes == with_units.terrain_classes
+
+def test_minimap_bounds_fall_back_to_the_whole_map_without_soldiers() -> None:
+    battlefield = bounded_battlefield([])
+
+    assert demo.soldier_bounds(battlefield) == demo.full_bounds(battlefield)
+
+
+def test_minimap_bounds_track_the_soldiers_not_the_map() -> None:
+    battlefield = bounded_battlefield(
+        [
+            Soldier(Team.BLUE, Position(x=20, y=15, z=0)),
+            Soldier(Team.RED, Position(x=22, y=17, z=0)),
+        ]
+    )
+
+    assert demo.soldier_bounds(battlefield, margin=2) == (18, 13, 24, 19)
+
+
+def test_map_lines_renders_only_the_requested_box() -> None:
+    battlefield = bounded_battlefield([Soldier(Team.BLUE, Position(x=5, y=5, z=0))])
+
+    rows = demo.map_lines(battlefield, (4, 4, 8, 7), color=False)
+
+    ruler, body = rows[0], rows[1:]
+    # One row per y in the box, and one column per x, after the 5-char gutter.
+    assert len(body) == 4
+    assert all(len(row) == 5 + 5 for row in body)
+    # The ruler reports real coordinates, not offsets from the box.
+    assert ruler == f"{'':<5}00000"
+    # Row y=5 is the second in the box; x=5 is one column in, after the gutter.
+    assert body[1][5 + (5 - 4)] == "B"
+
+
+def test_map_lines_over_full_bounds_covers_the_whole_map() -> None:
+    battlefield = bounded_battlefield([])
+
+    rows = demo.map_lines(battlefield, demo.full_bounds(battlefield), color=False)
+
+    assert len(rows) == 30 + 1
+    assert all(len(row) == 40 + 5 for row in rows[1:])
 
 
 def test_soldiers_in_the_far_corners_still_render() -> None:
