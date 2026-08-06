@@ -17,6 +17,7 @@ import { DataQualityWarning } from '../components/panels/DataQualityWarning'
 import { SimulationExportModal } from '../components/panels/SimulationExportModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
+import { MissionTimePanel } from '../components/panels/MissionTimePanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
@@ -488,6 +489,7 @@ export function BattlegroundSelectorPage() {
                 )}
                 {activeTab === 'heatmaps' && <HeatmapsPanel />}
                 {activeTab === 'weather' && <WeatherPanel />}
+                {activeTab === 'time' && <MissionTimePanel />}
               </div>
             </div>
 

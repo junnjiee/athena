@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, Pencil, Layers, Thermometer, Cloud, Moon, Sun, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { ChevronRight, Clock, Pencil, Layers, Thermometer, Cloud, Moon, Sun, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 
-export type HeaderTab = 'layers' | 'heatmaps' | 'weather'
+export type HeaderTab = 'layers' | 'heatmaps' | 'weather' | 'time'
 
 const TABS: { id: HeaderTab; label: string; icon: typeof Layers }[] = [
   { id: 'layers', label: 'Layers', icon: Layers },
   { id: 'heatmaps', label: 'Heatmaps', icon: Thermometer },
   { id: 'weather', label: 'Weather', icon: Cloud },
+  { id: 'time', label: 'Time', icon: Clock },
 ]
 
 interface Props {

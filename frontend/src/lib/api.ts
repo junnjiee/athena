@@ -2,6 +2,7 @@ import { decodeGrid } from './grid'
 import type { BattlegroundMeta, BBoxDeg, GridData, OsmFeatures } from '../types/terrain'
 import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 import type { PlanSummary, SavedPlan } from '../types/plan'
+import type { Forecast } from '../types/forecast'
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -35,6 +36,13 @@ export async function fetchBattlegroundGrid(id: string, bbox: BBoxDeg): Promise<
   const res = await fetch(`/api/battleground/${id}/grid`)
   if (!res.ok) throw new Error(await readError(res))
   return decodeGrid(await res.arrayBuffer(), bbox)
+}
+
+/** Hourly conditions and the light table over the battleground's own ground. */
+export async function fetchForecast(id: string): Promise<Forecast> {
+  const res = await fetch(`/api/battleground/${id}/forecast`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as Forecast
 }
 
 /** Persists the current plan against a battleground that's still generated

@@ -3,6 +3,12 @@ import { z } from 'zod'
 import { config } from './config'
 import { bboxExtentMeters } from './lib/geo'
 import { getJob, startPipeline, type ProgressListener } from './services/pipeline'
+import { fetchForecast, type Forecast } from './services/forecast'
+import { LruCache } from './lib/lru'
+
+/** One forecast per battleground for the life of the process. Weather moves on
+ *  the hour, and a planning session is shorter than that. */
+const forecastCache = new LruCache<Forecast>(config.jobCacheSize)
 
 const battlegroundBody = z
   .object({
@@ -41,6 +47,25 @@ export function registerRoutes(app: FastifyInstance, onProgress: ProgressListene
     if (job.status === 'error') return reply.status(500).send({ error: job.error })
     if (job.status !== 'ready' || !job.meta) return reply.status(409).send({ error: 'not ready' })
     return { meta: job.meta, features: job.features }
+  })
+
+  /** Hourly conditions plus sunrise/sunset over the battleground's own ground,
+   *  for planning a mission window rather than a single instant (#57). Cached
+   *  per job so scrubbing a timeline doesn't re-hit Open-Meteo. */
+  app.get<{ Params: { id: string } }>('/api/battleground/:id/forecast', async (req, reply) => {
+    const job = getJob(req.params.id)
+    if (!job) return reply.status(404).send({ error: 'unknown battleground' })
+    if (job.status !== 'ready' || !job.meta) return reply.status(409).send({ error: 'not ready' })
+
+    const cached = forecastCache.get(job.meta.id)
+    if (cached) return cached
+
+    const { bbox } = job.meta
+    const forecast = await fetchForecast((bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2)
+    if (!forecast) return reply.status(502).send({ error: 'forecast unavailable' })
+
+    forecastCache.set(job.meta.id, forecast)
+    return forecast
   })
 
   app.get<{ Params: { id: string } }>('/api/battleground/:id/grid', async (req, reply) => {
