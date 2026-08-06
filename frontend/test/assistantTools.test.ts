@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { assistantTools } from '../src/assistant/tools'
 import { registerAssistantHost } from '../src/assistant/bridge'
 import { useConfirm } from '../src/assistant/confirm'
+import { useSettings } from '../src/state/settings'
 import { useBattleground } from '../src/state/battleground'
 import { usePlan } from '../src/state/plan'
 import { TERRAIN_CLASS, type GridData } from '../src/types/terrain'
@@ -48,6 +49,7 @@ function battlefieldMissing() {
 beforeEach(() => {
   usePlan.getState().clearPlan()
   useConfirm.setState({ pending: null, lastOutcome: null })
+  useSettings.getState().resetToDefaults()
   battlefieldReady()
 })
 
@@ -160,14 +162,46 @@ describe('draw_route', () => {
     )
   })
 
-  test('an unrecognised load preset falls back to fighting order', () => {
+  test('an unrecognised load preset falls back to the operator default', () => {
+    useSettings.setState({ defaultLoadPreset: 'approach', bodyMassKg: 82 })
     assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
     assistantTools.draw_route({
       unit_callsign: 'Alpha',
       waypoints: [at(1, 4)],
       load_preset: 'nonsense',
     })
-    expect(usePlan.getState().routes[0].loadout.preset).toBe('fighting')
+    expect(usePlan.getState().routes[0].loadout).toMatchObject({
+      preset: 'approach',
+      bodyMassKg: 82,
+    })
+  })
+
+  test('with nothing specified, a voice route matches the operator defaults', () => {
+    // A route drawn by voice and one drawn by hand must agree, or their ETA and
+    // energy estimates diverge under the same preferences.
+    useSettings.setState({ defaultMovementType: 'charge', defaultLoadPreset: 'light', bodyMassKg: 68 })
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.draw_route({ unit_callsign: 'Alpha', waypoints: [at(1, 4)] })
+
+    const route = usePlan.getState().routes[0]
+    expect(route.movementType).toBe('charge')
+    expect(route.loadout).toMatchObject({ preset: 'light', bodyMassKg: 68, loadMassKg: 14 })
+  })
+
+  test('an explicit preset overrides the default load but keeps operator body mass', () => {
+    useSettings.setState({ defaultLoadPreset: 'light', bodyMassKg: 90 })
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.draw_route({
+      unit_callsign: 'Alpha',
+      waypoints: [at(1, 4)],
+      load_preset: 'approach',
+    })
+
+    expect(usePlan.getState().routes[0].loadout).toMatchObject({
+      preset: 'approach',
+      loadMassKg: 35,
+      bodyMassKg: 90,
+    })
   })
 })
 

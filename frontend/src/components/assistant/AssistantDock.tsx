@@ -152,9 +152,12 @@ function DockBody() {
     }
 
     // Prompt for the mic before handing off, so a denial reads as a permission
-    // problem rather than an opaque SDK connection error.
+    // problem rather than an opaque SDK connection error. Release the probe
+    // stream immediately: the SDK opens its own, and leaving this one live
+    // would keep the browser's recording indicator on after the session ends.
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true })
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true })
+      for (const track of probe.getTracks()) track.stop()
     } catch {
       setPhase({
         kind: 'error',

@@ -5,7 +5,8 @@ import { findElementByName, usePlan } from '../state/plan'
 import { listPlans } from '../lib/api'
 import { sampleCell } from '../lib/grid'
 import { analyzePlan } from '../lib/validate'
-import { loadoutFromPreset, DEFAULT_MOVEMENT, type MovementType } from '../types/movement'
+import { defaultLoadout, useSettings, type DefaultLoadPreset } from '../state/settings'
+import { LOAD_PRESETS, type MovementType } from '../types/movement'
 import type { ViewMode } from '../components/globe/ViewModeToggle'
 import type { HeatmapMetric } from '../types/terrain'
 import type { LonLat, PlaceableMode } from '../types/entities'
@@ -239,11 +240,23 @@ export const assistantTools = {
     // Routes are anchored to their start unit, so the unit's own position is
     // always the first point regardless of what the model supplied.
     const full = [unit.position, ...points]
-    const movementType = (str(args, 'movement_type') ?? DEFAULT_MOVEMENT) as MovementType
-    const preset = str(args, 'load_preset')
-    const loadout = loadoutFromPreset(
-      preset === 'light' || preset === 'approach' ? preset : 'fighting',
-    )
+    // Fall back to the operator's saved planning defaults, not module constants
+    // -- otherwise a voice-drawn route carries a different gait and body mass
+    // than one drawn by hand, and their ETA/energy estimates disagree.
+    const settings = useSettings.getState()
+    const movementType = (str(args, 'movement_type') ?? settings.defaultMovementType) as MovementType
+
+    const requested = str(args, 'load_preset')
+    const explicit: DefaultLoadPreset | null =
+      requested === 'light' || requested === 'fighting' || requested === 'approach'
+        ? requested
+        : null
+    // An explicit preset overrides the carried mass but keeps the operator's
+    // own body mass, which is a property of the soldier, not the order.
+    const base = defaultLoadout()
+    const loadout = explicit
+      ? { ...base, loadMassKg: LOAD_PRESETS[explicit].loadMassKg, preset: explicit }
+      : base
 
     usePlan.getState().addRoute({
       side: unit.side,
