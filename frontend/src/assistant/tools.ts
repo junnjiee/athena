@@ -1,4 +1,5 @@
 import { requireHost } from './bridge'
+import { requestConfirmation } from './confirm'
 import { useBattleground } from '../state/battleground'
 import { findElementByName, usePlan } from '../state/plan'
 import { listPlans } from '../lib/api'
@@ -329,16 +330,43 @@ export const assistantTools = {
     const found = findElementByName(state, name)
     if (!found) return `Nothing on the map is called "${name}".`
 
-    state.deleteElement(found.id)
-    return `Removed ${found.label}.`
+    // Deleting a unit takes its routes with it, so say what will actually go.
+    const attached =
+      found.kind === 'unit'
+        ? state.routes.filter(
+            (r) => r.startUnitId === found.id || (r.endRef?.kind === 'unit' && r.endRef.id === found.id),
+          ).length
+        : state.routes.filter((r) => r.endRef?.kind === 'objective' && r.endRef.id === found.id).length
+
+    return requestConfirmation({
+      summary:
+        attached > 0
+          ? `Remove ${found.label} and ${attached} attached route${attached === 1 ? '' : 's'}?`
+          : `Remove ${found.label}?`,
+      spoken:
+        attached > 0
+          ? `That will also remove ${attached} route${attached === 1 ? '' : 's'} attached to ${found.label}. Confirm on screen to go ahead.`
+          : `Confirm on screen to remove ${found.label}.`,
+      commit: () => {
+        usePlan.getState().deleteElement(found.id)
+        return `Removed ${found.label}.`
+      },
+    })
   },
 
   clear_plan(): string {
     const { units, objectives, routes } = usePlan.getState()
     const total = units.length + objectives.length + routes.length
     if (total === 0) return 'The plan is already empty.'
-    usePlan.getState().clearPlan()
-    return `Cleared the plan — ${total} element${total === 1 ? '' : 's'} removed.`
+
+    return requestConfirmation({
+      summary: `Clear the whole plan — ${total} element${total === 1 ? '' : 's'}?`,
+      spoken: `That would clear the entire plan, ${total} element${total === 1 ? '' : 's'}. Confirm on screen if you mean it.`,
+      commit: () => {
+        usePlan.getState().clearPlan()
+        return `Cleared the plan — ${total} element${total === 1 ? '' : 's'} removed.`
+      },
+    })
   },
 
   set_heatmap(args: Args): string {

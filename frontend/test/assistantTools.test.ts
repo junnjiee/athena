@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { assistantTools } from '../src/assistant/tools'
 import { registerAssistantHost } from '../src/assistant/bridge'
+import { useConfirm } from '../src/assistant/confirm'
 import { useBattleground } from '../src/state/battleground'
 import { usePlan } from '../src/state/plan'
 import { TERRAIN_CLASS, type GridData } from '../src/types/terrain'
@@ -46,6 +47,7 @@ function battlefieldMissing() {
 
 beforeEach(() => {
   usePlan.getState().clearPlan()
+  useConfirm.setState({ pending: null, lastOutcome: null })
   battlefieldReady()
 })
 
@@ -211,22 +213,74 @@ describe('reading the map', () => {
   })
 })
 
-describe('removing things', () => {
-  test('delete_element removes a unit by callsign', () => {
+describe('removing things is gated behind confirmation', () => {
+  test('delete_element parks the removal instead of doing it', () => {
     assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
-    expect(assistantTools.delete_element({ name: 'Alpha' })).toBe('Removed Alpha.')
+    const answer = assistantTools.delete_element({ name: 'Alpha' })
+
+    expect(answer).toContain('Confirm on screen')
+    // Nothing is gone until the operator agrees.
+    expect(usePlan.getState().units).toHaveLength(1)
+    expect(useConfirm.getState().pending?.summary).toBe('Remove Alpha?')
+  })
+
+  test('confirming performs the removal and reports it', () => {
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.delete_element({ name: 'Alpha' })
+    useConfirm.getState().confirm()
+
     expect(usePlan.getState().units).toHaveLength(0)
+    expect(useConfirm.getState().lastOutcome).toBe('Removed Alpha.')
+    expect(useConfirm.getState().pending).toBeNull()
   })
 
-  test('delete_element reports an unknown name rather than guessing', () => {
+  test('cancelling leaves the plan untouched', () => {
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.delete_element({ name: 'Alpha' })
+    useConfirm.getState().cancel()
+
+    expect(usePlan.getState().units).toHaveLength(1)
+    expect(useConfirm.getState().lastOutcome).toContain('Cancelled')
+  })
+
+  test('the prompt warns when routes will go with the unit', () => {
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.draw_route({ unit_callsign: 'Alpha', waypoints: [at(1, 5)] })
+
+    const answer = assistantTools.delete_element({ name: 'Alpha' })
+    expect(answer).toContain('1 route')
+    expect(useConfirm.getState().pending?.summary).toBe('Remove Alpha and 1 attached route?')
+  })
+
+  test('delete_element reports an unknown name without prompting', () => {
     expect(assistantTools.delete_element({ name: 'Zulu' })).toContain('Nothing on the map')
+    expect(useConfirm.getState().pending).toBeNull()
   })
 
-  test('clear_plan reports the count it removed', () => {
+  test('clear_plan is gated too, and reports the count once confirmed', () => {
     assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
     assistantTools.place_objective(at(2, 2))
-    expect(assistantTools.clear_plan()).toContain('2 elements removed')
+
+    expect(assistantTools.clear_plan()).toContain('Confirm on screen')
+    expect(usePlan.getState().units).toHaveLength(1)
+
+    useConfirm.getState().confirm()
+    expect(usePlan.getState().units).toHaveLength(0)
+    expect(useConfirm.getState().lastOutcome).toContain('2 elements removed')
+  })
+
+  test('clearing an already-empty plan does not prompt', () => {
     expect(assistantTools.clear_plan()).toBe('The plan is already empty.')
+    expect(useConfirm.getState().pending).toBeNull()
+  })
+
+  test('takeOutcome hands the result over exactly once', () => {
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.delete_element({ name: 'Alpha' })
+    useConfirm.getState().confirm()
+
+    expect(useConfirm.getState().takeOutcome()).toBe('Removed Alpha.')
+    expect(useConfirm.getState().takeOutcome()).toBeNull()
   })
 })
 

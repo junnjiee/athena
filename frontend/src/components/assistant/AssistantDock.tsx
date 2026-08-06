@@ -1,7 +1,8 @@
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ConversationProvider, useConversation } from '@elevenlabs/react'
-import { AlertCircle, Loader2, Mic, MicOff, Radio, X } from 'lucide-react'
+import { AlertCircle, Loader2, Mic, MicOff, Radio, SendHorizontal, ShieldAlert, X } from 'lucide-react'
 import { assistantTools } from '../../assistant/tools'
+import { useConfirm } from '../../assistant/confirm'
 
 /**
  * Voice assistant dock.
@@ -72,6 +73,7 @@ function DockBody() {
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  const [typed, setTyped] = useState('')
   const entryId = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -87,8 +89,31 @@ function DockBody() {
     onError: (message: string) => setPhase({ kind: 'error', message }),
   })
 
-  const { status, isSpeaking, isMuted, setMuted, startSession, endSession } = conversation
+  const { status, isSpeaking, isMuted, setMuted, startSession, endSession, sendUserMessage } =
+    conversation
   const live = status === 'connected'
+
+  const pending = useConfirm((s) => s.pending)
+  const confirmPending = useConfirm((s) => s.confirm)
+  const cancelPending = useConfirm((s) => s.cancel)
+  const takeOutcome = useConfirm((s) => s.takeOutcome)
+
+  // Once a gated action resolves, tell the agent what happened so it isn't
+  // left believing the plan still holds whatever it tried to remove.
+  const lastOutcome = useConfirm((s) => s.lastOutcome)
+  useEffect(() => {
+    if (lastOutcome === null) return
+    const outcome = takeOutcome()
+    if (outcome === null) return
+    addEntry('athena', outcome)
+    if (status === 'connected') {
+      try {
+        conversation.sendContextualUpdate(outcome)
+      } catch {
+        // Losing the update only costs the agent context, not correctness.
+      }
+    }
+  }, [lastOutcome, takeOutcome, addEntry, status, conversation])
 
   // Pin the transcript to the newest line.
   useEffect(() => {
@@ -220,6 +245,31 @@ function DockBody() {
         </div>
       )}
 
+      {pending && (
+        <div className="flex flex-col gap-2 rounded-lg border border-(--hostile)/40 bg-(--hostile)/10 p-2.5">
+          <div className="flex items-start gap-2 text-xs text-(--text-h)">
+            <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-(--hostile)" strokeWidth={1.75} />
+            <span>{pending.summary}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={confirmPending}
+              className="flex-1 rounded-md bg-(--hostile) px-2 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+            >
+              Confirm
+            </button>
+            <button
+              type="button"
+              onClick={cancelPending}
+              className="flex-1 rounded-md bg-white/10 px-2 py-1.5 text-xs text-(--text) transition-colors hover:text-(--text-h)"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {transcript.length > 0 && (
         <div ref={scrollRef} className="flex max-h-56 flex-col gap-2 overflow-y-auto">
           {transcript.map((entry) => (
@@ -238,6 +288,38 @@ function DockBody() {
           Ask Athena to find ground, generate a battlefield, place units, draw routes, or analyse
           the plan.
         </p>
+      )}
+
+      {live && (
+        // Typed fallback for when speaking isn't practical -- a noisy room, or
+        // a place name the recognizer keeps mangling.
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            const text = typed.trim()
+            if (text === '') return
+            setTyped('')
+            addEntry('commander', text)
+            sendUserMessage(text)
+          }}
+          className="flex items-center gap-1.5"
+        >
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="Or type an instruction…"
+            aria-label="Type an instruction"
+            className="min-w-0 flex-1 rounded-md border border-(--border) bg-black/20 px-2 py-1.5 text-xs text-(--text-h) placeholder:text-(--text-dim) focus:border-(--border-strong) focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={typed.trim() === ''}
+            title="Send"
+            className="rounded-md p-1.5 text-(--text-dim) transition-colors hover:text-(--text-h) disabled:opacity-40"
+          >
+            <SendHorizontal className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </form>
       )}
 
       <button
