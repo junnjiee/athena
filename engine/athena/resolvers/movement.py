@@ -2,6 +2,7 @@ from random import Random
 
 from athena.world_state import Battlefield, Soldier
 from athena.models import (
+    TERRAIN_LABELS,
     ActionValidationResult,
     MoveAction,
     MoveDirection,
@@ -101,9 +102,11 @@ class MovementResolver:
                 f"the maximum is {self.max_elevation_change}."
             )
 
-        if new_position in battlefield.cover:
+        if not battlefield.profile_for(new_position).passable:
+            terrain_label = TERRAIN_LABELS[battlefield.terrain_for(new_position)]
             return ActionValidationResult.rejected(
-                f"Destination {new_position.model_dump_json()} contains impassable cover."
+                f"Destination {new_position.model_dump_json()} is impassable "
+                f"terrain ({terrain_label})."
             )
 
         return ActionValidationResult.accepted()

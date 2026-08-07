@@ -7,7 +7,11 @@ from athena.agent import (
     SYSTEM_PROMPT,
     _resolve_action,
 )
-from athena.params import build_system_prompt as build_openrouter_system_prompt
+from athena.params import (
+    TERRAIN_PROFILES,
+    build_system_prompt as build_openrouter_system_prompt,
+    impassable_terrain_names,
+)
 from athena.world_state import Battlefield
 from athena.ollama_agent import (
     SYSTEM_PROMPT as OLLAMA_SYSTEM_PROMPT,
@@ -18,6 +22,7 @@ from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.world_state import Soldier
 from athena.models import (
+    TERRAIN_LABELS,
     ChosenAction,
     ChosenTurn,
     HoldAction,
@@ -29,6 +34,7 @@ from athena.models import (
     SurvivalState,
     Team,
     TerrainCell,
+    TerrainClass,
     VisibleSoldier,
 )
 
@@ -80,7 +86,7 @@ def test_hold_action_serializes_without_parameters() -> None:
 def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
     assert "hold position, move one grid cell, or shoot" in SYSTEM_PROMPT
     assert "x, y, and z" in SYSTEM_PROMPT
-    assert "available_terrain cells" in SYSTEM_PROMPT
+    assert "terrain is drawn as a map" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in OLLAMA_SYSTEM_PROMPT
 
@@ -90,7 +96,7 @@ def test_agent_prompts_list_illegal_movement_actions(prompt: str) -> None:
     assert "\n\nIllegal actions:\n" in prompt
     assert "- Moving outside the battlefield." in prompt
     assert "- Moving more than one grid cell." in prompt
-    assert "- Moving into a cover cell." in prompt
+    assert "- Moving into impassable terrain (Water, Structure)." in prompt
     assert "elevation differs by more than one level" in prompt
     assert "cell occupied by a casualty or dead soldier" in prompt
     assert "cell occupied by a stationary living soldier" in prompt
@@ -119,7 +125,7 @@ def test_agent_prompts_use_effective_engine_limits() -> None:
     )
     ollama_prompt = build_ollama_system_prompt(max_elevation_change=2)
 
-    assert "up to 7 prior tick observations" in openrouter_prompt
+    assert "up to 7 prior ticks" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in ollama_prompt
 
@@ -330,18 +336,23 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
 
 
 @pytest.mark.parametrize(
-    ("destination_is_visible", "destination_elevation", "has_cover", "expected_reason"),
+    (
+        "destination_is_visible",
+        "destination_elevation",
+        "destination_impassable",
+        "expected_reason",
+    ),
     [
         (False, 0, True, "Moving east was rejected by the movement rules."),
         (False, 2, False, "Moving east was rejected by the movement rules."),
-        (True, 0, True, "contains impassable cover"),
+        (True, 0, True, "is impassable terrain (Structure)"),
         (True, 2, False, "Destination elevation differs by 2 levels"),
     ],
 )
 def test_move_retry_feedback_only_explains_visible_terrain(
     destination_is_visible: bool,
     destination_elevation: int,
-    has_cover: bool,
+    destination_impassable: bool,
     expected_reason: str,
 ) -> None:
     soldier = Soldier(Team.BLUE, Position(x=1, y=0, z=0))
@@ -355,7 +366,9 @@ def test_move_retry_feedback_only_explains_visible_terrain(
             soldier.position,
             destination,
         },
-        cover={destination} if has_cover else set(),
+        terrain=(
+            {destination: TerrainClass.STRUCTURE} if destination_impassable else None
+        ),
     )
     observed = ObservedSoldier(
         team=Team.BLUE,
@@ -366,8 +379,11 @@ def test_move_retry_feedback_only_explains_visible_terrain(
             [
                 TerrainCell(
                     position=destination,
-                    has_cover=has_cover,
-                    has_concealment=False,
+                    terrain_class=(
+                        TerrainClass.STRUCTURE
+                        if destination_impassable
+                        else TerrainClass.OPEN_GROUND
+                    ),
                 )
             ]
             if destination_is_visible
@@ -404,7 +420,7 @@ def test_move_retry_feedback_only_explains_visible_terrain(
     assert retry_feedback[1] is not None
     assert expected_reason in retry_feedback[1]
     if not destination_is_visible:
-        assert "cover" not in retry_feedback[1]
+        assert "impassable" not in retry_feedback[1]
         assert "elevation" not in retry_feedback[1]
         assert destination.model_dump_json() not in retry_feedback[1]
 
@@ -501,3 +517,97 @@ def test_ollama_action_resolution_still_rejects_shooting() -> None:
     )
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    ("protection", "expected_probability"),
+    [
+        (0.0, 0.90),
+        (0.15, 0.765),
+        (0.90, 0.09),
+    ],
+)
+def test_terrain_protection_reduces_hit_probability(
+    protection: float,
+    expected_probability: float,
+) -> None:
+    probability = ShootingResolver().hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=0),
+        protection,
+    )
+
+    assert probability == pytest.approx(expected_probability)
+
+
+def test_protection_can_drive_probability_below_the_marksmanship_floor() -> None:
+    # The floor bounds how badly a soldier shoots, not how well a target is
+    # sheltered, so hard cover is allowed to push the chance beneath it.
+    resolver = ShootingResolver()
+
+    unprotected = resolver.hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=20),
+    )
+    protected = resolver.hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=1, y=0, z=20),
+        0.9,
+    )
+
+    assert unprotected == pytest.approx(0.50)
+    assert protected < resolver.minimum_hit_probability
+
+
+def test_resolve_shot_reads_protection_from_the_target_cell() -> None:
+    shooter = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    target = Soldier(Team.RED, Position(x=1, y=0, z=0))
+    battlefield = Battlefield(
+        width=2,
+        height=1,
+        soldiers=[shooter, target],
+        terrain={target.position: TerrainClass.URBAN},
+    )
+
+    outcome = ShootingResolver(rng=Random(0)).resolve_shot(
+        battlefield.snapshot(),
+        0,
+        ShootAction(target_position=target.position),
+    )
+
+    assert outcome is not None
+    # Urban protection is 0.40, so 0.90 * 0.60.
+    assert outcome.hit_probability == pytest.approx(0.54)
+
+
+def test_prompt_terrain_vocabulary_is_derived_from_the_profile_table() -> None:
+    # Generated rather than hand-written so the prompt cannot drift from the
+    # values the resolvers use.
+    impassable = {
+        TERRAIN_LABELS[terrain_class]
+        for terrain_class, profile in TERRAIN_PROFILES.items()
+        if not profile.passable
+    }
+
+    for label in impassable:
+        assert label in impassable_terrain_names()
+        assert label in SYSTEM_PROMPT
+
+    passable_only = {
+        TERRAIN_LABELS[terrain_class]
+        for terrain_class, profile in TERRAIN_PROFILES.items()
+        if profile.passable
+    }
+    assert not (passable_only & set(impassable_terrain_names().split(", ")))
+
+
+def test_terrain_cell_serializes_a_readable_class_name() -> None:
+    cell = TerrainCell(
+        position=Position(x=0, y=0, z=0),
+        terrain_class=TerrainClass.DENSE_FOREST,
+    )
+
+    assert cell.terrain == "Dense Forest"
+    assert '"terrain":"Dense Forest"' in cell.model_dump_json()
+    # The index survives the round trip so engine consumers keep the enum.
+    assert TerrainCell.model_validate_json(cell.model_dump_json()) == cell

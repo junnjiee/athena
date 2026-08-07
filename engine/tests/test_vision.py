@@ -7,7 +7,7 @@ from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
 from athena.world_state import Soldier
-from athena.models import Position, SurvivalState, Team
+from athena.models import Position, SurvivalState, Team, TerrainClass
 
 
 def surface_for(*positions: Position) -> set[Position]:
@@ -249,7 +249,7 @@ def test_cover_still_blocks_xy_sightline_on_elevated_surface() -> None:
         height=1,
         soldiers=[observer, target],
         surface=surface_for(observer.position, cover, target.position),
-        cover={cover},
+        terrain={cover: TerrainClass.STRUCTURE},
     )
 
     assert not VisionResolver().verify_los(battlefield, observer, target)
@@ -264,31 +264,86 @@ def test_friendly_soldier_still_ignores_hard_cover_below_sightline() -> None:
         height=1,
         soldiers=[observer, target],
         surface=surface_for(observer.position, cover, target.position),
-        cover={cover},
+        terrain={cover: TerrainClass.STRUCTURE},
     )
 
     assert VisionResolver().verify_los(battlefield, observer, target)
 
 
-def test_concealment_hide_probability_uses_xyz_target_position() -> None:
+def test_concealment_uses_the_target_cell_terrain_value() -> None:
     observer = Soldier(Team.BLUE, Position(x=0, y=0, z=1), vision_range=5)
     target = Soldier(Team.RED, Position(x=1, y=0, z=0), vision_range=5)
-    battlefield = Battlefield(
-        width=2,
-        height=1,
-        soldiers=[observer, target],
-        surface={observer.position, target.position},
-        concealment={target.position},
+
+    def battlefield_with(terrain_class: TerrainClass) -> Battlefield:
+        return Battlefield(
+            width=2,
+            height=1,
+            soldiers=[observer, target],
+            surface={observer.position, target.position},
+            terrain={target.position: terrain_class},
+        )
+
+    # Dense forest conceals at 0.70. Random(1) first yields ~0.134, which is
+    # below that, so the target stays hidden; open ground never rolls at all.
+    assert not VisionResolver(rng=Random(1)).verify_los(
+        battlefield_with(TerrainClass.DENSE_FOREST),
+        observer,
+        target,
+    )
+    assert VisionResolver(rng=Random(1)).verify_los(
+        battlefield_with(TerrainClass.OPEN_GROUND),
+        observer,
+        target,
+    )
+    # Random(0) first yields ~0.844, above 0.70, so the same forest cell is seen.
+    assert VisionResolver(rng=Random(0)).verify_los(
+        battlefield_with(TerrainClass.DENSE_FOREST),
+        observer,
+        target,
     )
 
-    assert VisionResolver(
-        concealment_hide_probability=0.0,
-        rng=Random(0),
-    ).verify_los(battlefield, observer, target)
-    assert not VisionResolver(
-        concealment_hide_probability=1.0,
-        rng=Random(0),
-    ).verify_los(battlefield, observer, target)
+
+def test_opacity_accumulates_with_distance_through_forest() -> None:
+    # One metre of dense forest must not blind an observer, but a long run of
+    # it must: 0.05 per metre crosses the threshold at roughly twenty metres.
+    def forest_corridor(width: int) -> tuple[Battlefield, Soldier, Soldier]:
+        observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=40)
+        target = Soldier(Team.RED, Position(x=width - 1, y=0, z=0), vision_range=40)
+        battlefield = Battlefield(
+            width=width,
+            height=1,
+            soldiers=[observer, target],
+            surface={Position(x=x, y=0, z=0) for x in range(width)},
+            terrain=[TerrainClass.DENSE_FOREST] * width,
+        )
+        return battlefield, observer, target
+
+    resolver = VisionResolver(rng=Random(0))
+
+    short_battlefield, short_observer, short_target = forest_corridor(4)
+    assert not resolver._opacity_blocks_los(
+        short_battlefield, short_observer.position, short_target.position
+    )
+
+    long_battlefield, long_observer, long_target = forest_corridor(30)
+    assert resolver._opacity_blocks_los(
+        long_battlefield, long_observer.position, long_target.position
+    )
+
+
+def test_a_single_structure_cell_blocks_sight_immediately() -> None:
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=10)
+    target = Soldier(Team.RED, Position(x=2, y=0, z=0), vision_range=10)
+    blocker = Position(x=1, y=0, z=0)
+    battlefield = Battlefield(
+        width=3,
+        height=1,
+        soldiers=[observer, target],
+        surface={Position(x=x, y=0, z=0) for x in range(3)},
+        terrain={blocker: TerrainClass.STRUCTURE},
+    )
+
+    assert not VisionResolver().verify_los(battlefield, observer, target)
 
 
 def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
@@ -300,8 +355,10 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         height=1,
         soldiers=[observer],
         surface={Position(x=x, y=0, z=0) for x in range(6)},
-        cover={distant_cover},
-        concealment={concealed_position},
+        terrain={
+            distant_cover: TerrainClass.STRUCTURE,
+            concealed_position: TerrainClass.SCRUB,
+        },
     )
     loop = LoopEngine(
         battlefield=battlefield,
@@ -318,10 +375,10 @@ def test_nearby_terrain_includes_every_in_range_cell_with_attributes() -> None:
         Position(x=3, y=0, z=0),
         Position(x=4, y=0, z=0),
     ]
-    assert cells[2].has_concealment
-    assert not cells[2].has_cover
-    assert cells[4].has_cover
-    assert not cells[4].has_concealment
+    assert cells[2].terrain_class == TerrainClass.SCRUB
+    assert cells[2].terrain == "Scrub / Bush"
+    assert cells[4].terrain_class == TerrainClass.STRUCTURE
+    assert cells[0].terrain_class == TerrainClass.OPEN_GROUND
 
 
 def test_in_range_terrain_behind_hill_is_hidden() -> None:
@@ -390,4 +447,48 @@ def test_terrain_los_blocked_by_tall_wall() -> None:
         Position(x=0, y=0, z=1),
         Position(x=2, y=0, z=1),
         observer_vision_range=6,
+    )
+
+
+def forest_battlefield(width: int, soldiers: list[Soldier]) -> Battlefield:
+    """Flat ground, uniformly dense forest, so only opacity can block."""
+    return Battlefield(
+        width=width,
+        height=1,
+        soldiers=soldiers,
+        surface={Position(x=x, y=0, z=0) for x in range(width)},
+        terrain=tuple([int(TerrainClass.DENSE_FOREST)] * width),
+    )
+
+
+def test_terrain_beyond_opaque_foliage_is_not_reported() -> None:
+    # Dense forest is 0.05 opacity/m, so sight accumulates to opaque at ~21 m.
+    # Ground past that point must not be reported, or a soldier is handed
+    # terrain it cannot see through.
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=30)
+    resolver = VisionResolver()
+    battlefield = forest_battlefield(40, [observer])
+
+    assert resolver.verify_terrain_los(
+        battlefield, observer.position, Position(x=15, y=0, z=0), 30
+    )
+    assert not resolver.verify_terrain_los(
+        battlefield, observer.position, Position(x=25, y=0, z=0), 30
+    )
+
+
+def test_terrain_visibility_matches_soldier_visibility() -> None:
+    # The cell an enemy stands on must not outlive the enemy: if foliage hides
+    # the soldier, it hides the ground too.
+    observer = Soldier(Team.BLUE, Position(x=0, y=0, z=0), vision_range=30)
+    target = Soldier(Team.RED, Position(x=25, y=0, z=0), vision_range=30)
+    battlefield = forest_battlefield(40, [observer, target])
+
+    # A roll that never hides isolates opacity from the concealment check.
+    resolver = VisionResolver(rng=Random())
+    resolver.rng.random = lambda: 1.0
+
+    assert not resolver.verify_los(battlefield, observer, target)
+    assert not resolver.verify_terrain_los(
+        battlefield, observer.position, target.position, 30
     )

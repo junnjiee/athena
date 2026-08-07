@@ -7,6 +7,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import ValidationError
 
 from athena import agent
+from athena.context_view import render_agent_context
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -114,13 +115,19 @@ def test_openrouter_receives_current_observation_and_visibility_history(
         ),
     )
     assert "ordered from oldest to newest" in messages[0][1]
-    assert "up to 7 prior tick observations" in messages[0][1]
-    assert "exact pre-action position and submitted_action" in messages[0][1]
+    assert "up to 7 prior ticks" in messages[0][1]
+    assert "exact pre-action position and the action you" in messages[0][1]
     assert "does not report whether a move was accepted" in messages[0][1]
     assert "up to 10 messages" in messages[0][1]
     assert "receive it on the next tick" in messages[0][1]
     assert "elevation differs by more than 2 levels" in messages[0][1]
-    assert json.loads(messages[1][1]) == json.loads(agent_context.model_dump_json())
+    assert messages[1][1] == render_agent_context(agent_context)
+    # The rendered message carries the same facts the JSON dump did.
+    human = messages[1][1]
+    assert "You are blue, at (0,0)" in human
+    assert "t1: at (0,0)" in human
+    assert "Blue Alpha (group_id blue-alpha)" in human
+    assert "Holding position." in human
 
 
 @pytest.mark.parametrize(

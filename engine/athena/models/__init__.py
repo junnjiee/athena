@@ -30,6 +30,12 @@ from athena.models.observations import (
     VisibilityObservation,
     VisibleSoldier,
 )
+from athena.terrain import (
+    TERRAIN_GLYPHS,
+    TERRAIN_LABELS,
+    TerrainClass,
+    TerrainProfile,
+)
 from athena.models.replay import (
     ReplayBattlefield,
     ReplayCommunicationGroup,
@@ -41,6 +47,8 @@ from athena.models.replay import (
 )
 
 __all__ = [
+    "TERRAIN_GLYPHS",
+    "TERRAIN_LABELS",
     "Action",
     "ActionKind",
     "ActionValidationResult",
@@ -70,6 +78,8 @@ __all__ = [
     "Team",
     "TeamMessage",
     "TerrainCell",
+    "TerrainClass",
+    "TerrainProfile",
     "VisibilityObservation",
     "VisibleSoldier",
 ]

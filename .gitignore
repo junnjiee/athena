@@ -17,6 +17,11 @@ dist-ssr
 .env.local
 !.env.example
 
+# Terrain exports fed to the engine. Multi-megabyte generated data, and each
+# one describes a single AO, so they belong beside a run rather than in history.
+payload.txt
+*.payload.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

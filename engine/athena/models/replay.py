@@ -10,6 +10,7 @@ from athena.models.common import (
     SurvivalState,
     Team,
 )
+from athena.terrain import TerrainClass
 
 
 class ReplayCommunicationGroup(BaseModel):
@@ -27,8 +28,8 @@ class ReplayBattlefield(BaseModel):
     width: int
     height: int
     surface: tuple[Position, ...]
-    cover: tuple[Position, ...]
-    concealment: tuple[Position, ...]
+    terrain_classes: tuple[TerrainClass, ...]
+    """Row-major class grid, one entry per width x height cell."""
     communication_groups: tuple[ReplayCommunicationGroup, ...]
 
 
@@ -71,6 +72,6 @@ class ReplayStep(BaseModel):
 class ReplayLog(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     battlefield: ReplayBattlefield
     steps: tuple[ReplayStep, ...]

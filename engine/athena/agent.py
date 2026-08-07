@@ -11,6 +11,7 @@ from athena.params import (
     VISIBILITY_HISTORY_LIMIT,
     build_system_prompt,
 )
+from athena.context_view import render_agent_context
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -129,11 +130,18 @@ async def choose_action(
         shooting_resolver = ShootingResolver()
 
     llm = ChatOpenRouter(model=model)
-    # json_schema method might only work with well known providers like OpenAI, might be unstable with DS
-    structured_llm = llm.with_structured_output(ChosenTurn, method="json_schema")
+    # strict=True is what makes the schema binding rather than advisory:
+    # langchain_openrouter omits the "strict" field entirely when it is None, and
+    # a provider that is only shown a schema will happily return something else
+    # shaped like one -- the schema envelope itself, most often. OpenRouter routes
+    # each request to whichever provider is fastest, so without this the failure
+    # is intermittent and looks like a flaky model rather than a missing flag.
+    structured_llm = llm.with_structured_output(
+        ChosenTurn, method="json_schema", strict=True
+    )
 
     async def propose(retry_feedback: str | None) -> ChosenTurn:
-        human_message = agent_context.model_dump_json()
+        human_message = render_agent_context(agent_context)
         if retry_feedback is not None:
             human_message = f"{human_message}\n\nRetry feedback:\n{retry_feedback}"
         chosen = await structured_llm.ainvoke(
