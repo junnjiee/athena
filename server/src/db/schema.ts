@@ -39,6 +39,10 @@ export const plans = pgTable('plans', {
   units: jsonb('units').$type<PlacedUnit[]>().notNull(),
   objectives: jsonb('objectives').$type<PlacedObjective[]>().notNull(),
   routes: jsonb('routes').$type<PlacedRoute[]>().notNull(),
+  /** Mission start as epoch milliseconds, or null when the operator hasn't set
+   *  one. Stored as text because it exceeds a 32-bit integer and the exact
+   *  instant matters more than arithmetic in SQL. */
+  hHour: text('h_hour'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

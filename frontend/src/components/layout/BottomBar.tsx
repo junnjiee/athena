@@ -1,11 +1,14 @@
-import { Play, Save, TrendingUp } from 'lucide-react'
+import { Copy, Play, Save, TrendingUp } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
+import { usePlan } from '../../state/plan'
 
 interface Props {
   canRunSimulation: boolean
   planName: string
   onRunSimulation: () => void
   onSavePlan: () => void
+  /** Forks the drawing into a new plan row rather than overwriting. */
+  onSaveAsNew: () => void
   saveState: 'idle' | 'saving' | 'saved' | 'error'
 }
 
@@ -15,9 +18,19 @@ function etaRange(minutes: number): string {
   return `${low} – ${high} min`
 }
 
-export function BottomBar({ canRunSimulation, planName, onRunSimulation, onSavePlan, saveState }: Props) {
+export function BottomBar({
+  canRunSimulation,
+  planName,
+  onRunSimulation,
+  onSavePlan,
+  onSaveAsNew,
+  saveState,
+}: Props) {
   const phase = useBattleground((s) => s.phase)
   const analysis = useBattleground((s) => s.planAnalysis)
+  const planTitle = usePlan((s) => s.planTitle)
+  const setPlanTitle = usePlan((s) => s.setPlanTitle)
+  const savedPlanId = usePlan((s) => s.savedPlanId)
 
   const criticals = analysis?.warnings.filter((w) => w.severity === 'critical').length ?? 0
   const confidence =
@@ -34,12 +47,25 @@ export function BottomBar({ canRunSimulation, planName, onRunSimulation, onSaveP
 
   return (
     <div className="glass-deep pointer-events-auto flex items-center justify-between gap-6 rounded-2xl px-6 py-3">
-      <div>
+      <div className="min-w-0">
         <div className="text-xs tracking-wide text-(--text-dim)">CURRENT PLAN</div>
-        <div className="text-sm text-(--text-h)">
-          {planName || (canRunSimulation ? 'Untitled Plan' : 'No ground selected')}
+        {canRunSimulation ? (
+          // A plan is named independently of the ground it sits on, so two
+          // courses of action can share one battleground (#53).
+          <input
+            value={planTitle}
+            onChange={(e) => setPlanTitle(e.target.value)}
+            placeholder={planName || 'Untitled Plan'}
+            aria-label="Plan name"
+            className="w-48 truncate border-b border-transparent bg-transparent text-sm text-(--text-h) placeholder:text-(--text-dim) hover:border-(--border) focus:border-(--accent) focus:outline-none"
+          />
+        ) : (
+          <div className="text-sm text-(--text-h)">No ground selected</div>
+        )}
+        <div className="text-xs text-(--text-dim)">
+          {statusLine}
+          {savedPlanId && <span className="ml-1.5 opacity-70">· saved</span>}
         </div>
-        <div className="text-xs text-(--text-dim)">{statusLine}</div>
       </div>
 
       <div className="flex items-center gap-10">
@@ -86,8 +112,28 @@ export function BottomBar({ canRunSimulation, planName, onRunSimulation, onSaveP
           className="glass flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm text-(--text) transition-colors hover:text-(--text-h) disabled:cursor-not-allowed disabled:text-(--text-dim)"
         >
           <Save className="h-4 w-4" strokeWidth={1.75} />
-          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : 'Save Plan'}
+          {saveState === 'saving'
+            ? 'Saving…'
+            : saveState === 'saved'
+              ? 'Saved'
+              : saveState === 'error'
+                ? 'Save failed'
+                : savedPlanId
+                  ? 'Update Plan'
+                  : 'Save Plan'}
         </button>
+        {savedPlanId && (
+          <button
+            type="button"
+            disabled={!canRunSimulation || saveState === 'saving'}
+            onClick={onSaveAsNew}
+            title="Save as a new plan on this battleground"
+            className="glass flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-(--text) transition-colors hover:text-(--text-h) disabled:cursor-not-allowed disabled:text-(--text-dim)"
+          >
+            <Copy className="h-4 w-4" strokeWidth={1.75} />
+            Save as new
+          </button>
+        )}
         <button
           type="button"
           disabled={!canRunSimulation}

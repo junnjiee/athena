@@ -1,16 +1,16 @@
 import { Triangle, Map, ClipboardList, Activity, Radar, Users, Settings } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-/** Only Battleground/Plans have real pages so far -- the rest stay
- *  non-interactive stubs (no `path`) rather than wiring up routes that
- *  don't exist yet. */
+/** Battleground/Plans/Settings have real pages -- the rest stay non-interactive
+ *  stubs (no `path`) rather than wiring up routes that don't exist yet.
+ *  Tracked in issues #54-#58. */
 const NAV_ITEMS = [
   { label: 'Battleground', icon: Map, path: '/' },
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
   { label: 'Simulations', icon: Activity, path: null },
-  { label: 'Intel', icon: Radar, path: null },
-  { label: 'Units', icon: Users, path: null },
-  { label: 'Settings', icon: Settings, path: null },
+  { label: 'Intel', icon: Radar, path: '/intel' },
+  { label: 'Units', icon: Users, path: '/units' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 
 /** Floating glass navigation rail — self-positioned on the left edge. */

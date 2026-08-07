@@ -22,6 +22,22 @@ export const TERRAIN_CLASS = {
 
 export type TerrainClassId = (typeof TERRAIN_CLASS)[keyof typeof TERRAIN_CLASS]
 
+/** Human-readable terrain class names — mirrors frontend/src/types/terrain.ts.
+ *  Used wherever a payload leaves the service for a human or an LLM agent, so
+ *  the consumer never has to carry the numeric class table itself. */
+export const TERRAIN_CLASS_NAMES: Record<number, string> = {
+  [TERRAIN_CLASS.OPEN]: 'Open Ground',
+  [TERRAIN_CLASS.GRASS]: 'Grassland',
+  [TERRAIN_CLASS.SCRUB]: 'Scrub / Bush',
+  [TERRAIN_CLASS.FOREST]: 'Dense Forest',
+  [TERRAIN_CLASS.WETLAND]: 'Wetland',
+  [TERRAIN_CLASS.WATER]: 'Water',
+  [TERRAIN_CLASS.URBAN]: 'Urban Area',
+  [TERRAIN_CLASS.BUILDING]: 'Structure',
+  [TERRAIN_CLASS.ROAD]: 'Road',
+  [TERRAIN_CLASS.BARREN]: 'Barren / Rock',
+}
+
 export type RoadClass = 'major' | 'minor' | 'track' | 'path'
 
 export type AreaKind =

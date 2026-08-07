@@ -9,6 +9,15 @@ export const config = {
   /** Neon Postgres connection string (server/.env, see server/.env.example) — used by db/client.ts. */
   databaseUrl: process.env.DATABASE_URL ?? '',
 
+  /** ElevenLabs Agents — powers the voice assistant. The key never leaves the
+   *  server: the browser gets a short-lived conversation token instead
+   *  (routes/assistant.ts). Run `bun run agent:sync` to create/update the agent
+   *  from services/assistantAgent.ts and obtain the agent id. */
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? '',
+  elevenLabsAgentId: process.env.ELEVENLABS_AGENT_ID ?? '',
+  elevenLabsApiUrl: 'https://api.elevenlabs.io/v1',
+  elevenLabsTimeoutMs: 10_000,
+
   /** AWS Terrain Tiles (Mapzen terrarium encoding) — public S3 bucket, no key needed. */
   demTileUrl: (z: number, x: number, y: number) =>
     `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`,

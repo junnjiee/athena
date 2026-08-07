@@ -12,20 +12,8 @@ import type {
   ReasoningStep,
 } from '../types/terrain'
 import type { PlanAnalysis } from '../lib/validate'
-import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 
 export type BattlegroundPhase = 'idle' | 'generating' | 'ready'
-
-/** The units/objectives/routes/name of a plan loaded from the Plans page --
- *  those fields live in BattlegroundSelectorPage's local state (not this
- *  store), so this is a one-shot handoff: PlansPage sets it right before
- *  navigating to '/', and the page consumes+clears it on mount. */
-export interface PendingPlan {
-  name: string
-  units: PlacedUnit[]
-  objectives: PlacedObjective[]
-  routes: PlacedRoute[]
-}
 
 const STEP_LABELS: [ReasoningStep['id'], string][] = [
   ['elevation', 'Downloading elevation model'],
@@ -82,15 +70,11 @@ interface BattlegroundState {
   night: boolean
   hoverCell: CellSample | null
   planAnalysis: PlanAnalysis | null
-  pendingPlan: PendingPlan | null
 
   generate: (bbox: BBoxDeg, name: string) => Promise<void>
   /** Restores a previously-saved battleground snapshot without re-running the
    *  DEM/OSM/weather pipeline -- used when loading a plan from the Plans page. */
   loadSaved: (meta: BattlegroundMeta, grid: GridData, features: OsmFeatures) => void
-  setPendingPlan: (plan: PendingPlan) => void
-  /** Reads and clears pendingPlan in one step, so a mount effect can't double-consume it. */
-  consumePendingPlan: () => PendingPlan | null
   dismissError: () => void
   clear: () => void
   setHeatmap: (metric: HeatmapMetric) => void
@@ -117,7 +101,6 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   night: false,
   hoverCell: null,
   planAnalysis: null,
-  pendingPlan: null,
 
   async generate(bbox, name) {
     const gen = ++generation
@@ -212,13 +195,6 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
     }))
   },
 
-  setPendingPlan: (plan) => set({ pendingPlan: plan }),
-  consumePendingPlan() {
-    const plan = get().pendingPlan
-    if (plan) set({ pendingPlan: null })
-    return plan
-  },
-
   dismissError() {
     set({ error: null, phase: get().grid ? 'ready' : 'idle' })
   },
@@ -246,9 +222,53 @@ export const useBattleground = create<BattlegroundState>((set, get) => ({
   },
 
   setHeatmap: (metric) => set({ heatmap: metric }),
+
   toggleLayer: (layer) =>
     set((s) => ({ layers: { ...s.layers, [layer]: !s.layers[layer] } })),
   setNight: (night) => set({ night }),
   setHoverCell: (cell) => set({ hoverCell: cell }),
   setPlanAnalysis: (analysis) => set({ planAnalysis: analysis }),
 }))
+
+/** How long the terrain pipeline may take before a caller gives up waiting.
+ *  Generous: DEM + Overpass + WorldCover are all third-party and occasionally
+ *  slow, and the UI already streams progress the whole time. */
+const GENERATE_TIMEOUT_MS = 180_000
+
+/**
+ * Resolves once the pipeline finishes, rejects if it fails or stalls.
+ *
+ * `generate()` returns as soon as the job is *accepted* — readiness arrives
+ * later over Socket.IO. Callers that need to act on the finished battlefield
+ * (the voice assistant, which has to speak once terrain exists) await this.
+ */
+export function waitForBattlefield(timeoutMs = GENERATE_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const settle = (finish: () => void) => {
+      clearTimeout(timer)
+      unsubscribe()
+      finish()
+    }
+
+    const check = (state: BattlegroundState): boolean => {
+      if (state.error) {
+        settle(() => reject(new Error(state.error ?? 'terrain generation failed')))
+        return true
+      }
+      if (state.phase === 'ready' && state.grid) {
+        settle(resolve)
+        return true
+      }
+      return false
+    }
+
+    const timer = setTimeout(() => {
+      settle(() => reject(new Error('terrain generation timed out')))
+    }, timeoutMs)
+
+    const unsubscribe = useBattleground.subscribe(check)
+
+    // The pipeline may already have finished before we subscribed.
+    check(useBattleground.getState())
+  })
+}

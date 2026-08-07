@@ -7,6 +7,7 @@ export interface PlanSummary {
   name: string
   battlegroundName: string
   createdAt: string
+  updatedAt: string
 }
 
 /** Full plan + terrain snapshot as returned by GET /api/plans/:id. */
@@ -17,6 +18,8 @@ export interface SavedPlan {
     units: PlacedUnit[]
     objectives: PlacedObjective[]
     routes: PlacedRoute[]
+    /** mission start, epoch ms; null when the operator never set one */
+    hHour: number | null
   }
   meta: BattlegroundMeta
   features: OsmFeatures
