@@ -376,7 +376,9 @@ export const assistantTools = {
       summary: `Clear the whole plan — ${total} element${total === 1 ? '' : 's'}?`,
       spoken: `That would clear the entire plan, ${total} element${total === 1 ? '' : 's'}. Confirm on screen if you mean it.`,
       commit: () => {
-        usePlan.getState().clearPlan()
+        // Keep the ground's name: placement tools are gated on it, so clearing
+        // units must not disable the toolbar as a side effect.
+        usePlan.getState().clearDrawing()
         return `Cleared the plan — ${total} element${total === 1 ? '' : 's'} removed.`
       },
     })

@@ -98,6 +98,34 @@ describe('H-hour', () => {
     expect(useMission.getState().hHour).toBeNull()
   })
 
+  test('a slow forecast for an abandoned AO cannot overwrite the current one', async () => {
+    // Switching battlegrounds mid-flight used to drop the new request and let
+    // the previous AO's response land, so the panel showed the wrong ground's
+    // daylight. The newest request must win regardless of which settles first.
+    const responses: Record<string, Forecast> = {
+      slow: { ...FORECAST, timezone: 'Old/AO' },
+      fast: { ...FORECAST, timezone: 'New/AO' },
+    }
+    const original = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const id = String(input).includes('slow') ? 'slow' : 'fast'
+      await new Promise((r) => setTimeout(r, id === 'slow' ? 40 : 1))
+      return new Response(JSON.stringify(responses[id]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    try {
+      const stale = useMission.getState().loadForecast('slow')
+      const current = useMission.getState().loadForecast('fast')
+      await Promise.all([stale, current])
+      expect(useMission.getState().forecast?.timezone).toBe('New/AO')
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   test('clearMission resets the window and the forecast', () => {
     useMission.getState().setHHour(at('2026-08-06T06:00'))
     useMission.setState({ forecast: FORECAST })

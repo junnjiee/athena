@@ -204,6 +204,24 @@ describe('loading and clearing', () => {
     expect(usePlan.getState().savedPlanId).toBeNull()
   })
 
+  test('clearDrawing empties the drawing but keeps the ground name', () => {
+    // Placement tools are gated on a named battleground, so blanking the name
+    // here would disable the toolbar as a side effect of clearing units.
+    usePlan.getState().setPlanName('Ridge Probe')
+    usePlan.getState().markSaved('plan-9')
+    const unit = usePlan.getState().place('place-blue-section', AT)
+    addRouteFrom(unit)
+    usePlan.getState().place('place-objective', ELSEWHERE)
+
+    usePlan.getState().clearDrawing()
+    const state = usePlan.getState()
+    expect(state.units).toHaveLength(0)
+    expect(state.objectives).toHaveLength(0)
+    expect(state.routes).toHaveLength(0)
+    expect(state.planName).toBe('Ridge Probe')
+    expect(state.savedPlanId).toBe('plan-9')
+  })
+
   test('clearPlan empties everything including both names and the saved row', () => {
     usePlan.getState().setPlanName('Ground')
     usePlan.getState().setPlanTitle('Course A')

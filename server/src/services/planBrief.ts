@@ -138,6 +138,9 @@ export interface PlanBrief {
   planId: string
   planName: string
   generatedAt: string
+  /** Mission start as an ISO instant, or null when the operator hasn't set one.
+   *  The engine needs it to place the run in the day/night cycle (#57). */
+  hHour: string | null
   battleground: {
     id: string
     name: string
@@ -165,6 +168,8 @@ export interface PlanBriefInput {
     units: PlacedUnit[]
     objectives: PlacedObjective[]
     routes: PlacedRoute[]
+    /** mission start, epoch ms; null when unset */
+    hHour?: number | null
   }
   battleground: {
     id: string
@@ -356,6 +361,7 @@ export function buildPlanBrief({ plan, battleground }: PlanBriefInput): PlanBrie
     planId: plan.id,
     planName: plan.name,
     generatedAt: new Date().toISOString(),
+    hHour: plan.hHour == null ? null : new Date(plan.hHour).toISOString(),
     battleground: {
       id: battleground.id,
       name: battleground.name,

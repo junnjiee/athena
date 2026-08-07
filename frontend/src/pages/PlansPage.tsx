@@ -5,6 +5,7 @@ import { Sidebar } from '../components/layout/Sidebar'
 import { deletePlan, duplicatePlan, fetchPlan, listPlans, renamePlan } from '../lib/api'
 import { useBattleground } from '../state/battleground'
 import { usePlan } from '../state/plan'
+import { useMission } from '../state/mission'
 import { filterPlans, sortPlans, SORT_LABELS, type SortKey } from '../lib/planSort'
 import type { PlanSummary } from '../types/plan'
 
@@ -111,6 +112,9 @@ export function PlansPage() {
     try {
       const saved = await fetchPlan(id)
       loadSaved(saved.meta, saved.grid, saved.features)
+      // Restore the mission window alongside the drawing; the forecast itself
+      // is re-fetched for this battleground by the panel's own effect.
+      useMission.setState({ hHour: saved.plan.hHour })
       seedFromSaved({
         id: saved.plan.id,
         name: saved.plan.name,

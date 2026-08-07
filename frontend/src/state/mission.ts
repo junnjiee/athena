@@ -28,6 +28,11 @@ interface MissionState {
   clearMission: () => void
 }
 
+/** Monotonic id of the newest forecast request, so a slower response for an
+ *  abandoned battleground can be discarded instead of overwriting the current
+ *  one. Module-level rather than store state: it is control flow, not UI. */
+let forecastRequest = 0
+
 export const useMission = create<MissionState>((set, get) => ({
   hHour: null,
   forecast: null,
@@ -42,12 +47,18 @@ export const useMission = create<MissionState>((set, get) => ({
   },
 
   async loadForecast(battlegroundId) {
-    if (get().forecastState === 'loading') return
-    set({ forecastState: 'loading' })
+    // Track which AO the newest request is for. Guarding on `loading` alone
+    // would drop the request for a battleground the user just switched to, and
+    // let the previous AO's response land as if it described the new ground.
+    const request = ++forecastRequest
+    set({ forecastState: 'loading', forecast: null })
     try {
-      set({ forecast: await fetchForecast(battlegroundId), forecastState: 'idle' })
+      const forecast = await fetchForecast(battlegroundId)
+      if (request !== forecastRequest) return
+      set({ forecast, forecastState: 'idle' })
     } catch {
       // The forecast is enrichment; a failure must not block planning.
+      if (request !== forecastRequest) return
       set({ forecast: null, forecastState: 'error' })
     }
   },

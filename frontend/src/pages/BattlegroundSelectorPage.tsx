@@ -25,6 +25,7 @@ import { AssistantDock } from '../components/assistant/AssistantDock'
 import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground, waitForBattlefield } from '../state/battleground'
 import { usePlan } from '../state/plan'
+import { useMission } from '../state/mission'
 import { registerAssistantHost } from '../assistant/bridge'
 import { defaultLoadout, useSettings } from '../state/settings'
 import { analyzePlan } from '../lib/validate'
@@ -180,12 +181,25 @@ export function BattlegroundSelectorPage() {
     const battleground = useBattleground.getState().meta
     if (!battleground) throw new Error('no battlefield is generated yet')
     const plan = usePlan.getState()
+    const resolvedName =
+      (name ?? plan.planTitle ?? '').trim() || plan.planName.trim() || 'Untitled Plan'
     const payload = {
       // A plan's own title wins; otherwise it inherits the ground's name.
-      name: (name ?? plan.planTitle ?? '').trim() || plan.planName.trim() || 'Untitled Plan',
+      name: resolvedName,
       units: plan.units,
       objectives: plan.objectives,
       routes: plan.routes,
+      // The mission window is part of the plan, not a view setting -- without
+      // it, loading a saved plan loses the timing and daylight context the
+      // Mission Window panel exists to attach.
+      hHour: useMission.getState().hHour,
+    }
+
+    // Adopt a name the caller supplied (the assistant's save_plan) as the
+    // plan's own title. Otherwise the bottom bar keeps showing the old one, and
+    // the next manual Update Plan would rename the saved row back.
+    if (name !== undefined && resolvedName !== plan.planTitle) {
+      usePlan.getState().setPlanTitle(resolvedName)
     }
 
     // Overwrite the row this drawing came from, unless it has never been saved
@@ -243,6 +257,12 @@ export function BattlegroundSelectorPage() {
           latitude + half / metersPerDegreeLat,
         )
         const stats = computeRectangleStats(rectangle)
+        // Write the ref synchronously, not just React state. The assistant
+        // chains search_ground -> select_area -> generate_battleground inside a
+        // single turn, and generateBattleground reads selectionRef immediately;
+        // waiting for the post-render effect would have it generate the
+        // previous AO, or refuse as if no ground were selected.
+        selectionRef.current = { rectangle, stats }
         setSelection({ rectangle, stats })
         setSelectionZoomCap(rectangle)
         const viewer = getViewer()
@@ -257,6 +277,10 @@ export function BattlegroundSelectorPage() {
       async generateBattleground(name) {
         const current = selectionRef.current
         if (!current) throw new Error('no ground is selected yet — select an area first')
+        // Drawings are anchored to the ground they were placed on. Regenerating
+        // over a different area would leave them at coordinates that no longer
+        // correspond to the new grid, so analysis and saves would mix the two.
+        usePlan.getState().clearDrawing()
         usePlan.getState().setPlanName(name)
         const r = current.rectangle
         await useBattleground.getState().generate(
@@ -342,6 +366,8 @@ export function BattlegroundSelectorPage() {
     if (viewer) clearGlobeClipping(viewer)
     if (planningMode) {
       clearPlan()
+      // H-hour belongs to the plan being abandoned, not to the next one.
+      useMission.getState().clearMission()
       setToolMode('navigate')
       setViewMode('globe')
       setSelectedUnitId(null)

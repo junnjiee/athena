@@ -59,6 +59,8 @@ const savePlanBody = z.object({
   units: z.array(placedUnitSchema),
   objectives: z.array(placedObjectiveSchema),
   routes: z.array(placedRouteSchema),
+  /** mission start, epoch ms; null when the operator hasn't set one */
+  hHour: z.number().int().nullable().optional(),
 })
 
 /** A plan update never moves a plan to different ground, so battlegroundId is
@@ -68,6 +70,7 @@ const updatePlanBody = z.object({
   units: z.array(placedUnitSchema),
   objectives: z.array(placedObjectiveSchema),
   routes: z.array(placedRouteSchema),
+  hHour: z.number().int().nullable().optional(),
 })
 
 /** Rename touches nothing but the title, so the drawing needn't be re-sent. */
@@ -79,7 +82,7 @@ export function registerPlanRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
     }
-    const { battlegroundId, name, units, objectives, routes } = parsed.data
+    const { battlegroundId, name, units, objectives, routes, hHour } = parsed.data
 
     // The client never re-uploads the terrain -- read it straight from the
     // pipeline's in-memory job cache (still there from generation this session).
@@ -116,6 +119,7 @@ export function registerPlanRoutes(app: FastifyInstance): void {
       units,
       objectives,
       routes,
+      hHour: hHour == null ? null : String(hHour),
     })
 
     return reply.status(201).send({ id: planId })
@@ -137,6 +141,7 @@ export function registerPlanRoutes(app: FastifyInstance): void {
       units: source.units,
       objectives: source.objectives,
       routes: source.routes,
+      hHour: source.hHour,
     })
     return reply.status(201).send({ id })
   })
@@ -173,6 +178,8 @@ export function registerPlanRoutes(app: FastifyInstance): void {
         units: row.plan.units,
         objectives: row.plan.objectives,
         routes: row.plan.routes,
+        // Stored as text to survive 32-bit int limits; the client wants a number.
+        hHour: row.plan.hHour == null ? null : Number(row.plan.hHour),
       },
       battleground: {
         meta: {
@@ -201,11 +208,18 @@ export function registerPlanRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
     }
-    const { name, units, objectives, routes } = parsed.data
+    const { name, units, objectives, routes, hHour } = parsed.data
 
     const updated = await db
       .update(plans)
-      .set({ name, units, objectives, routes, updatedAt: new Date() })
+      .set({
+        name,
+        units,
+        objectives,
+        routes,
+        hHour: hHour == null ? null : String(hHour),
+        updatedAt: new Date(),
+      })
       .where(eq(plans.id, req.params.id))
       .returning({ id: plans.id })
 
@@ -250,6 +264,8 @@ export function registerPlanRoutes(app: FastifyInstance): void {
         units: row.plan.units,
         objectives: row.plan.objectives,
         routes: row.plan.routes,
+        // Stored as text to survive 32-bit int limits; the client wants a number.
+        hHour: row.plan.hHour == null ? null : Number(row.plan.hHour),
       },
       battleground: {
         id: row.battleground.id,

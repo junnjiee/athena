@@ -103,6 +103,11 @@ interface PlanState {
   deleteRoute: (id: string) => void
   /** Removes whichever element carries this id, whatever kind it is. */
   deleteElement: (id: string) => void
+  /** Removes every drawn element but keeps the ground's name and the saved row.
+   *  Placement tools are gated on a named battleground, so blanking the name
+   *  here would disable the toolbar as a side effect of clearing units. */
+  clearDrawing: () => void
+  /** Resets everything, including both names -- for abandoning the ground. */
   clearPlan: () => void
   /** Replaces the whole drawing with a plan loaded from the Plans page. */
   seedFromSaved: (plan: SavedPlanContents) => void
@@ -213,6 +218,8 @@ export const usePlan = create<PlanState>((set, get) => ({
     if (objectives.some((o) => o.id === id)) return get().deleteObjective(id)
     if (routes.some((r) => r.id === id)) return get().deleteRoute(id)
   },
+
+  clearDrawing: () => set({ units: [], objectives: [], routes: [] }),
 
   clearPlan: () => set({ ...EMPTY }),
 

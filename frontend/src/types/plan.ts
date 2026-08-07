@@ -18,6 +18,8 @@ export interface SavedPlan {
     units: PlacedUnit[]
     objectives: PlacedObjective[]
     routes: PlacedRoute[]
+    /** mission start, epoch ms; null when the operator never set one */
+    hHour: number | null
   }
   meta: BattlegroundMeta
   features: OsmFeatures

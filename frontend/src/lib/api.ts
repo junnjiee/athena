@@ -54,6 +54,8 @@ export async function savePlan(payload: {
   units: PlacedUnit[]
   objectives: PlacedObjective[]
   routes: PlacedRoute[]
+  /** mission start, epoch ms; null when unset */
+  hHour: number | null
 }): Promise<string> {
   const res = await fetch('/api/plans', {
     method: 'POST',
@@ -75,6 +77,7 @@ export async function updatePlan(
     units: PlacedUnit[]
     objectives: PlacedObjective[]
     routes: PlacedRoute[]
+    hHour: number | null
   },
 ): Promise<void> {
   const res = await fetch(`/api/plans/${id}`, {
@@ -118,7 +121,14 @@ export async function fetchPlan(id: string): Promise<SavedPlan> {
   const res = await fetch(`/api/plans/${id}`)
   if (!res.ok) throw new Error(await readError(res))
   const body = (await res.json()) as {
-    plan: { id: string; name: string; units: PlacedUnit[]; objectives: PlacedObjective[]; routes: PlacedRoute[] }
+    plan: {
+      id: string
+      name: string
+      units: PlacedUnit[]
+      objectives: PlacedObjective[]
+      routes: PlacedRoute[]
+      hHour: number | null
+    }
     battleground: { meta: BattlegroundMeta; features: OsmFeatures; gridBufferBase64: string }
   }
   const binary = atob(body.battleground.gridBufferBase64)

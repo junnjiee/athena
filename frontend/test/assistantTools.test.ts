@@ -303,6 +303,18 @@ describe('removing things is gated behind confirmation', () => {
     expect(useConfirm.getState().lastOutcome).toContain('2 elements removed')
   })
 
+  test('clear_plan keeps the ground name so the draw tools stay enabled', () => {
+    // Placement is gated on a named battleground; blanking the name here would
+    // disable the toolbar as a side effect of clearing units.
+    usePlan.getState().setPlanName('Ridge Probe')
+    assistantTools.place_unit({ side: 'blue', echelon: 'section', ...at(1, 1) })
+    assistantTools.clear_plan()
+    useConfirm.getState().confirm()
+
+    expect(usePlan.getState().units).toHaveLength(0)
+    expect(usePlan.getState().planName).toBe('Ridge Probe')
+  })
+
   test('clearing an already-empty plan does not prompt', () => {
     expect(assistantTools.clear_plan()).toBe('The plan is already empty.')
     expect(useConfirm.getState().pending).toBeNull()
