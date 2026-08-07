@@ -1,6 +1,6 @@
 """Tunable parameters for the Athena engine and its agents."""
 
-from athena.terrain import TerrainClass, TerrainProfile
+from athena.terrain import TERRAIN_LABELS, TerrainClass, TerrainProfile
 
 # Terrain
 TERRAIN_PROFILES: dict[TerrainClass, TerrainProfile] = {
@@ -26,11 +26,42 @@ the table stays total.
 
 DEFAULT_TERRAIN_CLASS = TerrainClass.OPEN_GROUND
 
+
+def _terrain_names(predicate) -> str:
+    """Comma-separated class names matching a profile predicate."""
+    return ", ".join(
+        TERRAIN_LABELS[terrain_class]
+        for terrain_class, profile in TERRAIN_PROFILES.items()
+        if predicate(profile)
+    )
+
+
+def impassable_terrain_names() -> str:
+    return _terrain_names(lambda profile: not profile.passable)
+
+
+def build_terrain_guidance() -> str:
+    """Describe terrain effects to an agent, derived from the profile table.
+
+    Generated rather than written out so the prompt cannot drift from the
+    values the resolvers actually use.
+    """
+    # Concealment and protection only matter where a soldier can actually
+    # stand, so those two sentences exclude impassable classes.
+    return (
+        f"You cannot enter {impassable_terrain_names()}. "
+        f"{_terrain_names(lambda p: p.passable and p.concealment >= 0.4)} "
+        "hide you from enemies. "
+        f"{_terrain_names(lambda p: p.passable and p.protection >= 0.3)} "
+        "reduce the chance of being hit. "
+        f"{_terrain_names(lambda p: p.opacity_per_metre >= 0.05)} "
+        "also block your own sight over distance."
+    )
+
 # Vision
 DEFAULT_SOLDIER_VISION_RANGE = 10.0
 MAX_VISION_RANGE = 100.0
 SOLDIER_EYE_HEIGHT = 1.0
-CONCEALMENT_HIDE_PROBABILITY = 0.0
 
 # Movement
 MAX_ELEVATION_CHANGE = 1
@@ -57,15 +88,20 @@ OPENROUTER_SYSTEM_PROMPT_TEMPLATE = (
     "You are a soldier-agent in a grid battlefield simulation. "
     "Choose exactly one action: hold position, move one grid cell, or shoot. "
     "Holding keeps your current position and does not fire your weapon. "
-    "The available_terrain cells describe every grid cell in your local range, "
-    "including elevation, cover, and concealment; use them to navigate. "
-    "The visibility_history contains up to {visibility_history_limit} prior tick "
-    "observations ordered from oldest to newest. Each entry includes your exact "
-    "pre-action position and submitted_action. The submitted action records what "
-    "you proposed, including null for no action; it does not report whether a move "
-    "was accepted or whether a shot hit. "
-    "The communication_groups list contains every broadcast group you may use. "
-    "The communication_history contains up to {communication_history_limit} "
+    "Your terrain is drawn as a map: one character per grid cell, with a legend "
+    "naming each character, and a second grid below it giving each cell's "
+    "elevation. Rows run north to south and columns west to east, so moving "
+    "north is up the map and east is right. A blank cell is one you have no "
+    "line of sight to. Beneath the map your own coordinates are marked; use it "
+    "to navigate. "
+    "{terrain_guidance} "
+    "Recent ticks lists up to {visibility_history_limit} prior ticks, oldest "
+    "first, each giving your exact pre-action position and the action you "
+    "submitted. That records what you proposed, including doing nothing; it "
+    "does not report whether a move was accepted or whether a shot hit. It "
+    "does not repeat terrain, because the map above is current. "
+    "Radio nets lists every broadcast group you may use, by group_id. "
+    "Radio traffic lists up to {communication_history_limit} "
     "messages you previously sent or received, ordered from oldest to newest. "
     "You may attach one optional broadcast to the same turn as your physical "
     "action. Select only a listed communication group and keep the message at "
@@ -76,7 +112,7 @@ OPENROUTER_SYSTEM_PROMPT_TEMPLATE = (
     "\n\nIllegal actions:"
     "\n- Moving outside the battlefield."
     "\n- Moving more than one grid cell."
-    "\n- Moving into a cover cell."
+    "\n- Moving into impassable terrain ({impassable_terrain})."
     "\n- Moving to a cell whose elevation differs by more than "
     "{elevation_limit}."
     "\n- Moving into a cell occupied by a casualty or dead soldier."
@@ -110,4 +146,6 @@ def build_system_prompt(
         message_max_length=message_max_length,
         elevation_limit=elevation_limit,
         team_objectives=rendered_team_objectives,
+        terrain_guidance=build_terrain_guidance(),
+        impassable_terrain=impassable_terrain_names(),
     )

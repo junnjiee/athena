@@ -11,7 +11,8 @@ from athena.models.common import (
     Team,
 )
 from athena.models.observations import VisibilityObservation
-from athena.terrain import TerrainClass
+from athena.params import TERRAIN_PROFILES
+from athena.terrain import TerrainClass, TerrainProfile
 
 
 class SoldierSnapshot(BaseModel):
@@ -35,6 +36,12 @@ class BattlefieldSnapshot(BaseModel):
     communication_groups: tuple[CommunicationGroup, ...]
     terrain_classes: tuple[TerrainClass, ...]
     """Row-major class grid, one entry per width x height cell."""
+
+    def terrain_at(self, x: int, y: int) -> TerrainClass:
+        return self.terrain_classes[y * self.width + x]
+
+    def profile_at(self, x: int, y: int) -> TerrainProfile:
+        return TERRAIN_PROFILES[self.terrain_at(x, y)]
 
 
 class ShotOutcome(BaseModel):

@@ -38,6 +38,25 @@ TERRAIN_LABELS: dict[TerrainClass, str] = {
 """Human-readable names, matching the export's ``classNames`` strings."""
 
 
+TERRAIN_GLYPHS: dict[TerrainClass, str] = {
+    TerrainClass.OPEN_GROUND: ".",
+    TerrainClass.GRASSLAND: ",",
+    TerrainClass.SCRUB: ";",
+    TerrainClass.DENSE_FOREST: "^",
+    TerrainClass.WETLAND: "_",
+    TerrainClass.WATER: "~",
+    TerrainClass.URBAN: "o",
+    TerrainClass.STRUCTURE: "#",
+    TerrainClass.ROAD: "=",
+    TerrainClass.BARREN_ROCK: "%",
+}
+"""One character per class, for rendering terrain as a picture.
+
+Shared by the terminal view and the agent's observation: a soldier reads the
+same map the operator does, and the two cannot drift apart.
+"""
+
+
 @dataclass(frozen=True)
 class TerrainProfile:
     """How one terrain class affects movement, sight, and gunfire.
