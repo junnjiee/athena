@@ -54,7 +54,6 @@ class Battlefield:
         self._communication_groups_by_id = self._validate_communication_groups()
         self._surface_by_xy = self._validate_surface()
         self._validate_occupants()
-        self._cover, self._concealment = self._derive_legacy_terrain_sets()
 
     def _build_terrain_classes(
         self,
@@ -87,37 +86,6 @@ class Battlefield:
     def _index(self, x: int, y: int) -> int:
         """Row-major offset into the flat terrain grid."""
         return y * self.width + x
-
-    def _derive_legacy_terrain_sets(
-        self,
-    ) -> tuple[frozenset[Position], frozenset[Position]]:
-        """Project the class grid onto the old cover/concealment sets.
-
-        Transitional: the resolvers still test set membership. WP2 replaces
-        those tests with direct profile lookups and this method goes away.
-        Cached because vision tests membership once per cell along a sightline.
-        """
-        cover: set[Position] = set()
-        concealment: set[Position] = set()
-
-        for position in self.surface:
-            profile = self.profile_at(position.x, position.y)
-            if not profile.passable:
-                cover.add(position)
-            if profile.concealment > 0:
-                concealment.add(position)
-
-        return frozenset(cover), frozenset(concealment)
-
-    @property
-    def cover(self) -> frozenset[Position]:
-        """Transitional view of impassable, sight-blocking cells."""
-        return self._cover
-
-    @property
-    def concealment(self) -> frozenset[Position]:
-        """Transitional view of cells offering concealment."""
-        return self._concealment
 
     def terrain_at(self, x: int, y: int) -> TerrainClass:
         return self.terrain_classes[self._index(x, y)]

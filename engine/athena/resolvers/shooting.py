@@ -114,16 +114,25 @@ class ShootingResolver:
         self,
         shooter_position: Position,
         target_position: Position,
+        target_protection: float = 0.0,
     ) -> float:
+        """Probability of hitting a target, before terrain then after it.
+
+        Elevation is bounded by the marksmanship floor and ceiling, which model
+        how well a soldier can shoot. Terrain protection applies afterwards as a
+        proportional reduction, so hard cover can drive the chance below that
+        floor: the floor describes the shooter, not the target's shelter.
+        """
         elevation_difference = shooter_position.z - target_position.z
         probability = (
             self.base_hit_probability
             + self.elevation_modifier_per_level * elevation_difference
         )
-        return max(
+        bounded = max(
             self.minimum_hit_probability,
             min(self.maximum_hit_probability, probability),
         )
+        return bounded * (1.0 - max(0.0, min(1.0, target_protection)))
 
     def resolve_shot(
         self,
@@ -137,7 +146,11 @@ class ShootingResolver:
 
         shooter = snapshot.soldiers[shooter_index]
         target = snapshot.soldiers[target_index]
-        hit_probability = self.hit_probability(shooter.position, target.position)
+        hit_probability = self.hit_probability(
+            shooter.position,
+            target.position,
+            snapshot.profile_at(target.position.x, target.position.y).protection,
+        )
         roll = self.rng.random()
         return ShotOutcome(
             shooter_index=shooter_index,

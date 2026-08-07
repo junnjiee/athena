@@ -178,22 +178,3 @@ def test_terrain_classes_are_captured_in_snapshot() -> None:
         TerrainClass.WETLAND,
         TerrainClass.OPEN_GROUND,
     )
-
-
-def test_impassable_and_concealing_classes_project_onto_legacy_sets() -> None:
-    # Transitional: resolvers still read these until WP2 moves them to profiles.
-    structure = Position(x=0, y=0, z=0)
-    forest = Position(x=1, y=0, z=0)
-
-    battlefield = Battlefield(
-        width=3,
-        height=1,
-        soldiers=[],
-        terrain={
-            structure: TerrainClass.STRUCTURE,
-            forest: TerrainClass.DENSE_FOREST,
-        },
-    )
-
-    assert battlefield.cover == frozenset({structure})
-    assert battlefield.concealment == frozenset({forest})

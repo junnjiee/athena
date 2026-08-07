@@ -33,6 +33,27 @@ uv run python -m athena.demo --ticks 5
 
 This uses the default hosted model, `openai/gpt-oss-120b:nitro`.
 
+The demo runs on a frontend terrain export (`payload.txt` by default), placing
+six Blue against two Red about twelve metres apart on mixed forest, urban and
+road ground. The export's own laydown is not used: it spreads seven echelons up
+to 240 cells apart, so the two sides never make contact. Red decides freely but
+is held in place, so Blue advances against a defence that shoots and radios.
+
+Each tick prints the whole map at one character per cell — never aggregated —
+followed by a per-soldier panel, and each tick appends below the last so
+scrollback keeps the whole run. A 354-wide export therefore needs a terminal at
+least **359 columns** wide; the demo warns on startup if yours is narrower, and
+rows soft-wrap until you zoom out.
+
+To see the start positions without spending any API calls:
+
+```bash
+uv run python -m athena.demo --deployment
+```
+
+Add `--no-color` when redirecting to a file — it drops the elevation shading and
+about a fifth of the bytes.
+
 To select another OpenRouter model:
 
 ```bash

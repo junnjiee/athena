@@ -31,6 +31,7 @@ from athena.models.observations import (
     VisibleSoldier,
 )
 from athena.terrain import (
+    TERRAIN_GLYPHS,
     TERRAIN_LABELS,
     TerrainClass,
     TerrainProfile,
@@ -46,6 +47,7 @@ from athena.models.replay import (
 )
 
 __all__ = [
+    "TERRAIN_GLYPHS",
     "TERRAIN_LABELS",
     "Action",
     "ActionKind",

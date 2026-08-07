@@ -1,6 +1,7 @@
 import asyncio
 import re
 from io import StringIO
+from random import Random
 
 from athena import demo2
 from athena.loop import LoopEngine
@@ -101,7 +102,11 @@ def test_demo2_hill_changes_by_at_most_one_level_per_cell() -> None:
 
 def test_demo2_has_concealed_approaches_and_staging_cells_at_the_hill_foot() -> None:
     battlefield = demo2.build_battlefield()
-    concealed_xy = {(position.x, position.y) for position in battlefield.concealment}
+    concealed_xy = {
+        (position.x, position.y)
+        for position in battlefield.surface
+        if battlefield.profile_for(position).concealment > 0
+    }
 
     assert demo2.FOOT_CONCEALMENT_CELLS <= concealed_xy
     assert {
@@ -110,7 +115,7 @@ def test_demo2_has_concealed_approaches_and_staging_cells_at_the_hill_foot() -> 
     } == {0}
 
 
-def test_demo2_concealment_guarantees_hidden_occupants() -> None:
+def test_demo2_staging_concealment_can_hide_occupants() -> None:
     battlefield = demo2.build_battlefield()
     blue = battlefield.soldiers[0]
     red = battlefield.soldiers[8]
@@ -118,18 +123,10 @@ def test_demo2_concealment_guarantees_hidden_occupants() -> None:
     assert staging_position is not None
     blue.move_to(staging_position)
 
-    assert VisionResolver(concealment_hide_probability=0.0).verify_los(
-        battlefield,
-        red,
-        blue,
-    )
-    assert not VisionResolver(
-        concealment_hide_probability=demo2.CONCEALMENT_HIDE_PROBABILITY
-    ).verify_los(
-        battlefield,
-        red,
-        blue,
-    )
+    # The staging corridor is dense forest, which conceals at 0.70 rather than
+    # absolutely. A low roll hides the attacker; a high one exposes them.
+    assert not VisionResolver(rng=Random(1)).verify_los(battlefield, red, blue)
+    assert VisionResolver(rng=Random(0)).verify_los(battlefield, red, blue)
 
 
 def test_demo2_teams_cannot_see_each_other_before_blue_splits() -> None:
