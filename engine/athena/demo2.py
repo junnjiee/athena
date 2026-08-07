@@ -32,6 +32,7 @@ from athena.models import (
     SoldierSnapshot,
     SurvivalState,
     Team,
+    TerrainClass,
     VisibilityObservation,
 )
 from athena.params import (
@@ -507,23 +508,23 @@ def build_battlefield() -> Battlefield:
         for x, y in ((7, 3), (9, 3), (7, 5), (9, 5))
     ]
 
-    concealment = {
-        ground(x, y) for x, y in FOOT_CONCEALMENT_CELLS
+    terrain = {
+        ground(x, y): TerrainClass.SCRUB
+        for x, y in (*FOOT_CONCEALMENT_CELLS, (5, 6), (11, 6))
     }
-    concealment.update({ground(5, 6), ground(11, 6)})
+    terrain.update(
+        {
+            ground(x, y): TerrainClass.STRUCTURE
+            for x, y in ((5, 7), (11, 7), (6, 6), (10, 6))
+        }
+    )
 
     return Battlefield(
         width=WIDTH,
         height=HEIGHT,
         soldiers=[*blue_soldiers, *red_soldiers],
         surface=surface,
-        cover={
-            ground(5, 7),
-            ground(11, 7),
-            ground(6, 6),
-            ground(10, 6),
-        },
-        concealment=concealment,
+        terrain=terrain,
         communication_groups=[
             CommunicationGroup(
                 group_id="blue-team",

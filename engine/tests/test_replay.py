@@ -57,7 +57,7 @@ def test_replay_records_initial_state_and_completed_tick(tmp_path) -> None:
     restored = ReplayLog.model_validate_json(serialized)
 
     assert restored == recorder.log
-    assert json.loads(serialized)["schema_version"] == 2
+    assert json.loads(serialized)["schema_version"] == 3
     assert set(json.loads(serialized)["steps"][1]["shots"][0]) == {
         "shooter_index",
         "target_index",
