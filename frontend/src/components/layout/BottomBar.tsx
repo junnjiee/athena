@@ -47,8 +47,8 @@ export function BottomBar({
 
   return (
     <div className="glass-deep pointer-events-auto flex items-center justify-between gap-6 rounded-2xl px-6 py-3">
-      <div className="min-w-0">
-        <div className="text-xs tracking-wide text-(--text-dim)">CURRENT PLAN</div>
+      <div className="min-w-0 shrink">
+        <div className="text-xs tracking-wide whitespace-nowrap text-(--text-dim)">CURRENT PLAN</div>
         {canRunSimulation ? (
           // A plan is named independently of the ground it sits on, so two
           // courses of action can share one battleground (#53).
@@ -57,7 +57,7 @@ export function BottomBar({
             onChange={(e) => setPlanTitle(e.target.value)}
             placeholder={planName || 'Untitled Plan'}
             aria-label="Plan name"
-            className="w-48 truncate border-b border-transparent bg-transparent text-sm text-(--text-h) placeholder:text-(--text-dim) hover:border-(--border) focus:border-(--accent) focus:outline-none"
+            className="w-full max-w-48 min-w-24 truncate border-b border-transparent bg-transparent text-sm text-(--text-h) placeholder:text-(--text-dim) hover:border-(--border) focus:border-(--accent) focus:outline-none"
           />
         ) : (
           <div className="text-sm text-(--text-h)">No ground selected</div>
@@ -68,25 +68,31 @@ export function BottomBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-10">
-        <div>
-          <div className="text-xs tracking-wide text-(--text-dim)">ESTIMATED OUTCOME (500 RUNS)</div>
+      {/* The metric cluster is the first thing to go when space is tight. It is
+          read-only context; the plan name and the action buttons are not, and
+          letting all three compete made the bar tall enough to overlap the
+          terrain panel pinned above it. */}
+      <div className="hidden shrink items-center gap-6 lg:flex xl:gap-10">
+        <div className="hidden xl:block">
+          <div className="text-xs tracking-wide whitespace-nowrap text-(--text-dim)">
+            ESTIMATED OUTCOME (500 RUNS)
+          </div>
           <div className="text-xl font-medium text-(--text-dim)">—</div>
         </div>
         <div>
-          <div className="text-xs text-(--text-dim)">Plan Exposure</div>
+          <div className="text-xs whitespace-nowrap text-(--text-dim)">Plan Exposure</div>
           <div className={`text-lg ${analysis ? 'text-(--text-h)' : 'text-(--text-dim)'}`}>
             {analysis ? `${Math.round(analysis.exposure * 100)} %` : '—'}
           </div>
         </div>
         <div>
-          <div className="text-xs text-(--text-dim)">Time to Objective</div>
+          <div className="text-xs whitespace-nowrap text-(--text-dim)">Time to Objective</div>
           <div className={`text-lg ${analysis ? 'text-(--text-h)' : 'text-(--text-dim)'}`}>
             {analysis && analysis.totalEtaMinutes > 0 ? etaRange(analysis.totalEtaMinutes) : '—'}
           </div>
         </div>
         <div>
-          <div className="text-xs text-(--text-dim)">Confidence</div>
+          <div className="text-xs whitespace-nowrap text-(--text-dim)">Confidence</div>
           <div
             className={`flex items-center gap-1 text-lg ${
               confidence === 'High'
@@ -104,7 +110,7 @@ export function BottomBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
           disabled={!canRunSimulation || saveState === 'saving'}
