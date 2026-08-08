@@ -75,24 +75,73 @@ identifier in the current model.
   battlefield construction fail.
 - If the `surface` argument is omitted, `Battlefield` creates one
   `Position(x, y, z=0)` for every XY coordinate.
-- Every soldier position and every cover or concealment `Position` supplied at
-  construction must equal the battlefield's ground `Position` at that XY coordinate.
+- Every soldier position supplied at construction must equal the battlefield's
+  ground `Position` at that XY coordinate.
 - Elevation may be any integer. The engine does not impose sea level, minimum
   elevation, or maximum elevation.
 
 The default flat-ground elevation is hardcoded as `z = 0`. Width, height, and a
 custom collection of ground `Position` values are scenario inputs.
 
-### Cover, concealment, and initial occupancy
+### Terrain classes
 
-- Cover and concealment are independent sets of exact ground `Position` values.
-- One cell may contain both cover and concealment.
+- Every in-bounds cell has exactly one terrain class, drawn from a fixed set of
+  ten.
+- Terrain class is a scenario input. Cells left unspecified are open ground.
+- Terrain does not change during a simulation. The engine models no fire, no
+  demolition, and no weather effect on ground.
+- One cell holds one class. A cell cannot be both forest and structure; a mixed
+  cell must be approximated by whichever class dominates it.
+
+Each class carries a profile of five independent properties. Independence is the
+point: a cell can be slow without being opaque, opaque without being solid, or
+solid without being opaque. A single cover/concealment flag pair could not express
+those combinations, which is why it was replaced.
+
+| Class         | Glyph | Passable | Move cost | Opacity/m | Concealment | Protection |
+| ------------- | :---: | :------: | --------: | --------: | ----------: | ---------: |
+| Open Ground   |  `.`  |   yes    |       1.0 |      0.00 |        0.00 |       0.00 |
+| Grassland     |  `,`  |   yes    |       1.1 |      0.01 |        0.10 |       0.00 |
+| Scrub / Bush  |  `;`  |   yes    |       1.6 |      0.03 |        0.45 |       0.05 |
+| Dense Forest  |  `^`  |   yes    |       2.0 |      0.05 |        0.70 |       0.15 |
+| Wetland       |  `_`  |   yes    |       2.5 |      0.01 |        0.15 |       0.00 |
+| Water         |  `~`  |    no    |       4.0 |      0.00 |        0.00 |       0.00 |
+| Urban Area    |  `o`  |   yes    |       1.2 |      0.10 |        0.60 |       0.40 |
+| Structure     |  `#`  |    no    |       4.0 |      1.00 |        0.00 |       0.90 |
+| Road          |  `=`  |   yes    |       0.8 |      0.00 |        0.00 |       0.00 |
+| Barren / Rock |  `%`  |   yes    |       1.4 |      0.08 |        0.20 |       0.30 |
+
+These are tunable simulation assumptions rather than measured values. Opacity is
+calibrated against one-metre cells so that dense forest blocks sight at roughly
+twenty metres while a structure blocks immediately.
+
+Move cost is recorded but has no effect today. Every legal move costs the same
+regardless of the terrain entered. The property states an intended model that the engine does not yet honour.
+
+### Initial occupancy
+
 - Battlefield construction permits multiple soldiers to start in one cell.
-- Battlefield construction permits a soldier to start on cover, even though normal
-  movement cannot enter cover.
-- Cover and concealment remain mutable after construction. Mutating either set does
-  not rerun battlefield validation.
+- Battlefield construction permits a soldier to start on impassable terrain, even
+  though normal movement cannot enter it. Such a soldier can move off the cell but
+  never back onto it.
 - Soldiers do not block vision as physical objects.
+
+### Imported terrain
+
+A battlefield may be built from real ground exported by the frontend. That import
+carries its own modeling assumptions:
+
+- One grid cell is one metre, and one elevation level is one metre. Real metre
+  elevations are rounded to integer levels with the lowest cell at zero.
+- Rounding real ground to whole metres can create steps steeper than a soldier may
+  climb, stranding soldiers behind terrain that is gentle in reality. The engine
+  reports how many such steps a given import contains rather than smoothing them.
+- Weather is not modeled. Exported visibility runs to thousands of metres, far
+  beyond any vision range the engine uses, and no day or night penalty is applied.
+- Imported units are placed on the nearest free passable cell to their real
+  position. Two imported units never share a cell, unlike hand-authored scenarios.
+- Exported objectives are described in grid coordinates but are not given to any
+  agent. Which team receives an objective is a scenario decision.
 
 ## Soldier model
 
@@ -132,7 +181,7 @@ soldier. It contains:
 - the observer's exact position
 - the observer's current survival state
 - visible soldiers
-- visible terrain cells with cover and concealment flags.
+- visible terrain cells with their terrain class.
 
 ### Visible soldiers
 
@@ -147,14 +196,19 @@ soldier. It contains:
 
 ### Available terrain
 
-- Terrain cells are included when they pass the observer's 3D range check and
-  terrain line-of-sight check.
+- Terrain cells are included when they pass the observer's 3D range check, the
+  terrain elevation line-of-sight check, and the accumulated opacity check. These
+  are the same tests that decide whether an enemy standing on the cell would be
+  seen. Terrain is perceived, not recalled from a map.
 - The observer's current cell is included.
-- Terrain entries contain exact XYZ, `has_cover`, and `has_concealment`.
+- Terrain entries contain exact XYZ and the cell's terrain class, named rather
+  than numbered.
 - Entries are produced in `y`-then-`x` order.
-- Hard cover does not independently hide terrain cells; only terrain elevation
-  blocks terrain visibility.
-- Concealment does not hide terrain cells.
+- Intervening opacity does hide terrain cells. A cell behind enough dense forest,
+  or behind a single structure, is not observed.
+- Concealment does not hide terrain cells. It models a soldier actively avoiding
+  being picked out, which ground cannot do, and it is a per-tick random roll, so
+  applying it would make terrain flicker in and out between ticks.
 - Casualties and dead soldiers still receive terrain observations because terrain
   observation construction does not filter by survival state.
 
@@ -162,20 +216,48 @@ The terrain scan is limited to a square window derived from the lower of the
 soldier's vision range and the global vision cap. Every candidate still goes through
 the full 3D range and terrain line-of-sight checks.
 
+## How terrain reaches an agent
+
+An agent receives its terrain as a drawn map rather than as a list of cells. This
+is an information-model decision, not a formatting one, so it belongs to the
+engine's behavior:
+
+- The map is one character per cell, oriented north-up and east-right, matching the
+  battlefield's own axes. A bearing read off the map is the bearing the soldier
+  moves on.
+- Cells the soldier cannot see are blank. The shape of a soldier's vision, and the
+  shape of whatever blocks it, are therefore visible to the agent rather than
+  implied.
+- Elevation is given per cell, expressed relative to the lowest cell the soldier
+  can see. That baseline and the soldier's own elevation are stated in absolute
+  metres, so true elevations remain recoverable.
+- The agent and a human operator watching the run read the same map, so the two
+  cannot hold different pictures of the same ground.
+- Earlier ticks are summarized as the soldier's own track: where it stood and what
+  it submitted, without the terrain it saw at the time.
+
+The last point is a deliberate limit on memory. A soldier is not given a
+remembered map: ground seen earlier and no longer in sight is simply gone from its
+context, and only currently visible terrain informs a decision.
+
 ## Vision and detection
 
 ### Tunable vision parameters
 
-| Parameter                    | Current default | Runtime owner    |
-| ---------------------------- | --------------: | ---------------- |
-| Soldier vision range         |          `10.0` | `Soldier`        |
-| Maximum vision range         |         `100.0` | `VisionResolver` |
-| Soldier eye height           |           `1.0` | `VisionResolver` |
-| Concealment hide probability |           `0.0` | `VisionResolver` |
+| Parameter            |   Current default | Runtime owner       |
+| -------------------- | ----------------: | ------------------- |
+| Soldier vision range |            `10.0` | `Soldier`           |
+| Maximum vision range |           `100.0` | `VisionResolver`    |
+| Soldier eye height   |             `1.0` | `VisionResolver`    |
+| Terrain opacity      |         per class | `TERRAIN_PROFILES`  |
+| Terrain concealment  |         per class | `TERRAIN_PROFILES`  |
+| Detection randomness | unseeded `Random()` | `VisionResolver`   |
 
-All defaults come from `athena/params.py`. Soldier vision range remains a per-soldier
-scenario input; the other values can be overridden when constructing a
-`VisionResolver`.
+All defaults come from `athena/params.py`. Soldier vision range remains a
+per-soldier scenario input; range cap, eye height, and the random generator can be
+overridden when constructing a `VisionResolver`. Opacity and concealment are
+properties of the ground rather than of the observer, so they vary by cell and
+cannot be set per run.
 
 ### Range
 
@@ -220,17 +302,26 @@ that assumption.
 The distance metric, eye-to-eye interpolation, blocking threshold, and grid traversal
 are hardcoded algorithms.
 
-### Hard cover
+### Terrain opacity
 
-- Intervening cover blocks visibility to an enemy after range and terrain checks.
-- Cover is a binary blocker. Its own elevation relative to the sightline does not
-  matter.
-- Cover in the observer or target cell does not block visibility because endpoints
-  are excluded.
-- Friendly soldiers ignore hard cover after passing range and terrain checks.
-- Cover does not modify rifle hit probability once a shot is accepted.
+- Opacity accumulates along a sightline instead of blocking outright. Each
+  intervening cell contributes its opacity per metre multiplied by the metres of
+  sightline crossing it, and sight is blocked once the running total reaches
+  `1.0`.
+- The sightline's full 3D length is divided evenly across the cells it crosses,
+  which keeps the threshold direction-independent: a diagonal sightline covers
+  more ground per cell and is obscured proportionally.
+- Cells are one metre, so at `0.05` per metre dense forest blocks sight at roughly
+  twenty metres, while a structure at `1.00` blocks on the first cell entered.
+- Observer and target cells are excluded, so a soldier standing in forest is not
+  blinded by its own cell.
+- Friendly soldiers ignore opacity entirely. A soldier always sees its own side
+- Terrain itself is obscured by opacity for every observer, with no friendly
+  exception.
 
-The friendly-cover exception is a hardcoded information-model shortcut.
+The friendly-opacity exception is a hardcoded information-model shortcut. Opacity
+does not modify rifle hit probability; terrain protection is a separate profile
+field.
 
 ### Concealment
 
@@ -238,20 +329,22 @@ The friendly-cover exception is a hardcoded information-model shortcut.
   cell.
 - Intervening concealment has no effect.
 - Friendly soldiers ignore concealment.
-- The probability that concealment hides its occupant is:
+- The probability that concealment hides its occupant is the concealment value of
+  the terrain class the occupant stands on:
 
 $$
-P(\text{hidden}) = \operatorname{clamp}
-\left(p_{\text{concealment hide}}, 0, 1\right).
+P(\text{hidden}) = \min\left(1, c_{\text{terrain}}\right).
 $$
 
 - The occupant stays hidden when `roll < P(hidden)`; otherwise detection succeeds.
-- The default hide probability is zero, so concealment has no practical effect
-  unless a non-zero value is configured.
+- Concealment is live by default. Six of the ten classes conceal, led by dense
+  forest at `0.70`, urban at `0.60`, and scrub at `0.45`.
 - Detection is rerolled whenever visibility is recomputed.
 - Detection is not remembered, shared between soldiers, or stored in battlefield
   snapshots.
-- Concealment does not modify rifle hit probability after detection.
+- Concealment does not modify rifle hit probability after detection. Concealment
+  governs being seen and protection governs being hit; they are independent
+  profile fields, and a class may have one without the other.
 
 The concealment resolver accepts an injectable random generator.
 
@@ -289,7 +382,9 @@ A proposed move is individually legal when all of the following hold:
 3. The destination is the exact surface position for its XY coordinate.
 4. The destination is exactly one horizontal Chebyshev step away.
 5. Absolute elevation change does not exceed the configured limit.
-6. The destination is not a cover cell.
+6. The destination's terrain class is passable. With current profiles that
+   excludes Water and Structure. A soldier told why its move failed is told which
+   class blocked it.
 
 The destination `z` is always read from the battlefield surface. Uphill and downhill
 use the same elevation limit.
@@ -299,6 +394,9 @@ Diagonal moves check only the destination. For a move from `(1,1)` to `(2,0)`, c
 
 Movement distance, direction set, diagonal cost, corner-cutting, and cover
 impassability are hardcoded rules.
+
+Terrain does not slow movement. A soldier crosses wetland and road at the same
+rate, and the profile's move cost has no effect on the simulation today.
 
 ### Simultaneous movement conflicts
 
@@ -335,10 +433,12 @@ soldier casualty transition.
 | Elevation modifier per level |              `0.02` | `ShootingResolver` |
 | Minimum hit probability      |              `0.50` | `ShootingResolver` |
 | Maximum hit probability      |              `0.99` | `ShootingResolver` |
+| Terrain protection           |           per class | `TERRAIN_PROFILES` |
 | Hit randomness               | unseeded `Random()` | `ShootingResolver` |
 
 The four probability defaults come from `athena/params.py` and can be overridden
-when constructing a `ShootingResolver`.
+when constructing a `ShootingResolver`. Terrain protection is a property of the
+target's ground and cannot be overridden per run.
 
 ### Shoot-action legality
 
@@ -363,6 +463,9 @@ from the shared snapshot without repeating range or line-of-sight checks.
   snapshot.
 - Zero or multiple living enemies at the requested coordinate produce no shot
   outcome.
+- Terrain protection is taken from where the target stood before the tick, so a
+  target that runs from a structure into the open is still sheltered against that
+  tick's fire, and one running the other way gains nothing.
 - A target with an accepted move completes that move even when hit in the same tick.
 - A shooter hit in the same tick still resolves its accepted shot.
 - Reciprocal shots may make both soldiers casualties.
@@ -380,12 +483,20 @@ P(\text{hit}) = \operatorname{clamp}
 p_{\text{base}} + m_{\text{elevation}}(z_s-z_t),
 p_{\min},
 p_{\max}
-\right).
+\right)
+\times
+\left(1 - \operatorname{clamp}(c_{\text{protection}}, 0, 1)\right).
 $$
 
 High ground increases probability by two percentage points per level with current
 defaults, while low ground decreases it by the same amount. A uniformly distributed
 random roll in `[0, 1)` produces a hit when `roll < P(hit)`.
+
+Terrain protection is applied **after** the marksmanship clamp, so an accepted
+shot can fall below `p_min`. The floor and ceiling describe how well a soldier can
+shoot, not how sheltered the target is. A target in a structure at protection
+`0.90` is hit with probability `0.09` against the `0.90` base, well under the
+`0.50` floor.
 
 ## Agent action-selection loop
 
@@ -430,6 +541,9 @@ remain in their provider modules.
   retry receives a generic movement-rule rejection.
 - Exhausting retries returns `None`, causing no action during execution.
 - Each retry is another model request.
+- The action schema is binding rather than advisory. A model that returns
+  something merely shaped like an action has its turn rejected as a schema
+  failure rather than treated as a proposal.
 - The structured-output boundary accepts a nested action that some models return as
   JSON encoded inside a string. Pydantic schema failures wrapped by the OpenRouter
   output parser are retried with concise validation feedback that excludes the raw
@@ -447,8 +561,11 @@ The prompts currently embed scenario and engine rules directly:
   section for a scenario or team without changing the structural engine rules.
 - Movement is one cell.
 - Maximum elevation change is rendered from the active movement resolver.
-- Cover is impassable.
+- Impassable classes are named from the profile table rather than written out.
 - Occupied stationary cells are unavailable.
+- The map format itself is described: one character per cell, a legend, an
+  elevation grid beneath, blank for cells with no line of sight, and the
+  soldier's own coordinates marked.
 - OpenRouter may hold position.
 - OpenRouter may shoot visible living enemies.
 - Ollama may not shoot.
@@ -460,6 +577,14 @@ Team-objective text is a scenario assumption. OpenRouter renders a caller-suppli
 objective when present and otherwise retains its default objectives. Structural hold,
 movement, and shooting statements still mirror hardcoded engine behavior, while the
 tunable elevation and history values are inserted from the effective runtime values.
+
+Terrain guidance is derived from the profile table rather than written out, so
+what an agent is told about terrain cannot contradict what the resolvers do with
+it. Only classes whose effect is strong enough to matter tactically are named;
+concealment and protection are described only for classes a soldier can stand on.
+
+Ollama receives the same terrain guidance. It remains movement-only and still
+receives no communication context.
 
 ### Scheduling and failure behavior
 
@@ -486,6 +611,9 @@ tunable elevation and history values are inserted from the effective runtime val
 - History omits the observer's historical team and survival state.
 - Entries are kept oldest to newest.
 - The default rolling limit is ten.
+- An entry records the terrain visible at that tick, but an agent is not shown it.
+  Only the soldier's own track reaches the agent, so past terrain is engine
+  bookkeeping rather than agent memory. See How terrain reaches an agent.
 - Ollama receives only the current observation and does not receive history.
 
 ## Team communication
@@ -526,14 +654,19 @@ tunable elevation and history values are inserted from the effective runtime val
 - Messages from all accessible groups share one chronological history.
 - The default rolling limit is ten messages, ordered oldest to newest.
 - `AgentContext` includes the soldier's available group descriptions and current
-  communication history. The complete context is serialized into each OpenRouter
-  request, so these messages consume model context-window tokens.
+  communication history. Both are rendered into each OpenRouter request as a
+  radio-nets list and a radio-traffic log, so these messages consume model
+  context-window tokens.
 - Communication history is loop state and is not included in battlefield snapshots.
 - Ollama receives no communication groups or communication history.
 
 ### Replay representation
 
-- Replay schema version 2 records communication groups once as static battlefield
+- Replay schema version is **3**. Version 3 replaces the `cover` and
+  `concealment` position tuples with `terrain_classes`, a row-major class grid
+  holding one entry per width x height cell. A client written against version 2
+  cannot read a version 3 log.
+- Replay records communication groups once as static battlefield
   data, including each group's ID, display name, team, and soldier member indices.
 - Every completed replay step records each accepted team message once, in
   sender-index resolution order. A replay message contains its sender soldier index,
@@ -567,6 +700,9 @@ The execution assumptions are:
 - A `None` action leaves that soldier unchanged.
 - An `ExecutionResult` records submitted actions, shot outcomes, accepted team
   messages, pre-action observations, and immutable before/after snapshots.
+- A snapshot carries the terrain grid, so terrain effects during resolution are
+  read from the same frozen world state as positions and survival, never from live
+  state mid-tick.
 - `execute_actions()` assumes one action-list entry per soldier but does not validate
   the list length.
 - The core loop has no automatic victory condition
@@ -579,13 +715,17 @@ but lower-level APIs can bypass it:
 TO AGENTS: This is okay, no need to fix unless it has been proven to break something
 
 - `Soldier.move_to()` does not validate surface membership or movement legality.
-- Direct mutation of cover and concealment is not revalidated.
 - `execute_actions()` assumes its actions have already passed observation-based
   validation.
-- Initial soldier overlap and soldier-on-cover placement are allowed.
-- Cover and concealment overlap is allowed.
+- Initial soldier overlap and soldier-on-impassable-terrain placement are allowed.
 - Positive battlefield dimensions are assumed rather than explicitly validated.
+  except on the imported-terrain path.
 - Vision ranges and resolver parameters are assumed to be sensible and non-negative.
 - Probability parameter ordering and bounds are not validated.
+  values are likewise unchecked and only clamped at the point of use.
+- Terrain effects are global. Changing one class's profile changes movement
+  legality, sight, and gunfire at once, and also changes how already-recorded
+  replays are interpreted, because a replay stores which class each cell was
+  rather than what that class did.
 - Action-list length is assumed to match soldier count.
 - RNG state is absent from snapshots.
