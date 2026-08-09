@@ -23,6 +23,8 @@ from athena.models import (
     TerrainClass,
     CommunicationGroup,
     HoldAction,
+    IncomingFireAlert,
+    IncomingFireDistance,
     MoveAction,
     MoveDirection,
     Position,
@@ -160,6 +162,31 @@ def test_render_demo_frame_shows_team_broadcast(capsys) -> None:
 
     output = capsys.readouterr().out
     assert "soldier 0 -> blue-team: Moving to the ridge." in output
+
+
+def test_scroll_frame_shows_latest_incoming_fire_known_to_agent() -> None:
+    blue = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    red = Soldier(Team.RED, Position(x=2, y=0, z=0))
+    loop = loop_for([blue, red])
+
+    output = demo.scroll_frame(
+        "After tick 1",
+        loop.battlefield,
+        loop.observed_soldiers_map(),
+        color=False,
+        incoming_fire_history=(
+            (),
+            (
+                IncomingFireAlert(
+                    tick=1,
+                    source_bearing=MoveDirection.WEST,
+                    source_distance=IncomingFireDistance.NEAR,
+                ),
+            ),
+        ),
+    )
+
+    assert "F:W/near" in output
 
 
 def test_render_demo_frame_colors_elevated_cells(capsys) -> None:

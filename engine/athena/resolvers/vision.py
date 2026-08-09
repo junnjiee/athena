@@ -1,6 +1,7 @@
 from math import inf, sqrt
 from random import Random
 
+from athena.geometry import squared_distance
 from athena.world_state import Battlefield, Soldier
 from athena.models import Position, SurvivalState
 from athena.params import (
@@ -163,11 +164,11 @@ class VisionResolver:
         _terrain_blocks_los), not from range. Range is capped at the resolver's
         configurable max_vision_range.
         """
-        dx = target_position.x - observer_position.x
-        dy = target_position.y - observer_position.y
-        dz = target_position.z - observer_position.z
         effective_range = min(observer_vision_range, self.max_vision_range)
-        return dx * dx + dy * dy + dz * dz <= effective_range * effective_range
+        return (
+            squared_distance(observer_position, target_position)
+            <= effective_range * effective_range
+        )
 
     def _opacity_blocks_los(
         self,
@@ -191,10 +192,7 @@ class VisionResolver:
         if not cells:
             return False
 
-        dx = target_position.x - observer_position.x
-        dy = target_position.y - observer_position.y
-        dz = target_position.z - observer_position.z
-        distance = sqrt(dx * dx + dy * dy + dz * dz)
+        distance = sqrt(squared_distance(observer_position, target_position))
         metres_per_cell = distance / (len(cells) + 1)
 
         accumulated = 0.0

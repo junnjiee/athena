@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from contextlib import redirect_stdout
 from math import ceil
 from functools import partial
@@ -39,6 +40,7 @@ from athena.models import (
     CommunicationGroup,
     ExecutionResult,
     HoldAction,
+    IncomingFireAlert,
     MoveAction,
     ObservedSoldier,
     Position,
@@ -123,6 +125,30 @@ DIRECTION_ABBREVIATIONS = {
     "west": "W",
     "northwest": "NW",
 }
+
+
+def incoming_fire_text(history: Sequence[IncomingFireAlert]) -> str:
+    """Compactly show the newest incoming-fire event known to one agent."""
+    if not history:
+        return "-"
+
+    alert = history[-1]
+    bearing = (
+        DIRECTION_ABBREVIATIONS[alert.source_bearing.value]
+        if alert.source_bearing is not None
+        else "HERE"
+    )
+    return f"{bearing}/{alert.source_distance.value}"
+
+
+def _soldier_incoming_fire_text(
+    histories: Sequence[Sequence[IncomingFireAlert]],
+    soldier_index: int,
+) -> str:
+    history = histories[soldier_index] if soldier_index < len(histories) else ()
+    return incoming_fire_text(history)
+
+
 RULE_WIDTH = 120
 """Cap on the tick separator, so it never soft-wraps a narrow terminal."""
 
@@ -395,6 +421,7 @@ def _panel_lines(
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> list[str]:
     """Per-soldier state: what it did, what it sees, what it said.
 
@@ -407,7 +434,10 @@ def _panel_lines(
     }
     actions = execution_result.actions if execution_result else ()
 
-    lines = ["ID   pos        action/result   V: current view   C: comms"]
+    lines = [
+        "ID   pos        action/result   V: current view   "
+        "F: incoming fire   C: comms"
+    ]
     for index, observation in enumerate(observations):
         soldier = battlefield.soldiers[index]
         action = actions[index] if index < len(actions) else None
@@ -416,6 +446,7 @@ def _panel_lines(
             f"{soldier.position.x},{soldier.position.y:<6} "
             f"{_action_text(index, action, execution_result):<15} "
             f"V:{_visible_ids(observation, battlefield):<15} "
+            f"F:{_soldier_incoming_fire_text(incoming_fire_history, index):<15} "
             f"[{soldier.survival_status.value[0].upper()}]"
         )
         if message := messages.get(index):
@@ -591,6 +622,7 @@ def _print_demo_frame(
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None = None,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> None:
     print(label)
     print(map_frame(battlefield, get_terminal_size(fallback=(DEFAULT_RENDER_COLUMNS, 24)).columns))
@@ -631,6 +663,8 @@ def _print_demo_frame(
             f"{observation.position.z}) "
             f"[{observation.survival_status.value}] "
             f"sees: {visible_soldiers_text}; "
+            "incoming fire: "
+            f"{_soldier_incoming_fire_text(incoming_fire_history, index)}; "
             f"terrain: {len(terrain_cells)} cells "
             f"({terrain_summary})"
         )
@@ -643,11 +677,18 @@ def render_demo_frame(
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None = None,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> None:
     """Render a complete frame in one flushed write to avoid partial redraws."""
     frame = StringIO()
     with redirect_stdout(frame):
-        _print_demo_frame(label, battlefield, observations, execution_result)
+        _print_demo_frame(
+            label,
+            battlefield,
+            observations,
+            execution_result,
+            incoming_fire_history,
+        )
 
     sys.stdout.write(f"\033[H\033[2J{frame.getvalue()}")
     sys.stdout.flush()
@@ -661,6 +702,7 @@ def scroll_frame(
     columns: int = DEFAULT_RENDER_COLUMNS,
     color: bool = True,
     minimap: bool = False,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> str:
     """One tick: a rule, the map, then the per-soldier panel beneath it."""
     bounds = soldier_bounds(battlefield) if minimap else full_bounds(battlefield)
@@ -690,7 +732,14 @@ def scroll_frame(
     lines.append(
         " | ".join(tallies) + f" | separation {closest_separation(battlefield):.1f} m"
     )
-    lines.extend(_panel_lines(battlefield, observations, execution_result))
+    lines.extend(
+        _panel_lines(
+            battlefield,
+            observations,
+            execution_result,
+            incoming_fire_history,
+        )
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -701,6 +750,7 @@ def render_scroll_frame(
     execution_result: ExecutionResult | None = None,
     color: bool = True,
     minimap: bool = False,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> None:
     """Append a frame below the last, in one flushed write.
 
@@ -717,6 +767,7 @@ def render_scroll_frame(
             get_terminal_size(fallback=(100, 24)).columns,
             color,
             minimap,
+            incoming_fire_history,
         )
     )
     sys.stdout.flush()
@@ -866,6 +917,11 @@ async def run_demo(
         if replay_log_path is not None
         else None
     )
+    displayed_incoming_fire_history = (
+        ()
+        if model_spec is not None and model_spec.startswith(OLLAMA_PREFIX)
+        else loop.incoming_fire_history
+    )
 
     try:
         initial_label = (
@@ -879,6 +935,7 @@ async def run_demo(
             loop.observed_soldiers_map(),
             color=color,
             minimap=minimap,
+            incoming_fire_history=displayed_incoming_fire_history,
         )
         for tick_index in range(ticks):
             result = await loop.tick()
@@ -905,6 +962,7 @@ async def run_demo(
                 execution_result=result,
                 color=color,
                 minimap=minimap,
+                incoming_fire_history=displayed_incoming_fire_history,
             )
             if battle_finished:
                 break

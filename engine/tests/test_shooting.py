@@ -89,6 +89,7 @@ def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
     assert "terrain is drawn as a map" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in OLLAMA_SYSTEM_PROMPT
+    assert "approximate bearing and distance" in SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize("prompt", [SYSTEM_PROMPT, OLLAMA_SYSTEM_PROMPT])

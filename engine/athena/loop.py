@@ -6,9 +6,14 @@ from typing import Awaitable, Callable
 from athena.agent import choose_action
 from athena.params import (
     COMMUNICATION_HISTORY_LIMIT,
+    INCOMING_FIRE_HISTORY_LIMIT,
+    INCOMING_FIRE_MEDIUM_DISTANCE,
+    INCOMING_FIRE_NEAR_DISTANCE,
+    INCOMING_FIRE_RADIUS,
     MAX_ACTION_ATTEMPTS,
     VISIBILITY_HISTORY_LIMIT,
 )
+from athena.geometry import bearing_toward, squared_distance
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
@@ -21,10 +26,13 @@ from athena.models import (
     BroadcastDraft,
     ChosenTurn,
     ExecutionResult,
+    IncomingFireAlert,
+    IncomingFireDistance,
     MoveAction,
     ObservedSoldier,
     Position,
     ShootAction,
+    ShotOutcome,
     SurvivalState,
     TerrainCell,
     TeamMessage,
@@ -47,6 +55,10 @@ class LoopEngine:
         shooting_resolver: ShootingResolver | None = None,
         visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
         communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
+        incoming_fire_radius: float = INCOMING_FIRE_RADIUS,
+        incoming_fire_near_distance: float = INCOMING_FIRE_NEAR_DISTANCE,
+        incoming_fire_medium_distance: float = INCOMING_FIRE_MEDIUM_DISTANCE,
+        incoming_fire_history_limit: int = INCOMING_FIRE_HISTORY_LIMIT,
     ) -> None:
         self.battlefield = battlefield
         self.vision_resolver = vision_resolver
@@ -55,6 +67,10 @@ class LoopEngine:
         self.shooting_resolver = shooting_resolver or ShootingResolver()
         self.visibility_history_limit = visibility_history_limit
         self.communication_history_limit = communication_history_limit
+        self.incoming_fire_radius = incoming_fire_radius
+        self.incoming_fire_near_distance = incoming_fire_near_distance
+        self.incoming_fire_medium_distance = incoming_fire_medium_distance
+        self.incoming_fire_history_limit = incoming_fire_history_limit
         self.tick_number = 0
         self.visibility_history = [
             deque[VisibilityObservation](maxlen=visibility_history_limit)
@@ -63,6 +79,9 @@ class LoopEngine:
         self.communication_history = [
             deque[TeamMessage](maxlen=communication_history_limit)
             for _ in battlefield.soldiers
+        ]
+        self.incoming_fire_history = [
+            deque[IncomingFireAlert]() for _ in battlefield.soldiers
         ]
 
     def visible_soldiers_map(self) -> list[list[VisibleSoldier]]:
@@ -178,6 +197,9 @@ class LoopEngine:
                     visibility_history=tuple(
                         self.visibility_history[soldier_index]
                     ),
+                    incoming_fire_history=tuple(
+                        self.incoming_fire_history[soldier_index]
+                    ),
                     communication_groups=self.battlefield.communication_groups_for(
                         soldier
                     ),
@@ -281,6 +303,7 @@ class LoopEngine:
         # another observation after resolution could reroll probabilistic visibility
         # and give history that differs from what the agent actually acted on.
         self.tick_number += 1
+        self._record_incoming_fire_alerts(shot_outcomes, before)
         team_messages = self._resolve_team_messages(
             broadcasts,
             before,
@@ -311,6 +334,58 @@ class LoopEngine:
             before=before,
             after=self.battlefield.snapshot(),
         )
+
+    def _record_incoming_fire_alerts(
+        self,
+        shot_outcomes: tuple[ShotOutcome, ...],
+        before: BattlefieldSnapshot,
+    ) -> None:
+        radius_squared = self.incoming_fire_radius * self.incoming_fire_radius
+        near_squared = (
+            self.incoming_fire_near_distance * self.incoming_fire_near_distance
+        )
+        medium_squared = (
+            self.incoming_fire_medium_distance * self.incoming_fire_medium_distance
+        )
+
+        for outcome in shot_outcomes:
+            shooter = before.soldiers[outcome.shooter_index]
+            target = before.soldiers[outcome.target_index]
+            for listener in before.soldiers:
+                if (
+                    listener.soldier_index == shooter.soldier_index
+                    or listener.survival_status != SurvivalState.ALIVE
+                    or squared_distance(listener.position, target.position)
+                    > radius_squared
+                ):
+                    continue
+
+                source_distance_squared = squared_distance(
+                    listener.position,
+                    shooter.position,
+                )
+                if source_distance_squared <= near_squared:
+                    source_distance = IncomingFireDistance.NEAR
+                elif source_distance_squared <= medium_squared:
+                    source_distance = IncomingFireDistance.MEDIUM
+                else:
+                    source_distance = IncomingFireDistance.FAR
+
+                self.incoming_fire_history[listener.soldier_index].append(
+                    IncomingFireAlert(
+                        tick=self.tick_number,
+                        source_bearing=bearing_toward(
+                            listener.position,
+                            shooter.position,
+                        ),
+                        source_distance=source_distance,
+                    )
+                )
+
+        oldest_tick = self.tick_number - self.incoming_fire_history_limit + 1
+        for history in self.incoming_fire_history:
+            while history and history[0].tick < oldest_tick:
+                history.popleft()
 
     def _resolve_team_messages(
         self,

@@ -1,8 +1,10 @@
-"""Agent-local perception and visibility-history models."""
+"""Agent-local perception and bounded-history models."""
+
+from enum import StrEnum
 
 from pydantic import BaseModel, computed_field
 
-from athena.models.actions import Action
+from athena.models.actions import Action, MoveDirection
 from athena.models.common import (
     IMMUTABLE_MODEL_CONFIG,
     Position,
@@ -58,12 +60,29 @@ class VisibilityObservation(BaseModel):
     available_terrain: list[TerrainCell]
 
 
+class IncomingFireDistance(StrEnum):
+    NEAR = "near"
+    MEDIUM = "medium"
+    FAR = "far"
+
+
+class IncomingFireAlert(BaseModel):
+    """Approximate direction and distance of a recently resolved shot."""
+
+    model_config = IMMUTABLE_MODEL_CONFIG
+
+    tick: int
+    source_bearing: MoveDirection | None
+    source_distance: IncomingFireDistance
+
+
 class AgentContext(BaseModel):
-    """Local state plus bounded visibility and communication history."""
+    """Local state plus bounded visibility, contact, and communication history."""
 
     model_config = IMMUTABLE_MODEL_CONFIG
 
     current_observation: ObservedSoldier
     visibility_history: tuple[VisibilityObservation, ...]
+    incoming_fire_history: tuple[IncomingFireAlert, ...] = ()
     communication_groups: tuple[CommunicationGroup, ...] = ()
     communication_history: tuple[TeamMessage, ...] = ()
