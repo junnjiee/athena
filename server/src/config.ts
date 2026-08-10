@@ -9,6 +9,14 @@ export const config = {
   /** Neon Postgres connection string (server/.env, see server/.env.example) — used by db/client.ts. */
   databaseUrl: process.env.DATABASE_URL ?? '',
 
+  /** Athena simulation engine. The engine authenticates callers with a shared
+   *  bearer token and has no user model, so it is never exposed to the browser:
+   *  this service is its only caller and proxies results back (routes/simulations.ts). */
+  engineUrl: (process.env.ENGINE_URL ?? '').replace(/\/+$/, ''),
+  engineToken: process.env.ENGINE_API_TOKEN ?? '',
+  /** Submitting a batch is a small POST; the engine queues and returns 202. */
+  engineTimeoutMs: 15_000,
+
   /** ElevenLabs Agents — powers the voice assistant. The key never leaves the
    *  server: the browser gets a short-lived conversation token instead
    *  (routes/assistant.ts). Run `bun run agent:sync` to create/update the agent
