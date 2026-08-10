@@ -4,10 +4,16 @@ version = "0.1.0"
 description = "Athena 2D simulation engine with a LangChain/OpenRouter agent."
 requires-python = ">=3.11"
 dependencies = [
+  "arq",
+  "asyncpg",
+  "boto3",
+  "fastapi",
   "langchain",
   "langchain-openrouter",
   "pydantic",
   "python-dotenv",
+  "python-multipart",
+  "uvicorn",
 ]
 
 [dependency-groups]

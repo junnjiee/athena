@@ -768,3 +768,33 @@ TO AGENTS: This is okay, no need to fix unless it has been proven to break somet
   rather than what that class did.
 - Action-list length is assumed to match soldier count.
 - RNG state is absent from snapshots.
+
+## Hosted batch execution
+
+The hosted engine adds a transport and scheduling boundary around the same engine
+loop. It does not change combat resolution.
+
+- `POST /v1/simulation-batches` accepts a multipart `payload` file, a positive
+  `simulationCount`, a positive tick limit, and an optional OpenRouter model ID.
+  The payload may be JSON or gzip-compressed JSON and is validated through the
+  existing imported-terrain payload model before any jobs are queued.
+- One independent job is created per requested simulation. Every job constructs
+  its own battlefield and loop state from the payload. Hosted runs use the units
+  supplied by the frontend export; they do not use the demo's hardcoded deployment
+  or its rule that pins Red movement.
+- Each run stops at its tick limit or when either Blue or Red has no living
+  soldiers. The resulting replay uses schema version 3.
+- Redis is the job queue. The worker's `WORKER_CONCURRENCY` setting bounds the
+  number of simulations in flight in one worker service. Within each simulation,
+  living-soldier chooser calls retain the loop's existing concurrent scheduling.
+- Postgres stores batch, simulation, and ordered completion-event state. The API
+  creates the required tables and index on startup.
+- Submitted payloads and gzip-compressed replay logs are private bucket objects.
+  `GET /v1/simulation-batches/{batch_id}/events` is a reconnectable server-sent
+  event stream. A completed-simulation event receives a newly generated presigned
+  replay URL whenever the event is read, including after reconnection.
+- An engine or provider exception marks that simulation failed and emits
+  `simulation.failed`; the remaining simulations continue. A job interrupted by
+  worker shutdown may be reclaimed once after restart. The batch completes after
+  every simulation reaches completed or failed state, and its final status is
+  failed when any simulation failed.

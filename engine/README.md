@@ -86,7 +86,7 @@ Pass `--replay-log` to write a result-only JSON log for a replay UI:
 uv run python -m athena.demo --ticks 5 --replay-log runs/demo.json
 ```
 
-Replay schema version 2 contains the static battlefield and communication groups,
+Replay schema version 3 contains the static battlefield and communication groups,
 the initial soldier state as step zero, and one final soldier-state step per completed
 tick. Each tick step also contains executed shots and accepted team messages. A
 message in step `N` was sent during the transition from step `N - 1` to step `N`; its
@@ -134,4 +134,31 @@ uv run python -m athena.demo --help
 
 ```bash
 uv run pytest
+```
+
+## Host simulation batches on Railway
+
+Frontend integration is documented in [FRONTEND_API.md](FRONTEND_API.md).
+
+The hosted boundary exposes two product APIs:
+
+- `POST /v1/simulation-batches` accepts `multipart/form-data` with a JSON or
+  gzip-compressed JSON `payload`, `simulationCount`, `ticks`, and an optional
+  OpenRouter `model`. It returns `202` with `batchId`, `simulationCount`, and
+  `eventsUrl`.
+- `GET /v1/simulation-batches/{batch_id}/events` streams ordered SSE events. Each
+  `simulation.completed` event includes a fresh presigned `replayUrl`; failures
+  and final batch completion are also emitted.
+
+Create two Railway services from the repository with `/engine` as their root
+directory. Point the API service at `/engine/railway.api.json` and the worker at
+`/engine/railway.worker.json`. Both use the same Dockerfile. Add Railway Postgres,
+Redis, and a Bucket, then provide the variables listed in
+`.env.hosted.example`. Only the API service needs a public domain.
+
+For local process startup after those dependencies are available:
+
+```bash
+uv run uvicorn athena.hosted.api:app --host 0.0.0.0 --port 8000
+uv run arq athena.hosted.worker.WorkerSettings
 ```
