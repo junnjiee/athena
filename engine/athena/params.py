@@ -77,6 +77,10 @@ MAX_ACTION_ATTEMPTS = 3
 VISIBILITY_HISTORY_LIMIT = 10
 COMMUNICATION_HISTORY_LIMIT = 10
 TEAM_MESSAGE_MAX_LENGTH = 280
+INCOMING_FIRE_RADIUS = 10.0
+INCOMING_FIRE_NEAR_DISTANCE = 5.0
+INCOMING_FIRE_MEDIUM_DISTANCE = 10.0
+INCOMING_FIRE_HISTORY_LIMIT = 10
 
 # OpenRouter agent prompt
 DEFAULT_TEAM_OBJECTIVES = (
@@ -100,6 +104,9 @@ OPENROUTER_SYSTEM_PROMPT_TEMPLATE = (
     "submitted. That records what you proposed, including doing nothing; it "
     "does not report whether a move was accepted or whether a shot hit. It "
     "does not repeat terrain, because the map above is current. "
+    "Incoming fire lists shots directed near you during recent ticks. Each "
+    "entry gives an approximate bearing and distance to the source, without "
+    "revealing the shooter's identity or exact position. "
     "Radio nets lists every broadcast group you may use, by group_id. "
     "Radio traffic lists up to {communication_history_limit} "
     "messages you previously sent or received, ordered from oldest to newest. "

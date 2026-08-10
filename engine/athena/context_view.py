@@ -160,11 +160,26 @@ def _render_history(history: Sequence[VisibilityObservation]) -> str:
 
 
 def render_agent_context(context: AgentContext) -> str:
-    """Render the whole agent message: observation, track, and radio."""
+    """Render the whole agent message: observation, track, contact, and radio."""
     sections = [
         render_observation(context.current_observation),
         _render_history(context.visibility_history),
     ]
+
+    if context.incoming_fire_history:
+        sections.append(
+            "Incoming fire, oldest first:\n"
+            + "\n".join(
+                f"  t{alert.tick}: from "
+                + (
+                    alert.source_bearing.value
+                    if alert.source_bearing is not None
+                    else "your immediate vicinity"
+                )
+                + f", {alert.source_distance.value} distance"
+                for alert in context.incoming_fire_history
+            )
+        )
 
     if context.communication_groups:
         sections.append(

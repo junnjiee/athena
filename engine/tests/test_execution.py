@@ -14,6 +14,7 @@ from athena.models import (
     CommunicationGroup,
     ExecutionResult,
     HoldAction,
+    IncomingFireDistance,
     MoveAction,
     MoveDirection,
     Position,
@@ -182,6 +183,85 @@ def test_missed_shot_is_recorded_without_creating_a_casualty() -> None:
 
     assert not result.shot_outcomes[0].hit
     assert result.after.soldiers[1].survival_status == SurvivalState.ALIVE
+
+
+def test_resolved_shot_alerts_alive_soldiers_near_target_on_next_tick() -> None:
+    received_contexts: dict[Soldier, AgentContext] = {}
+
+    async def record_context(
+        agent_context: AgentContext,
+        soldier: Soldier,
+        **_: object,
+    ) -> None:
+        received_contexts[soldier] = agent_context
+        return None
+
+    shooter = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    target = Soldier(Team.RED, Position(x=4, y=0, z=0))
+    nearby_blue = Soldier(Team.BLUE, Position(x=4, y=2, z=0))
+    edge_of_zone = Soldier(Team.RED, Position(x=14, y=0, z=0))
+    outside_zone = Soldier(Team.RED, Position(x=15, y=0, z=0))
+    loop = LoopEngine(
+        battlefield=Battlefield(
+            width=16,
+            height=3,
+            soldiers=[shooter, target, nearby_blue, edge_of_zone, outside_zone],
+        ),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        shooting_resolver=ShootingResolver(rng=Random(2)),
+        action_chooser=record_context,
+    )
+
+    loop.execute_actions(
+        [ShootAction(target_position=target.position), None, None, None, None]
+    )
+    asyncio.run(loop.collect_valid_actions())
+
+    assert received_contexts[shooter].incoming_fire_history == ()
+    assert received_contexts[outside_zone].incoming_fire_history == ()
+    assert received_contexts[target].incoming_fire_history[0].source_bearing == (
+        MoveDirection.WEST
+    )
+    assert received_contexts[target].incoming_fire_history[0].source_distance == (
+        IncomingFireDistance.NEAR
+    )
+    assert received_contexts[nearby_blue].incoming_fire_history[0].source_bearing == (
+        MoveDirection.NORTHWEST
+    )
+    assert received_contexts[edge_of_zone].incoming_fire_history[0].source_distance == (
+        IncomingFireDistance.FAR
+    )
+
+
+def test_incoming_fire_history_expires_after_ten_completed_ticks() -> None:
+    received_contexts: list[AgentContext] = []
+
+    async def record_context(agent_context: AgentContext, **_: object) -> None:
+        received_contexts.append(agent_context)
+        return None
+
+    shooter = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    target = Soldier(Team.RED, Position(x=1, y=0, z=0))
+    loop = LoopEngine(
+        battlefield=Battlefield(width=2, height=1, soldiers=[shooter, target]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        shooting_resolver=ShootingResolver(rng=Random(2)),
+        action_chooser=record_context,
+    )
+
+    loop.execute_actions([ShootAction(target_position=target.position), None])
+    for _ in range(9):
+        loop.execute_actions([None, None])
+
+    asyncio.run(loop.collect_valid_actions())
+    assert received_contexts[1].incoming_fire_history[0].tick == 1
+
+    loop.execute_actions([None, None])
+    received_contexts.clear()
+    asyncio.run(loop.collect_valid_actions())
+    assert received_contexts[1].incoming_fire_history == ()
 
 
 def test_none_actions_leave_before_and_after_state_equal() -> None:

@@ -6,6 +6,8 @@ from athena.context_view import (
 )
 from athena.models import (
     AgentContext,
+    IncomingFireAlert,
+    IncomingFireDistance,
     MoveAction,
     MoveDirection,
     ObservedSoldier,
@@ -172,6 +174,24 @@ def test_first_tick_history_says_so() -> None:
     )
 
     assert "Recent ticks: none, this is your first." in rendered
+
+
+def test_incoming_fire_history_reports_approximate_source() -> None:
+    rendered = render_agent_context(
+        AgentContext(
+            current_observation=observation(),
+            visibility_history=(),
+            incoming_fire_history=(
+                IncomingFireAlert(
+                    tick=4,
+                    source_bearing=MoveDirection.NORTHWEST,
+                    source_distance=IncomingFireDistance.MEDIUM,
+                ),
+            ),
+        )
+    )
+
+    assert "t4: from northwest, medium distance" in rendered
 
 
 def test_rendered_context_is_far_smaller_than_the_json_dump() -> None:

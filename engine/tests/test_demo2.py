@@ -10,6 +10,8 @@ from athena.models import (
     BroadcastDraft,
     ChosenTurn,
     HoldAction,
+    IncomingFireAlert,
+    IncomingFireDistance,
     MoveAction,
     MoveDirection,
     Team,
@@ -293,7 +295,7 @@ def test_demo2_live_frames_fit_in_a_24_row_terminal(monkeypatch) -> None:
         for line in frame.splitlines()
     ]
     assert all(len(line) <= 80 for line in visible_lines)
-    assert "ID action/result | V: pre-action view | C: …" in frames[-1]
+    assert "ID action/result | V:view | F:fire | C:comms" in frames[-1]
     assert "B0 hold | V:1,2,3,4,5" in frames[-1]
     assert "Last: moves 0/0, holds 10, hits 0/0, messages 0" in frames[-1]
 
@@ -333,3 +335,35 @@ def test_demo2_live_panel_shows_accepted_communications(monkeypatch) -> None:
 
     output = stdout.getvalue()
     assert "B0 hold | V:1,2,3,4,5 | C:BT LEFT READY" in output
+
+
+def test_demo2_live_panel_shows_latest_incoming_fire(monkeypatch) -> None:
+    class TtyStdout(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    battlefield = demo2.build_battlefield()
+    histories = [() for _ in battlefield.soldiers]
+    histories[0] = (
+        IncomingFireAlert(
+            tick=3,
+            source_bearing=MoveDirection.NORTHWEST,
+            source_distance=IncomingFireDistance.MEDIUM,
+        ),
+    )
+    stdout = TtyStdout()
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setattr(demo2.sys, "stdout", stdout)
+
+    demo2.render_demo_frame(
+        "After tick 3",
+        battlefield,
+        LoopEngine(
+            battlefield=battlefield,
+            vision_resolver=VisionResolver(),
+            movement_resolver=MovementResolver(),
+        ).observed_soldiers_map(),
+        incoming_fire_history=histories,
+    )
+
+    assert "B0 waiting | V:1,2,3,4,5 | F:NW/medium" in stdout.getvalue()

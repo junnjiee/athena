@@ -25,6 +25,8 @@ from athena.models.execution import (
 )
 from athena.models.observations import (
     AgentContext,
+    IncomingFireAlert,
+    IncomingFireDistance,
     ObservedSoldier,
     TerrainCell,
     VisibilityObservation,
@@ -60,6 +62,8 @@ __all__ = [
     "CommunicationGroup",
     "ExecutionResult",
     "HoldAction",
+    "IncomingFireAlert",
+    "IncomingFireDistance",
     "MoveAction",
     "MoveDirection",
     "ObservedSoldier",

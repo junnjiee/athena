@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import sys
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 from shutil import get_terminal_size
@@ -16,6 +17,7 @@ from athena.demo import (
     cell_symbol,
     elevation_bounds,
     elevation_color,
+    incoming_fire_text,
     render_demo_frame as render_verbose_demo_frame,
     soldier_symbol,
     terrain_legend,
@@ -28,6 +30,7 @@ from athena.models import (
     CommunicationGroup,
     ExecutionResult,
     HoldAction,
+    IncomingFireAlert,
     MoveAction,
     ObservedSoldier,
     Position,
@@ -231,6 +234,7 @@ def _compact_live_frame(
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None,
     terminal_columns: int,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> str:
     lines = [label]
     map_lines: list[str] = []
@@ -252,6 +256,7 @@ def _compact_live_frame(
         battlefield,
         observations,
         execution_result,
+        incoming_fire_history,
     )
     map_width = battlefield.width * 2 - 1
     panel_width = terminal_columns - map_width - 3
@@ -316,6 +321,7 @@ def _agent_panel_lines(
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> list[str]:
     if execution_result is None:
         agent_states = list(enumerate(battlefield.soldiers))
@@ -324,7 +330,7 @@ def _agent_panel_lines(
         )
         actions = (None,) * len(agent_states)
         messages_by_sender = {}
-        header = "ID action | V: visible IDs | C: comms"
+        header = "ID action | V:view | F:fire | C:comms"
     else:
         agent_states = [
             (snapshot.soldier_index, snapshot)
@@ -336,7 +342,7 @@ def _agent_panel_lines(
             message.sender_index: message
             for message in execution_result.team_messages
         }
-        header = "ID action/result | V: pre-action view | C: comms"
+        header = "ID action/result | V:view | F:fire | C:comms"
 
     lines = [header]
     for soldier_index, soldier_state in agent_states:
@@ -351,6 +357,13 @@ def _agent_panel_lines(
             agent_states,
         )
         line = f"{agent_id} {action_text} | V:{visible_ids}"
+        fire = incoming_fire_text(
+            incoming_fire_history[soldier_index]
+            if soldier_index < len(incoming_fire_history)
+            else ()
+        )
+        if fire != "-":
+            line += f" | F:{fire}"
         if message := messages_by_sender.get(soldier_index):
             group = _GROUP_ABBREVIATIONS.get(message.group_id, message.group_id)
             content = " ".join(message.content.split())
@@ -425,6 +438,7 @@ def render_demo_frame(
     battlefield: Battlefield,
     observations: list[ObservedSoldier],
     execution_result: ExecutionResult | None = None,
+    incoming_fire_history: Sequence[Sequence[IncomingFireAlert]] = (),
 ) -> None:
     """Use a bounded live frame while retaining verbose redirected output."""
     if not sys.stdout.isatty():
@@ -433,6 +447,7 @@ def render_demo_frame(
             battlefield,
             observations,
             execution_result=execution_result,
+            incoming_fire_history=incoming_fire_history,
         )
         return
 
@@ -442,6 +457,7 @@ def render_demo_frame(
         observations,
         execution_result,
         terminal_columns=get_terminal_size(fallback=(80, 24)).columns,
+        incoming_fire_history=incoming_fire_history,
     )
     sys.stdout.write(f"\033[H\033[2J{frame}")
     sys.stdout.flush()
@@ -607,6 +623,7 @@ async def run_demo(
             initial_label,
             battlefield,
             loop.observed_soldiers_map(),
+            incoming_fire_history=loop.incoming_fire_history,
         )
         for tick_index in range(ticks):
             result = await loop.tick()
@@ -631,6 +648,7 @@ async def run_demo(
                 battlefield,
                 loop.observed_soldiers_map(),
                 execution_result=result,
+                incoming_fire_history=loop.incoming_fire_history,
             )
             if battle_finished:
                 break

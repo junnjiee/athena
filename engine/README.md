@@ -45,6 +45,10 @@ scrollback keeps the whole run. A 354-wide export therefore needs a terminal at
 least **359 columns** wide; the demo warns on startup if yours is narrower, and
 rows soft-wrap until you zoom out.
 
+The panel's `F:<bearing>/<distance>` field shows the newest incoming-fire alert
+currently known to each hosted agent, for example `F:NW/medium`; `F:-` means none.
+Ollama remains current-observation-only, so its demo rows always show `F:-`.
+
 To see the start positions without spending any API calls:
 
 ```bash

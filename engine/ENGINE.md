@@ -33,8 +33,8 @@ remain with their existing owners.
 - Agents do not receive that global state. They receive an `AgentContext`
   containing the soldier's current local observation, a bounded history of earlier
   local visibility with the soldier's own position and submitted action, their
-  available communication groups, and a bounded history of messages they sent or
-  received.
+  bounded incoming-fire history, their available communication groups, and a
+  bounded history of messages they sent or received.
 
 - Python action chooser also receives the live `Battlefield` and `Soldier` so it
   can validate a proposed action before returning it to the loop. This is an internal
@@ -498,6 +498,37 @@ shoot, not how sheltered the target is. A target in a structure at protection
 `0.90` is hit with probability `0.09` against the `0.90` base, well under the
 `0.50` floor.
 
+### Incoming-fire awareness
+
+- Every resolved shot creates an incoming-fire alert whether it hits or misses.
+  An action that cannot bind one living enemy target creates no shot outcome and no
+  alert.
+- A recipient must have been alive in the shared pre-tick snapshot, must not be the
+  shooter, and must be within the configured radius of the target's pre-tick
+  position. The default radius is ten metres and includes its boundary.
+- Recipient team does not matter. Friendly and enemy soldiers near the targeted
+  zone hear the same shot.
+- The proximity check uses full 3D Euclidean distance. Terrain, opacity, protection,
+  concealment, and line of sight do not attenuate or block sound.
+- Each recipient gets a bearing calculated from its own pre-tick position toward
+  the shooter's pre-tick position. The bearing is rounded to the nearest of the
+  eight movement directions. A colocated source is described as being in the
+  recipient's immediate vicinity.
+- Each recipient gets its own coarse source-distance band using full 3D Euclidean
+  distance: `near` through five metres, `medium` through ten metres, and `far`
+  beyond ten metres. The shooter identity and exact position are not revealed.
+- Alerts created during tick `N` first reach an alive soldier's OpenRouter context
+  during tick `N + 1`, so no agent reacts inside the simultaneous tick that created
+  them.
+- Incoming-fire history is maintained separately per soldier index and keeps every
+  alert from the last ten completed ticks, oldest first. Multiple shots can create
+  multiple entries for one soldier in one tick.
+- Incoming-fire history is loop state. It is absent from battlefield snapshots and
+  replay logs; replay already records the resolved shots themselves.
+
+The radius, distance thresholds, and history window come from `athena/params.py`
+and can be overridden when constructing `LoopEngine`.
+
 ## Agent action-selection loop
 
 ### Tunable loop and provider parameters
@@ -507,6 +538,10 @@ shoot, not how sheltered the target is. A target in a structure at protection
 | Maximum action attempts    |                          `3` | `LoopEngine` and agent functions   |
 | Visibility history limit   |                         `10` | `LoopEngine`                       |
 | Communication history limit |                        `10` | `LoopEngine`                       |
+| Incoming-fire radius       |                     `10.0 m` | `LoopEngine`                       |
+| Incoming-fire near band    |                      `<= 5 m` | `LoopEngine`                       |
+| Incoming-fire medium band  |                     `<= 10 m` | `LoopEngine`                       |
+| Incoming-fire history      |                   `10 ticks` | `LoopEngine`                       |
 | Team message length         |           `280` characters | communication models               |
 | OpenRouter prompt template |             tunable template | `params.py`                        |
 | Hosted model               |   `openai/gpt-oss-120b:nitro` | `agent.py`                         |
@@ -514,9 +549,10 @@ shoot, not how sheltered the target is. A target in a structure at protection
 | Ollama discovery timeout   |                 `10` seconds | `ollama_agent.py`                  |
 | Ollama action timeout      |                `120` seconds | `ollama_agent.py`                  |
 
-The action-attempt and history defaults come from `athena/params.py`. The OpenRouter
-prompt is rendered from the effective history limit and movement resolver, so
-constructor overrides remain aligned with the behavior described to the model.
+The action-attempt, incoming-fire, and history defaults come from `athena/params.py`.
+The OpenRouter prompt is rendered from the effective history limit and movement
+resolver, so constructor overrides remain aligned with the behavior described to
+the model.
 The OpenRouter prompt template is tunable in `params.py`; Ollama retains its separate
 movement-only prompt in `ollama_agent.py`. Provider model, host, and timeout defaults
 remain in their provider modules.
@@ -572,6 +608,9 @@ The prompts currently embed scenario and engine rules directly:
 - The OpenRouter history description is rendered from the active loop limit.
 - OpenRouter is told that broadcasts must target one of the communication groups in
   its context and arrive on the next tick.
+- OpenRouter is told that incoming-fire entries give an approximate bearing and
+  distance to a shot's source without revealing the shooter's identity or exact
+  position.
 
 Team-objective text is a scenario assumption. OpenRouter renders a caller-supplied
 objective when present and otherwise retains its default objectives. Structural hold,
@@ -584,7 +623,7 @@ it. Only classes whose effect is strong enough to matter tactically are named;
 concealment and protection are described only for classes a soldier can stand on.
 
 Ollama receives the same terrain guidance. It remains movement-only and still
-receives no communication context.
+receives no communication or incoming-fire context.
 
 ### Scheduling and failure behavior
 
