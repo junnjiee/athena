@@ -1,11 +1,14 @@
 """Headless execution of one UI-submitted Athena simulation."""
 
+import asyncio
 from functools import partial
 from pathlib import Path
 
 from athena.agent import choose_action
 from athena.loaders.terrain_payload import (
+    TerrainPayload,
     build_battlefield_from_payload,
+    fetch_plan,
     load_payload,
 )
 from athena.loop import LoopEngine
@@ -30,8 +33,34 @@ async def run_payload_simulation(
     ticks: int,
     model: str | None,
 ) -> ReplayLog:
+    """Run one simulation from a payload file on disk."""
+    return await run_simulation(load_payload(payload_path), ticks=ticks, model=model)
+
+
+async def run_plan_simulation(
+    terrain_service_url: str,
+    plan_id: str,
+    *,
+    ticks: int,
+    model: str | None,
+) -> ReplayLog:
+    """Run one simulation from a plan held by the terrain service.
+
+    The scenario is pulled rather than uploaded, so the engine reads the same
+    bytes the web app renders and there is one representation of a battleground
+    rather than two that can disagree.
+    """
+    payload = await asyncio.to_thread(fetch_plan, terrain_service_url, plan_id)
+    return await run_simulation(payload, ticks=ticks, model=model)
+
+
+async def run_simulation(
+    payload: TerrainPayload,
+    *,
+    ticks: int,
+    model: str | None,
+) -> ReplayLog:
     """Run one simulation without terminal rendering and return replay schema v3."""
-    payload = load_payload(payload_path)
     battlefield = build_battlefield_from_payload(payload)
     action_chooser = choose_action if model is None else partial(choose_action, model=model)
     loop = LoopEngine(

@@ -17,11 +17,19 @@ CREATE TABLE IF NOT EXISTS simulation_batches (
     simulation_count integer NOT NULL,
     ticks integer NOT NULL,
     model text,
-    payload_key text NOT NULL,
+    payload_key text,
+    plan_id text,
     status text NOT NULL DEFAULT 'queued',
     created_at timestamptz NOT NULL DEFAULT now(),
     completed_at timestamptz
 );
+
+-- A batch names its scenario one of two ways: an uploaded payload in the bucket,
+-- or a plan id the worker pulls from the terrain service. Both columns are
+-- nullable so either can be absent; these run on databases created before the
+-- plan_id path existed.
+ALTER TABLE simulation_batches ADD COLUMN IF NOT EXISTS plan_id text;
+ALTER TABLE simulation_batches ALTER COLUMN payload_key DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS simulations (
     id uuid PRIMARY KEY,
@@ -55,7 +63,10 @@ class SimulationJob:
     simulation_index: int
     ticks: int
     model: str | None
-    payload_key: str
+    # Exactly one of these is set: an uploaded payload in the bucket, or a plan
+    # the worker pulls from the terrain service.
+    payload_key: str | None
+    plan_id: str | None
 
 
 @dataclass(frozen=True)
@@ -91,7 +102,8 @@ class BatchRepository:
         simulation_ids: Iterable[UUID],
         ticks: int,
         model: str | None,
-        payload_key: str,
+        payload_key: str | None = None,
+        plan_id: str | None = None,
     ) -> None:
         simulation_ids = tuple(simulation_ids)
         async with self.pool.acquire() as connection:
@@ -99,14 +111,15 @@ class BatchRepository:
                 await connection.execute(
                     """
                     INSERT INTO simulation_batches
-                        (id, simulation_count, ticks, model, payload_key)
-                    VALUES ($1, $2, $3, $4, $5)
+                        (id, simulation_count, ticks, model, payload_key, plan_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     """,
                     batch_id,
                     len(simulation_ids),
                     ticks,
                     model,
                     payload_key,
+                    plan_id,
                 )
                 await connection.executemany(
                     """
@@ -167,7 +180,7 @@ class BatchRepository:
               AND simulation.status IN ('queued', 'running')
             RETURNING simulation.id, simulation.batch_id,
                 simulation.simulation_index, batch.ticks, batch.model,
-                batch.payload_key
+                batch.payload_key, batch.plan_id
             """,
             simulation_id,
         )
@@ -180,6 +193,7 @@ class BatchRepository:
             ticks=row["ticks"],
             model=row["model"],
             payload_key=row["payload_key"],
+            plan_id=row["plan_id"],
         )
 
     async def complete_simulation(

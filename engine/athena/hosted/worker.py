@@ -11,7 +11,7 @@ from arq.connections import RedisSettings
 
 from athena.hosted.config import HostedSettings
 from athena.hosted.database import BatchRepository
-from athena.hosted.runner import run_payload_simulation
+from athena.hosted.runner import run_payload_simulation, run_plan_simulation
 from athena.hosted.storage import BucketStorage
 
 
@@ -19,6 +19,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings = HostedSettings.from_env()
     ctx["repository"] = await BatchRepository.connect(settings.database_url)
     ctx["storage"] = BucketStorage(settings)
+    ctx["terrain_service_url"] = settings.terrain_service_url
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -33,42 +34,61 @@ async def run_simulation(ctx: dict[str, Any], simulation_id: str) -> None:
         return
 
     try:
-        with TemporaryDirectory(prefix="athena-simulation-") as directory:
-            directory_path = Path(directory)
-            stored_payload = directory_path / "payload.upload"
-            await storage.download_file(job.payload_key, stored_payload)
-
-            payload_path = stored_payload
-            if job.payload_key.endswith(".gz"):
-                payload_path = directory_path / "payload.json"
-                with gzip.open(stored_payload, "rb") as source, payload_path.open(
-                    "wb"
-                ) as output:
-                    while chunk := source.read(1024 * 1024):
-                        output.write(chunk)
-
-            replay = await run_payload_simulation(
-                payload_path,
+        if job.plan_id is not None:
+            # Pulled scenario: no bucket round trip, the worker reads the plan
+            # straight from the terrain service.
+            terrain_service_url = ctx["terrain_service_url"]
+            if terrain_service_url is None:
+                raise RuntimeError(
+                    "batch names a plan id but TERRAIN_SERVICE_URL is not set"
+                )
+            replay = await run_plan_simulation(
+                terrain_service_url,
+                job.plan_id,
                 ticks=job.ticks,
                 model=job.model,
             )
-            replay_bytes = gzip.compress(
-                f"{replay.model_dump_json()}\n".encode("utf-8")
-            )
-            replay_key = (
-                f"replays/{job.batch_id}/{job.simulation_index}-"
-                f"{job.simulation_id}.json.gz"
-            )
-            await storage.put_bytes(
-                replay_bytes,
-                replay_key,
-                content_type="application/json",
-                content_encoding="gzip",
-            )
-            await repository.complete_simulation(job, replay_key)
+        else:
+            replay = await _run_uploaded_payload(storage, job)
+
+        replay_bytes = gzip.compress(f"{replay.model_dump_json()}\n".encode("utf-8"))
+        replay_key = (
+            f"replays/{job.batch_id}/{job.simulation_index}-"
+            f"{job.simulation_id}.json.gz"
+        )
+        await storage.put_bytes(
+            replay_bytes,
+            replay_key,
+            content_type="application/json",
+            content_encoding="gzip",
+        )
+        await repository.complete_simulation(job, replay_key)
     except Exception as exc:
         await repository.fail_simulation(job, str(exc))
         raise
+
+
+async def _run_uploaded_payload(storage: Any, job: Any) -> Any:
+    """Run a batch whose scenario was uploaded as a payload file."""
+    with TemporaryDirectory(prefix="athena-simulation-") as directory:
+        directory_path = Path(directory)
+        stored_payload = directory_path / "payload.upload"
+        await storage.download_file(job.payload_key, stored_payload)
+
+        payload_path = stored_payload
+        if job.payload_key.endswith(".gz"):
+            payload_path = directory_path / "payload.json"
+            with gzip.open(stored_payload, "rb") as source, payload_path.open(
+                "wb"
+            ) as output:
+                while chunk := source.read(1024 * 1024):
+                    output.write(chunk)
+
+        return await run_payload_simulation(
+            payload_path,
+            ticks=job.ticks,
+            model=job.model,
+        )
 
 
 class WorkerSettings:
