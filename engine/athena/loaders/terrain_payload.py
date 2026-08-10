@@ -3,15 +3,22 @@
 The export is produced by ``frontend/src/lib/simulationExport.ts``. Its terrain
 grid is row-major with **row 0 at the northernmost latitude**, which fixes the
 sense of the y axis: y increases southward.
+
+The same payload can be pulled straight from the terrain service instead of
+copied out of the browser -- see ``fetch_plan`` and ``fetch_battleground``.
 """
 
+import base64
 import json
 import math
+import urllib.request
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from athena.loaders.errors import PayloadError
+from athena.loaders.grid_wire import PackedGrid, decode_grid
 from athena.models import CommunicationGroup, Position, TerrainClass, Team
 from athena.params import (
     DEFAULT_SOLDIER_VISION_RANGE,
@@ -21,9 +28,7 @@ from athena.params import (
 from athena.terrain import TERRAIN_LABELS
 from athena.world_state import Battlefield, Soldier
 
-
-class PayloadError(ValueError):
-    """Raised when an export cannot be turned into a battlefield."""
+DEFAULT_FETCH_TIMEOUT = 30.0
 
 
 def _camel(field_name: str) -> str:
@@ -135,6 +140,115 @@ def _check_class_names(class_names: dict[int, str]) -> None:
             "export terrain classes do not match TerrainClass: "
             f"mismatched={mismatched or {}} unknown={sorted(unknown)}"
         )
+
+
+def _check_class_codes(terrain_classes: Iterable[int]) -> None:
+    """Fail on a class code this engine has no terrain class for.
+
+    Weaker than the file path's ``_check_class_names``: the packed grid carries
+    codes without names, so a *renumbering* that keeps every code in range
+    cannot be detected here and would load forest as something else. Both sides
+    mark the numbering as a fixed contract (``TerrainClass`` and the server's
+    ``TERRAIN_CLASS``), and this catches a code outside it.
+    """
+    known = {int(member) for member in TerrainClass}
+    unknown = sorted(set(terrain_classes) - known)
+    if unknown:
+        raise PayloadError(
+            f"grid uses terrain class codes this engine does not know: {unknown}"
+        )
+
+
+def _get(url: str, timeout: float) -> bytes:
+    """Fetch a URL. Transport failures propagate as urllib raises them."""
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        return response.read()
+
+
+def _payload_from_grid(
+    grid: PackedGrid,
+    bbox: dict,
+    units: Iterable[dict] = (),
+    objectives: Iterable[dict] = (),
+) -> TerrainPayload:
+    """Assemble a payload from a decoded grid and the drawings over it.
+
+    Dimensions come from the grid header rather than the battleground metadata,
+    so the cell arrays and the numbers describing them cannot disagree.
+    """
+    _check_class_codes(grid.terrain_classes)
+
+    return TerrainPayload(
+        terrain=TerrainGrid(
+            bbox=BoundingBox.model_validate(bbox),
+            width=grid.width,
+            height=grid.height,
+            cell_meters=grid.cell_meters,
+            cells=TerrainCells(
+                elevation=grid.elevation,
+                terrain_classes=grid.terrain_classes,
+            ),
+        ),
+        units=tuple(PayloadUnit.model_validate(unit) for unit in units),
+        objectives=tuple(
+            PayloadObjective.model_validate(objective) for objective in objectives
+        ),
+    )
+
+
+def fetch_plan(
+    base_url: str,
+    plan_id: str,
+    *,
+    timeout: float = DEFAULT_FETCH_TIMEOUT,
+) -> TerrainPayload:
+    """Pull a saved plan and its ground from the terrain service.
+
+    One request to ``GET /api/plans/{id}``, which returns the drawn units and
+    objectives alongside the battleground's packed grid as base64. This is the
+    runnable case: a battlefield built from it has soldiers on it.
+
+    ``base_url`` is wherever the terrain service listens, such as
+    ``http://localhost:8787``.
+    """
+    body = json.loads(
+        _get(f"{base_url.rstrip('/')}/api/plans/{plan_id}", timeout).decode("utf-8")
+    )
+    battleground = body["battleground"]
+    plan = body["plan"]
+
+    return _payload_from_grid(
+        decode_grid(base64.b64decode(battleground["gridBufferBase64"])),
+        bbox=battleground["meta"]["bbox"],
+        units=plan["units"],
+        objectives=plan["objectives"],
+    )
+
+
+def fetch_battleground(
+    base_url: str,
+    battleground_id: str,
+    *,
+    timeout: float = DEFAULT_FETCH_TIMEOUT,
+) -> TerrainPayload:
+    """Pull generated ground with nothing drawn on it yet.
+
+    Two requests, because the grid crosses the wire as raw bytes with no room
+    for a bounding box: ``GET /api/battleground/{id}/meta`` for the bbox and
+    ``/grid`` for the terrain.
+
+    The battlefield this builds has **no soldiers** -- ground alone, for
+    inspecting terrain or placing a scenario's own laydown on it. The service
+    holds an ungenerated battleground in memory only until some plan is saved
+    on it, so this can 404 for ground that was never saved.
+    """
+    root = f"{base_url.rstrip('/')}/api/battleground/{battleground_id}"
+    meta = json.loads(_get(f"{root}/meta", timeout).decode("utf-8"))["meta"]
+
+    return _payload_from_grid(
+        decode_grid(_get(f"{root}/grid", timeout)),
+        bbox=meta["bbox"],
+    )
 
 
 def project_cell(
