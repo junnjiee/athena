@@ -6,6 +6,7 @@ import { db } from '../db/client'
 import { battlegrounds, plans } from '../db/schema'
 import { getJob } from '../services/pipeline'
 import { buildPlanBrief } from '../services/planBrief'
+import { loadBattleground, persistBattleground } from '../services/battlegroundStore'
 
 const lonLat = z.object({ longitude: z.number(), latitude: z.number() })
 
@@ -84,37 +85,23 @@ export function registerPlanRoutes(app: FastifyInstance): void {
     }
     const { battlegroundId, name, units, objectives, routes, hHour } = parsed.data
 
-    // The client never re-uploads the terrain -- read it straight from the
-    // pipeline's in-memory job cache (still there from generation this session).
+    // The client never re-uploads the terrain. It was written to Postgres when
+    // the pipeline produced it, so this no longer depends on the generating
+    // process still being alive or the job still being in its LRU. The live job
+    // is a fast path for the common case of saving right after generating.
     const job = getJob(battlegroundId)
-    if (!job || job.status !== 'ready' || !job.meta || !job.gridBuffer || !job.features) {
+    if (job?.status === 'ready') {
+      await persistBattleground(job)
+    } else if ((await loadBattleground(battlegroundId)) === null) {
       return reply
         .status(409)
-        .send({ error: 'battleground no longer available server-side; re-run terrain generation' })
+        .send({ error: 'unknown battleground; re-run terrain generation' })
     }
-
-    await db
-      .insert(battlegrounds)
-      .values({
-        id: job.meta.id,
-        name: job.meta.name,
-        bbox: job.meta.bbox,
-        width: job.meta.width,
-        height: job.meta.height,
-        cellMeters: job.meta.cellMeters,
-        generatedAt: job.meta.generatedAt,
-        weather: job.meta.weather,
-        featureCounts: job.meta.featureCounts,
-        segmentation: job.meta.segmentation ?? null,
-        gridBuffer: job.gridBuffer,
-        features: job.features,
-      })
-      .onConflictDoNothing({ target: battlegrounds.id })
 
     const planId = randomUUID()
     await db.insert(plans).values({
       id: planId,
-      battlegroundId: job.meta.id,
+      battlegroundId,
       name,
       units,
       objectives,

@@ -15,7 +15,19 @@ from tempfile import TemporaryDirectory
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from secrets import compare_digest
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -58,6 +70,46 @@ def _prepare_payload(upload_path: Path, validation_path: Path) -> bool:
         shutil.copyfile(upload_path, validation_path)
     load_payload(validation_path)
     return compressed
+
+
+def _require_token(expected: str | None) -> Any:
+    """Guard for /v1 routes: a bearer token matching the shared secret.
+
+    The engine has no user model -- the only caller is the terrain service, so
+    this is service-to-service auth, not a login. `expected` is None only when
+    settings are injected without a token (tests, local runs); from_env()
+    requires one, so a deployed API is always closed.
+    """
+
+    async def check(authorization: Annotated[str | None, Header()] = None) -> None:
+        if expected is None:
+            return
+        scheme, _, presented = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not compare_digest(presented, expected):
+            # 401 rather than 403: the caller may retry with a correct token.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid or missing bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    return check
+
+
+async def _enqueue_all(
+    hosted: HostedRuntime,
+    batch_id: UUID,
+    simulation_ids: list[UUID],
+) -> None:
+    """Queue every simulation, failing the whole batch if the queue is down."""
+    try:
+        for simulation_id in simulation_ids:
+            await hosted.queue.enqueue(simulation_id)
+    except Exception as exc:
+        await hosted.repository.fail_batch_enqueue(batch_id, str(exc))
+        raise HTTPException(
+            status_code=503, detail="simulation queue unavailable"
+        ) from exc
 
 
 def _sse(event: BatchEvent, storage: Any) -> str:
@@ -115,8 +167,21 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(configured_origins),
             allow_methods=["GET", "POST"],
-            allow_headers=["Content-Type", "Last-Event-ID"],
+            allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
         )
+
+    configured_token = (
+        settings.api_token
+        if settings is not None
+        else (os.getenv("API_TOKEN") or "").strip() or None
+    )
+    authenticated = [Depends(_require_token(configured_token))]
+
+    configured_terrain_service = (
+        settings.terrain_service_url
+        if settings is not None
+        else (os.getenv("TERRAIN_SERVICE_URL") or "").strip() or None
+    )
 
     @app.get("/healthz", include_in_schema=False)
     async def health() -> dict[str, bool]:
@@ -126,11 +191,13 @@ def create_app(
         "/v1/simulation-batches",
         response_model=SubmitBatchResponse,
         status_code=status.HTTP_202_ACCEPTED,
+        dependencies=authenticated,
     )
     async def submit_batch(
         request: Request,
-        payload: Annotated[UploadFile, File()],
         simulation_count: Annotated[int, Form(alias="simulationCount", gt=0)],
+        payload: Annotated[UploadFile | None, File()] = None,
+        plan_id: Annotated[str | None, Form(alias="planId")] = None,
         ticks: Annotated[int, Form(gt=0)] = 60,
         model: Annotated[str | None, Form()] = None,
     ) -> SubmitBatchResponse:
@@ -139,6 +206,34 @@ def create_app(
         simulation_ids = [uuid4() for _ in range(simulation_count)]
         if model is not None:
             model = model.strip() or None
+        plan_id = (plan_id or "").strip() or None
+
+        # A batch names its scenario exactly one way.
+        if (payload is None) == (plan_id is None):
+            raise HTTPException(
+                status_code=422,
+                detail="provide exactly one of payload or planId",
+            )
+
+        if plan_id is not None:
+            if configured_terrain_service is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="planId submissions need TERRAIN_SERVICE_URL configured",
+                )
+            await hosted.repository.create_batch(
+                batch_id=batch_id,
+                simulation_ids=simulation_ids,
+                ticks=ticks,
+                model=model,
+                plan_id=plan_id,
+            )
+            await _enqueue_all(hosted, batch_id, simulation_ids)
+            return SubmitBatchResponse(
+                batch_id=batch_id,
+                simulation_count=simulation_count,
+                events_url=f"/v1/simulation-batches/{batch_id}/events",
+            )
 
         try:
             with TemporaryDirectory(prefix="athena-upload-") as directory:
@@ -176,12 +271,7 @@ def create_app(
             model=model,
             payload_key=payload_key,
         )
-        try:
-            for simulation_id in simulation_ids:
-                await hosted.queue.enqueue(simulation_id)
-        except Exception as exc:
-            await hosted.repository.fail_batch_enqueue(batch_id, str(exc))
-            raise HTTPException(status_code=503, detail="simulation queue unavailable") from exc
+        await _enqueue_all(hosted, batch_id, simulation_ids)
 
         return SubmitBatchResponse(
             batch_id=batch_id,
@@ -189,7 +279,7 @@ def create_app(
             events_url=f"/v1/simulation-batches/{batch_id}/events",
         )
 
-    @app.get("/v1/simulation-batches/{batch_id}/events")
+    @app.get("/v1/simulation-batches/{batch_id}/events", dependencies=authenticated)
     async def batch_events(batch_id: UUID, request: Request) -> StreamingResponse:
         hosted: HostedRuntime = request.app.state.runtime
         if await hosted.repository.batch_status(batch_id) is None:

@@ -1,17 +1,23 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import { Server as SocketIOServer } from 'socket.io'
 import { config } from './config'
 import { registerRoutes } from './routes'
 import { registerSplatRoutes } from './routes/splats'
 import { registerPlanRoutes } from './routes/plans'
 import { registerAssistantRoutes } from './routes/assistant'
+import { registerSimulationRoutes } from './routes/simulations'
 import { getJob } from './services/pipeline'
 import type { ProgressEvent } from './types'
 
 const app = Fastify({ logger: { level: 'info' } })
 
 await app.register(cors, { origin: config.corsOrigin })
+
+// Registered globally but opted into per route: only battleground generation
+// spends someone else's API quota, so only it carries a cap.
+await app.register(rateLimit, { global: false })
 
 const io = new SocketIOServer(app.server, {
   cors: { origin: config.corsOrigin },
@@ -51,6 +57,7 @@ registerRoutes(app, emitProgress)
 await registerSplatRoutes(app)
 registerPlanRoutes(app)
 registerAssistantRoutes(app)
+registerSimulationRoutes(app)
 
 try {
   await app.listen({ port: config.port, host: config.host })

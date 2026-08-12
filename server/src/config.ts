@@ -1,13 +1,53 @@
 import 'dotenv/config'
 
+/** Any localhost port — the dev server and docker-compose both land here. */
+const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+
+export function parseCorsOrigins(raw: string | undefined): RegExp | string[] {
+  const origins = (raw ?? '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter((origin) => origin !== '')
+  return origins.length > 0 ? origins : LOCALHOST_ORIGIN
+}
+
 /** All tunables and external endpoints in one place — nothing hardcoded in services. */
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   host: process.env.HOST ?? '127.0.0.1',
-  corsOrigin: /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+  /** Browser origins allowed to call this service. `CORS_ORIGINS` is a
+   *  comma-separated list of exact origins for a deployed frontend; with it
+   *  unset any localhost port is allowed, which is the dev and docker-compose
+   *  case. A hardcoded localhost regex would block every deployment. */
+  corsOrigin: parseCorsOrigins(process.env.CORS_ORIGINS),
 
   /** Neon Postgres connection string (server/.env, see server/.env.example) — used by db/client.ts. */
   databaseUrl: process.env.DATABASE_URL ?? '',
+
+  /** Athena simulation engine. The engine authenticates callers with a shared
+   *  bearer token and has no user model, so it is never exposed to the browser:
+   *  this service is its only caller and proxies results back (routes/simulations.ts). */
+  engineUrl: (process.env.ENGINE_URL ?? '').replace(/\/+$/, ''),
+  engineToken: process.env.ENGINE_API_TOKEN ?? '',
+  /** Uploading a gzipped scenario is still a small POST; the engine validates it,
+   *  queues the batch, and returns 202 without running anything. */
+  engineTimeoutMs: 30_000,
+  /** Every soldier is one LLM call per tick, so a batch costs
+   *  `soldiers × ticks × simulationCount` requests. A platoon-on-platoon plan is
+   *  already 42 soldiers; this rejects the plan that would quietly spend a
+   *  fortune rather than discovering it on the invoice. */
+  maxSoldiersPerSimulation: 80,
+
+  /** Origin of the engine's object store, e.g. `https://storage.railway.app` or
+   *  `http://minio:9000`. Replays are fetched through this service rather than
+   *  straight from the browser, for two reasons: the bucket then needs no CORS
+   *  policy naming the frontend, and a presigned URL signs the Host header, so
+   *  a URL the engine signs for an internal hostname is unusable from a browser
+   *  that reaches the same bucket under a different one (exactly what happens
+   *  under docker-compose). Only URLs on this origin are ever fetched — the
+   *  proxy takes a URL from the caller, so the allowlist is what keeps it from
+   *  being an open redirect for server-side requests. */
+  engineReplayOrigin: (process.env.ENGINE_REPLAY_ORIGIN ?? '').replace(/\/+$/, ''),
 
   /** ElevenLabs Agents — powers the voice assistant. The key never leaves the
    *  server: the browser gets a short-lived conversation token instead
@@ -78,4 +118,12 @@ export const config = {
   maxExtentMeters: 800,
 
   jobCacheSize: 24,
+
+  /** Generating a battleground fans out to AWS Terrain Tiles, Overpass,
+   *  Terrascope and Esri on someone else's quota, so it is the one endpoint
+   *  worth capping per caller. This service has no user model, so the cap is
+   *  the abuse control, not authentication — see the security note in the
+   *  README. Other routes read from Postgres or memory and are left alone. */
+  battlegroundRateLimit: Number(process.env.BATTLEGROUND_RATE_LIMIT ?? 20),
+  battlegroundRateWindowMs: 60_000,
 } as const

@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-Athena lets a commander sketch a plan on real ground and instantly see the odds it works, via Monte Carlo simulation of AI-driven soldiers on auto-generated real terrain. See README.md for the full product description (problem, approach, and September demo goals). The terrain pipeline is live: area selection on the globe triggers `../server` (Fastify + Socket.IO, port 8787, proxied via Vite) which ingests DEM/OSM/weather, classifies terrain into a military grid, and streams progress; the frontend renders the battlefield (buildings/roads/water/trees + heatmap drapes) inside the same Cesium scene and validates drawn routes against the grid. The Monte Carlo simulation engine is not built yet.
+Athena lets a commander sketch a plan on real ground and instantly see the odds it works, via Monte Carlo simulation of AI-driven soldiers on auto-generated real terrain. See the root README.md for the full product description and the three-process architecture.
+
+Area selection on the globe triggers `../server` (Fastify + Socket.IO, port 8787, proxied via Vite) which ingests DEM/OSM/weather, classifies terrain into a military grid, and streams progress; this app renders the battlefield (buildings/roads/water/trees + heatmap drapes) inside the same Cesium scene and validates drawn routes against the grid.
+
+Simulation is live too. Run Simulation in the bottom bar posts to `/api/plans/:id/simulate` (the server builds the scenario and brokers the engine's bearer token), then reads results over SSE from `/api/simulations/:batchId/events`. See `src/state/simulation.ts`, `src/lib/simulationStream.ts` and `src/types/replay.ts` — replay schema v3 is a wire contract with `../engine`, so keep `types/replay.ts` in step with `engine/athena/models/replay.py`. A run needs a *saved* plan: the engine is handed the stored plan and its stored terrain, never the drawing on screen.
+
+Not everything a commander can draw is simulated yet — routes, per-unit vision range, objectives and H-hour are dropped engine-side. `../ENGINE_CHANGES.md` is the list.
 
 ## Commands
 
@@ -16,7 +22,7 @@ This project uses **bun** as the package manager (`bun.lock` is present — do n
 - `bun run lint` — run ESLint over the repo
 - `bun run preview` — preview the production build locally
 
-There is no test suite configured yet.
+- `bun test` — run the suite in `test/` (bun:test; pure logic in `src/lib`, `src/state` and `src/types`, no DOM rendering)
 
 ## Architecture
 
