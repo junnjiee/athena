@@ -52,23 +52,40 @@ function cornerDiagonalMeters(rectangle: Cesium.Rectangle): number {
   return Cesium.Cartesian3.distance(corner1, corner2)
 }
 
-/** Fly/tilt the camera into an oblique ~45 degree preview fit to the selection. Uses
- *  ellipsoid height 0 for the corners/center (not sampled terrain elevation) -- on
- *  steep terrain the camera could clip into a hillside on fly-in; acceptable
- *  tradeoff for this MVP rather than adding an async terrain-sample step between
- *  mouse-up and the camera move starting. */
-export function flyToSelectionPreview(viewer: Cesium.Viewer, rectangle: Cesium.Rectangle) {
+/** Snap the camera into an oblique preview looking down at the selection.
+ *
+ *  Uses `camera.setView` (instant, no animation) rather than `camera.flyTo` --
+ *  empirically, a `flyTo` covering a very large range (whole-Earth default view
+ *  down to a target tens/hundreds of metres up) does not reliably land at the
+ *  requested `destination`; `setView` with the identical destination/orientation
+ *  lands exactly where asked, every time. Losing the animated swoop-in is a
+ *  worthwhile trade for the camera actually arriving where the ground is,
+ *  rather than settling somewhere that renders as a blank globe.
+ *
+ *  `baseHeightMeters` (ellipsoid-relative) anchors the destination -- default 0
+ *  (not sampled terrain elevation) is fine right after a fresh drag-select, where
+ *  no elevation data exists yet and adding an async terrain-sample step between
+ *  mouse-up and the camera move starting isn't worth it. But for ground whose
+ *  elevation IS already known (a just-loaded plan/replay), 0 is actively wrong:
+ *  on ground sitting well above the ellipsoid (Berlin's ~40-90m of geoid
+ *  separation plus terrain, say) it's the difference between the camera ending
+ *  up comfortably above the surface or embedded in it. Pass the real mean
+ *  elevation whenever it's on hand. */
+export function flyToSelectionPreview(viewer: Cesium.Viewer, rectangle: Cesium.Rectangle, baseHeightMeters = 0) {
   const center = Cesium.Rectangle.center(rectangle)
-  const centerCartesian = Cesium.Cartesian3.fromRadians(center.longitude, center.latitude, 0)
   const diagonalMeters = cornerDiagonalMeters(rectangle)
+  // Comfortable altitude above the target, floored so a tiny selection still
+  // gets an unambiguously-clear-of-the-ground vantage.
+  const altitudeMeters = Math.max(diagonalMeters * 1.5, 200)
+  const destination = Cesium.Cartesian3.fromRadians(
+    center.longitude,
+    center.latitude,
+    baseHeightMeters + altitudeMeters,
+  )
 
-  viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(centerCartesian, diagonalMeters / 2), {
-    duration: 2.0,
-    offset: new Cesium.HeadingPitchRange(
-      viewer.camera.heading,
-      Cesium.Math.toRadians(-45),
-      diagonalMeters * 1.2,
-    ),
+  viewer.camera.setView({
+    destination,
+    orientation: { heading: viewer.camera.heading, pitch: Cesium.Math.toRadians(-60), roll: 0 },
   })
 }
 

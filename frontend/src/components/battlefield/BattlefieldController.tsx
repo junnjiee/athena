@@ -129,8 +129,20 @@ export function BattlefieldController({ suppressed = false }: Props) {
       Cesium.Cartesian3.fromRadians(rect.west, rect.south),
       Cesium.Cartesian3.fromRadians(rect.east, rect.north),
     )
+    // The bounding sphere -- and thus the fly-to offset's vertical component --
+    // is anchored at ellipsoid height 0. On ground that sits well above the
+    // ellipsoid (geoid separation plus real elevation can easily total 40-90m,
+    // e.g. Berlin), that 0 baseline made the camera settle within single-digit
+    // metres of the real surface on a small selection, rendering a blank globe
+    // instead of the battlefield. Anchor it to the grid's own real elevation.
+    let elevationSum = 0
+    for (let i = 0; i < grid.elevation.length; i++) elevationSum += grid.elevation[i]
+    const meanElevation = grid.elevation.length > 0 ? elevationSum / grid.elevation.length : 0
     viewer.camera.flyToBoundingSphere(
-      new Cesium.BoundingSphere(Cesium.Cartesian3.fromRadians(center.longitude, center.latitude), diagonal / 2),
+      new Cesium.BoundingSphere(
+        Cesium.Cartesian3.fromRadians(center.longitude, center.latitude, meanElevation),
+        diagonal / 2,
+      ),
       {
         duration: 2.4,
         offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-38), diagonal * 1.15),

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useCesium } from 'resium'
 import type * as Cesium from 'cesium'
 
@@ -14,14 +14,25 @@ interface Props {
  *  component that itself renders <Viewer>). */
 export function ViewerBridge({ onViewerReady }: Props) {
   const { viewer } = useCesium()
+  // Callers pass an inline `onViewerReady` (its "apply once, at mount" doc
+  // comments assume exactly that), so it gets a fresh reference on every
+  // render. A `[viewer, onViewerReady]` dependency array would re-fire the
+  // callback on every one of the page's re-renders, not once -- for camera-
+  // moving callers that's not idempotent: each re-render cancels the
+  // previous flyTo animation mid-flight and restarts it, so the camera
+  // never actually reaches its destination. Fire at most once per distinct
+  // viewer instance instead, independent of how often this re-renders.
+  const firedForRef = useRef<Cesium.Viewer | null>(null)
 
   useEffect(() => {
-    if (viewer) onViewerReady(viewer)
+    if (!viewer || firedForRef.current === viewer) return
+    firedForRef.current = viewer
     // Dev-only handle for console debugging / E2E drivers; stripped in prod builds.
-    if (viewer && import.meta.env.DEV) {
+    if (import.meta.env.DEV) {
       ;(window as unknown as Record<string, unknown>).__athenaViewer = viewer
     }
-  }, [viewer, onViewerReady])
+    onViewerReady(viewer)
+  })
 
   return null
 }

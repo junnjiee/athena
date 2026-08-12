@@ -3,6 +3,7 @@ import type { BattlegroundMeta, BBoxDeg, GridData, OsmFeatures } from '../types/
 import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 import type { PlanSummary, SavedPlan } from '../types/plan'
 import type { Forecast } from '../types/forecast'
+import type { ReplayLog, SavedSimulationRun, SimulationRunSummary } from '../types/replayLog'
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -151,6 +152,15 @@ export async function startSimulation(
   return (await res.json()) as SimulationBatch
 }
 
+/** Fetches one completed run's full replay via the path the server already
+ *  proxies it through (see `SimulationCompleted.replayPath` in
+ *  lib/simulationStream.ts) -- same-origin, no separate base URL to build. */
+export async function fetchLiveReplay(replayPath: string): Promise<ReplayLog> {
+  const res = await fetch(replayPath)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as ReplayLog
+}
+
 /** Fetches a saved plan and decodes its terrain snapshot back into GridData,
  *  ready to hand straight to the battleground store's `loadSaved`. */
 export async function fetchPlan(id: string): Promise<SavedPlan> {
@@ -176,6 +186,62 @@ export async function fetchPlan(id: string): Promise<SavedPlan> {
     plan: body.plan,
     meta: body.battleground.meta,
     features: body.battleground.features,
+    grid,
+  }
+}
+
+/** Imports an already-produced engine ReplayLog (schema_version 3) against a
+ *  battleground generated this session. The server validates the log's shape
+ *  and rejects one whose battlefield dimensions don't match the battleground's
+ *  grid before storing it. */
+export async function importReplay(payload: {
+  battlegroundId: string
+  name: string
+  replay: ReplayLog
+}): Promise<string> {
+  const res = await fetch('/api/replays', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { id: string }
+  return body.id
+}
+
+export async function listReplays(): Promise<SimulationRunSummary[]> {
+  const res = await fetch('/api/replays')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as SimulationRunSummary[]
+}
+
+export async function deleteReplay(id: string): Promise<void> {
+  const res = await fetch(`/api/replays/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+/** Fetches a saved replay and decodes its terrain snapshot back into GridData,
+ *  ready to hand straight to the battleground store's `loadSaved`. */
+export async function fetchReplay(id: string): Promise<SavedSimulationRun> {
+  const res = await fetch(`/api/replays/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as {
+    run: { id: string; name: string; createdAt: string }
+    replay: ReplayLog
+    meta: BattlegroundMeta
+    features: OsmFeatures
+    gridBufferBase64: string
+  }
+  const binary = atob(body.gridBufferBase64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const grid = decodeGrid(bytes.buffer, body.meta.bbox)
+
+  return {
+    run: body.run,
+    replay: body.replay,
+    meta: body.meta,
+    features: body.features,
     grid,
   }
 }
