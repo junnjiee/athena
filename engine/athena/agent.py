@@ -4,7 +4,13 @@ from langchain_core.exceptions import OutputParserException
 from langchain_openrouter import ChatOpenRouter
 from pydantic import ValidationError
 
+from functools import lru_cache
+
 from athena.params import (
+    AGENT_MAX_OUTPUT_TOKENS,
+    AGENT_REASONING_EFFORT,
+    AGENT_REQUEST_TIMEOUT_MS,
+    AGENT_TRANSPORT_RETRIES,
     COMMUNICATION_HISTORY_LIMIT,
     MAX_ACTION_ATTEMPTS,
     MAX_ELEVATION_CHANGE,
@@ -32,6 +38,32 @@ SYSTEM_PROMPT = build_system_prompt(
     VISIBILITY_HISTORY_LIMIT,
     MAX_ELEVATION_CHANGE,
 )
+
+
+@lru_cache(maxsize=8)
+def _structured_client(model: str):
+    """One client per model, reused for every soldier and every tick.
+
+    Building a ChatOpenRouter constructs an httpx.AsyncClient eagerly, so the
+    old per-call construction meant a fresh connection pool -- and therefore a
+    fresh TCP and TLS handshake -- for every decision any soldier ever made. A
+    hundred-run batch would have opened a client per soldier per tick.
+
+    strict=True is what makes the schema binding rather than advisory:
+    langchain_openrouter omits the "strict" field entirely when it is None, and a
+    provider that is only shown a schema will happily return something else
+    shaped like one -- the schema envelope itself, most often. OpenRouter routes
+    each request to whichever provider is fastest, so without this the failure is
+    intermittent and looks like a flaky model rather than a missing flag.
+    """
+    llm = ChatOpenRouter(
+        model=model,
+        reasoning={"effort": AGENT_REASONING_EFFORT},
+        max_tokens=AGENT_MAX_OUTPUT_TOKENS,
+        request_timeout=AGENT_REQUEST_TIMEOUT_MS,
+        max_retries=AGENT_TRANSPORT_RETRIES,
+    )
+    return llm.with_structured_output(ChosenTurn, method="json_schema", strict=True)
 
 
 # Call propose() up to max_attempts times, returning the first legal action.
@@ -129,16 +161,7 @@ async def choose_action(
     if shooting_resolver is None:
         shooting_resolver = ShootingResolver()
 
-    llm = ChatOpenRouter(model=model)
-    # strict=True is what makes the schema binding rather than advisory:
-    # langchain_openrouter omits the "strict" field entirely when it is None, and
-    # a provider that is only shown a schema will happily return something else
-    # shaped like one -- the schema envelope itself, most often. OpenRouter routes
-    # each request to whichever provider is fastest, so without this the failure
-    # is intermittent and looks like a flaky model rather than a missing flag.
-    structured_llm = llm.with_structured_output(
-        ChosenTurn, method="json_schema", strict=True
-    )
+    structured_llm = _structured_client(model)
 
     async def propose(retry_feedback: str | None) -> ChosenTurn:
         human_message = render_agent_context(agent_context)

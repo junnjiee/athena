@@ -72,6 +72,44 @@ ELEVATION_HIT_MODIFIER_PER_LEVEL = 0.02
 MINIMUM_HIT_PROBABILITY = 0.50
 MAXIMUM_HIT_PROBABILITY = 0.99
 
+# OpenRouter provider settings
+AGENT_REASONING_EFFORT = "low"
+"""Reasoning budget asked of the model.
+
+gpt-oss-120b reasons by default, and unconstrained it spends more tokens
+thinking than answering: measured at 348-381 reasoning tokens against a ~40
+token action. At "low" that falls to ~115, which is a third of the output bill
+and roughly a second off every call. A soldier picking one of eight directions
+from a drawn map is not a problem that rewards a long deliberation.
+"""
+
+AGENT_MAX_OUTPUT_TOKENS = 512
+"""Ceiling on tokens the model may return.
+
+Not primarily a cost control: OpenRouter reserves credit against this value, and
+with it unset the reservation is the model's full 65536-token budget. An account
+holding less than that is refused outright -- a PaymentRequiredResponseError on
+every call -- while the request itself needs a couple of hundred tokens. Leaving
+this unset makes runs fail for lack of credit the run would never have spent.
+"""
+
+AGENT_REQUEST_TIMEOUT_MS = 30_000
+"""Deadline for one model request.
+
+Without it a stalled request has no bound at all: the provider SDK retries with
+backoff up to max_retries * 150 s, the chooser wraps that in its own attempt
+loop, and a tick waits on its slowest soldier. One unlucky call could hold a
+simulation for many minutes.
+"""
+
+AGENT_TRANSPORT_RETRIES = 1
+"""Provider-SDK retries for transport failures.
+
+Distinct from MAX_ACTION_ATTEMPTS, which re-asks after an *illegal* action. The
+SDK default of 2 stacks a second multiplier under the chooser's own loop; one
+retry keeps a blip survivable without compounding the tail.
+"""
+
 # Agent loop
 MAX_ACTION_ATTEMPTS = 3
 VISIBILITY_HISTORY_LIMIT = 10
