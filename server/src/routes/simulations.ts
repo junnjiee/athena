@@ -1,9 +1,16 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
+import { Readable } from 'node:stream'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
+import { summarizeRun, type ReplayLog } from '../services/replaySummary'
 import { config } from '../config'
 import { db } from '../db/client'
-import { plans } from '../db/schema'
+import { battlegrounds, plans } from '../db/schema'
+import {
+  buildSimulationPayload,
+  countSoldiers,
+  encodeSimulationPayload,
+} from '../services/simulationPayload'
 
 /**
  * Bridge to the Athena simulation engine.
@@ -12,9 +19,13 @@ import { plans } from '../db/schema'
  * it is never reachable from the browser. This service holds the token, submits
  * batches on the operator's behalf, and relays the engine's event stream back.
  *
- * Scenarios are submitted as a plan id, not an uploaded payload: the engine
- * pulls the plan straight from `GET /api/plans/:id` here, so there is one
- * representation of a battleground rather than two that can disagree.
+ * Scenarios are uploaded as a payload rather than named by plan id. The engine
+ * supports both, but the pull path can only carry what `GET /api/plans/:id`
+ * returns — one entry per drawn marker — and a marker is an establishment, not a
+ * soldier. Building the payload here is what lets a 21-man platoon reach the
+ * engine as 21 agents (services/simulationPayload.ts). The terrain inside it is
+ * decoded from the stored grid, so the battleground still has one source of
+ * bytes; only the laydown is derived.
  */
 
 const runBody = z.object({
@@ -38,6 +49,115 @@ function engineUnconfigured(): string | null {
 
 const authorization = () => ({ Authorization: `Bearer ${config.engineToken}` })
 
+/** Path the browser uses to pull a full replay back through this service. */
+export function replayPath(replayUrl: string): string {
+  return `/api/simulations/replay?url=${encodeURIComponent(replayUrl)}`
+}
+
+interface SseBlock {
+  id?: string
+  event?: string
+  data: string
+}
+
+/** Parse one `\n\n`-terminated SSE block. Comment-only blocks (keep-alives)
+ *  come back with no event and no data, and are forwarded verbatim. */
+function parseBlock(raw: string): SseBlock {
+  const block: SseBlock = { data: '' }
+  const data: string[] = []
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('id:')) block.id = line.slice(3).trim()
+    else if (line.startsWith('event:')) block.event = line.slice(6).trim()
+    else if (line.startsWith('data:')) data.push(line.slice(5).trim())
+  }
+  block.data = data.join('\n')
+  return block
+}
+
+function formatBlock(block: SseBlock, data: unknown): string {
+  return (
+    (block.id === undefined ? '' : `id: ${block.id}\n`) +
+    (block.event === undefined ? '' : `event: ${block.event}\n`) +
+    `data: ${JSON.stringify(data)}\n\n`
+  )
+}
+
+interface CompletedEvent {
+  simulationId: string
+  simulationIndex: number
+  replayUrl: string
+}
+
+/** Fetch one replay and reduce it. A replay that cannot be read is reported as
+ *  a summary-less completion rather than dropped, so the client can say a run
+ *  finished but could not be scored. */
+async function summarizeCompleted(
+  event: CompletedEvent,
+  log: FastifyBaseLogger,
+): Promise<Record<string, unknown>> {
+  const base = {
+    simulationId: event.simulationId,
+    simulationIndex: event.simulationIndex,
+    replayPath: replayPath(event.replayUrl),
+  }
+
+  try {
+    const res = await fetch(event.replayUrl, {
+      signal: AbortSignal.timeout(config.engineTimeoutMs),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return { ...base, summary: summarizeRun((await res.json()) as ReplayLog) }
+  } catch (error: unknown) {
+    log.error({ error, simulationId: event.simulationId }, 'could not summarise replay')
+    return {
+      ...base,
+      summary: null,
+      summaryError: error instanceof Error ? error.message : 'replay unavailable',
+    }
+  }
+}
+
+/** Rewrite `simulation.completed` blocks to carry a summary; forward the rest.
+ *  Exported for tests: `inject` cannot drive a multi-chunk streaming response,
+ *  and this transform is where the logic lives. */
+export async function* summarizeStream(
+  body: ReadableStream<Uint8Array>,
+  log: FastifyBaseLogger,
+): AsyncGenerator<string> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const transform = async (raw: string): Promise<string> => {
+    const block = parseBlock(raw)
+    if (block.event !== 'simulation.completed' || block.data === '') return raw
+    try {
+      const event = JSON.parse(block.data) as CompletedEvent
+      return formatBlock(block, await summarizeCompleted(event, log))
+    } catch (error: unknown) {
+      // An event we cannot parse is the engine's to define, not ours to drop.
+      log.error({ error }, 'unparseable simulation.completed event, forwarding as-is')
+      return raw
+    }
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary !== -1) {
+      const raw = buffer.slice(0, boundary + 2)
+      buffer = buffer.slice(boundary + 2)
+      yield await transform(raw)
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+
+  if (buffer !== '') yield buffer
+}
+
 export function registerSimulationRoutes(app: FastifyInstance): void {
   /** Which engine features are usable. Booleans only — never the token. */
   app.get('/api/simulations/status', async () => ({
@@ -56,17 +176,50 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
     }
 
-    // Fail here rather than letting the engine discover a missing plan
-    // asynchronously, one worker at a time, after the batch is already queued.
+    // Read the plan and its ground here rather than letting the engine discover
+    // a missing plan asynchronously, one worker at a time, after the batch is
+    // already queued.
     const rows = await db
-      .select({ id: plans.id })
+      .select({ plan: plans, battleground: battlegrounds })
       .from(plans)
+      .innerJoin(battlegrounds, eq(plans.battlegroundId, battlegrounds.id))
       .where(eq(plans.id, req.params.id))
       .limit(1)
-    if (rows.length === 0) return reply.status(404).send({ error: 'unknown plan' })
+    const row = rows[0]
+    if (!row) return reply.status(404).send({ error: 'unknown plan' })
+
+    const soldiers = countSoldiers(row.plan.units)
+    if (soldiers === 0) {
+      return reply
+        .status(422)
+        .send({ error: 'this plan has no units to simulate — place a force first' })
+    }
+    if (soldiers > config.maxSoldiersPerSimulation) {
+      // Every soldier is an LLM call per tick, so this is a cost ceiling, not a
+      // technical one. Say what the plan actually costs rather than "too big".
+      return reply.status(422).send({
+        error:
+          `this plan fields ${soldiers} soldiers; the limit is ` +
+          `${config.maxSoldiersPerSimulation}. Reduce unit strengths on the Units page.`,
+      })
+    }
+
+    const payload = encodeSimulationPayload(
+      buildSimulationPayload({
+        battleground: {
+          bbox: row.battleground.bbox,
+          gridBuffer: row.battleground.gridBuffer,
+        },
+        plan: { units: row.plan.units, objectives: row.plan.objectives },
+      }),
+    )
 
     const form = new FormData()
-    form.append('planId', req.params.id)
+    form.append(
+      'payload',
+      new Blob([new Uint8Array(payload)], { type: 'application/gzip' }),
+      'payload.json.gz',
+    )
     form.append('simulationCount', String(parsed.data.simulationCount))
     form.append('ticks', String(parsed.data.ticks))
     if (parsed.data.model) form.append('model', parsed.data.model)
@@ -97,17 +250,82 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
     return reply.status(202).send({
       batchId: body.batchId,
       simulationCount: body.simulationCount,
+      /** Soldiers the engine will actually field, after establishment expansion —
+       *  the number the operator drew is markers, not men. */
+      soldiers,
       eventsUrl: `/api/simulations/${body.batchId}/events`,
     })
   })
 
   /**
-   * Relays the engine's server-sent events for a batch.
+   * Fetches one replay from the engine's object store on the browser's behalf.
    *
-   * A plain pipe rather than a parse-and-re-emit: the engine already assigns
-   * event ids for resumption, and re-serialising would mean this service had to
-   * understand every event type the engine will ever add. `Last-Event-ID` is
-   * forwarded so a reconnecting browser resumes where it left off.
+   * The engine hands out presigned URLs on its own bucket. Going through this
+   * service means the bucket needs no CORS policy naming the frontend, and — the
+   * reason it is not optional — a presigned URL signs the Host header, so a URL
+   * signed for the bucket's internal hostname cannot be replayed by a browser
+   * that reaches the same bucket under a different one.
+   *
+   * The caller supplies the URL, so the origin allowlist is what stops this
+   * being a general-purpose fetcher pointed at anything the server can reach.
+   */
+  app.get<{ Querystring: { url?: string } }>(
+    '/api/simulations/replay',
+    async (req, reply) => {
+      if (!config.engineReplayOrigin) {
+        return reply.status(503).send({ error: 'ENGINE_REPLAY_ORIGIN is not set' })
+      }
+
+      const raw = req.query.url
+      if (!raw) return reply.status(400).send({ error: 'url is required' })
+
+      let target: URL
+      try {
+        target = new URL(raw)
+      } catch {
+        return reply.status(400).send({ error: 'url is not a valid URL' })
+      }
+      if (target.origin !== config.engineReplayOrigin) {
+        return reply.status(403).send({ error: 'url is not on the engine replay origin' })
+      }
+
+      let upstream: Response
+      try {
+        upstream = await fetch(target, { signal: AbortSignal.timeout(config.engineTimeoutMs) })
+      } catch (error: unknown) {
+        app.log.error({ error }, 'replay fetch failed')
+        return reply.status(502).send({ error: 'could not reach the replay store' })
+      }
+
+      if (!upstream.ok || !upstream.body) {
+        return reply
+          .status(upstream.status === 404 ? 404 : 502)
+          .send({ error: `replay unavailable (HTTP ${upstream.status})` })
+      }
+
+      // The worker stores replays gzipped. undici transparently decodes them, so
+      // what leaves here is plain JSON regardless of how it was stored.
+      return reply.header('Content-Type', 'application/json').send(upstream.body)
+    },
+  )
+
+  /**
+   * Relays the engine's server-sent events for a batch, summarising each replay
+   * on the way past.
+   *
+   * Event types this service does not know are forwarded untouched, and the
+   * engine's own event ids are preserved so `Last-Event-ID` resumption keeps
+   * working. Only `simulation.completed` is rewritten: its presigned
+   * `replayUrl` is replaced by the run's `summary` plus a proxied path for
+   * fetching the full replay on demand.
+   *
+   * The alternative — letting the browser fetch every replay — meant a 100-run
+   * batch moved well over a gigabyte to produce one win rate, because each
+   * replay repeats the whole battlefield surface (see services/replaySummary).
+   *
+   * Replays are summarised one at a time, in stream order. That bounds memory
+   * to a single decoded replay and keeps ids monotonic for resumption, at the
+   * cost of serialising fetches this service makes to its own object store.
    */
   app.get<{ Params: { batchId: string } }>(
     '/api/simulations/:batchId/events',
@@ -146,7 +364,7 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
         .header('Cache-Control', 'no-cache')
         .header('Connection', 'keep-alive')
         .header('X-Accel-Buffering', 'no')
-        .send(upstream.body)
+        .send(Readable.from(summarizeStream(upstream.body, app.log)))
     },
   )
 }

@@ -1,0 +1,185 @@
+# Full local Athena: terrain service, web app, simulation engine, and the
+# Postgres/Redis/S3 the engine needs. Everything except the OpenRouter calls the
+# soldier-agents make runs on this machine.
+#
+#   cp .env.docker.example .env && docker compose up --build
+#
+# Web app        http://localhost:5173
+# Terrain API    http://localhost:8787
+# Engine API     http://localhost:8000
+# MinIO console  http://localhost:9001   (athena / athena-secret)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: athena
+      POSTGRES_PASSWORD: athena
+      POSTGRES_DB: athena
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # The terrain service and the engine keep separate schemas, so the engine
+      # gets its own database rather than sharing a namespace.
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-athena-engine.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U athena -d athena']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: athena
+      MINIO_ROOT_PASSWORD: athena-secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: create the bucket the engine writes payloads and replays into.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 athena athena-secret &&
+      mc mb --ignore-existing local/athena-simulations &&
+      echo 'bucket ready'
+      "
+
+  engine-api:
+    build:
+      context: ./engine
+    environment:
+      ATHENA_PROCESS: api
+      PORT: 8000
+      DATABASE_URL: postgresql://athena:athena@postgres:5432/athena_engine
+      REDIS_URL: redis://redis:6379
+      API_TOKEN: ${ENGINE_API_TOKEN:-local-engine-token}
+      AWS_S3_BUCKET_NAME: athena-simulations
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: athena
+      AWS_SECRET_ACCESS_KEY: athena-secret
+      AWS_DEFAULT_REGION: us-east-1
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Replays reach the browser through the terrain service, so no browser
+      # origin ever talks to this API directly.
+      ALLOWED_ORIGINS: ''
+      REPLAY_URL_TTL_SECONDS: 3600
+    ports:
+      - '8000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  engine-worker:
+    build:
+      context: ./engine
+    # Simulations in a batch are independent jobs, so throughput scales with
+    # workers. Raise this alongside WORKER_CONCURRENCY when a batch is taking
+    # longer than the operator will wait.
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+    environment:
+      ATHENA_PROCESS: worker
+      DATABASE_URL: postgresql://athena:athena@postgres:5432/athena_engine
+      REDIS_URL: redis://redis:6379
+      API_TOKEN: ${ENGINE_API_TOKEN:-local-engine-token}
+      AWS_S3_BUCKET_NAME: athena-simulations
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: athena
+      AWS_SECRET_ACCESS_KEY: athena-secret
+      AWS_DEFAULT_REGION: us-east-1
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-8}
+    depends_on:
+      engine-api:
+        # The API creates the engine's tables on startup, so the worker must not
+        # claim a job before they exist.
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  server:
+    build:
+      context: ./server
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATABASE_URL: postgresql://athena:athena@postgres:5432/athena
+      ENGINE_URL: http://engine-api:8000
+      ENGINE_API_TOKEN: ${ENGINE_API_TOKEN:-local-engine-token}
+      # Presigned replay URLs are signed for this host, so the browser fetches
+      # them back through /api/simulations/replay rather than directly.
+      ENGINE_REPLAY_ORIGIN: http://minio:9000
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+      # Unset means "any localhost port", which is what the browser uses here.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    ports:
+      - '8787:8787'
+    # Source is mounted over the image's copy so an edit on the host is picked
+    # up here. Without this the container serves whatever was baked in at build
+    # time, which looks exactly like a change silently not working.
+    # node_modules is deliberately not mounted: it belongs to the image.
+    volumes:
+      - ./server/src:/app/src:ro
+      - ./server/drizzle:/app/drizzle:ro
+    command: >
+      sh -c "node_modules/.bin/drizzle-kit migrate &&
+             exec node_modules/.bin/tsx watch src/index.ts"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_PROXY: http://server:8787
+      VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN:-}
+    ports:
+      - '5173:5173'
+    # Same reasoning as the server: without these mounts Vite serves the source
+    # as of `docker compose build`, and HMR has nothing to watch.
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./frontend/public:/app/public:ro
+    depends_on:
+      - server
+
+volumes:
+  postgres-data:
+  minio-data:

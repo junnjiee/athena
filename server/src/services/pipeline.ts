@@ -10,6 +10,7 @@ import { fetchLandCoverGrid } from './landcover'
 import { fetchOsmFeatures } from './osm'
 import { segmentBattlefield, type SegmentationStage } from './segment'
 import { fetchWeather } from './weather'
+import { persistBattleground } from './battlegroundStore'
 
 export type ProgressListener = (jobId: string, event: ProgressEvent) => void
 
@@ -24,6 +25,16 @@ function cacheKey(bbox: BBox): string {
 
 export function getJob(id: string): BattlegroundJob | undefined {
   return jobs.get(id)
+}
+
+/** Terrain is durable the moment it exists, so a plan saved against it never
+ *  depends on this process still holding the job. Failing to persist must not
+ *  fail the generation the operator is watching — the grid is served from the
+ *  job either way, and the next save reports the problem. */
+function persist(job: BattlegroundJob): Promise<void> {
+  return persistBattleground(job).catch((error: unknown) => {
+    console.error(`[pipeline] could not persist battleground ${job.id}:`, error)
+  })
 }
 
 function gridDimensions(bbox: BBox): { width: number; height: number; cellMeters: number } {
@@ -45,6 +56,9 @@ export function startPipeline(bbox: BBox, name: string, onProgress: ProgressList
     const id = randomUUID()
     const job: BattlegroundJob = { ...cached, id, progress: [], meta: { ...cached.meta, id, name } }
     jobs.set(id, job)
+    // A re-issue is a new battleground id, so it needs its own row: a plan saved
+    // against it must not depend on this process still holding the job.
+    void persist(job)
     return job
   }
 
@@ -166,6 +180,7 @@ async function runPipeline(
     job.status = 'ready'
     emit('grid', 'done', `${((job.gridBuffer.length) / 1024).toFixed(0)} KB simulation grid`)
     resultCache.set(cacheKey(bbox), job)
+    void persist(job)
   } catch (error: unknown) {
     job.status = 'error'
     job.error = error instanceof Error ? error.message : 'pipeline failed'
