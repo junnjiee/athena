@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Play, X } from 'lucide-react'
+import { AlertTriangle, Eye, Play, X } from 'lucide-react'
 import { usePlan } from '../../state/plan'
 import {
   DEFAULT_SIMULATION_SETTINGS,
   batchOutcome,
   useSimulation,
 } from '../../state/simulation'
-import { fetchSimulationStatus } from '../../lib/api'
+import { useReplay } from '../../state/replay'
+import { fetchLiveReplay, fetchSimulationStatus } from '../../lib/api'
 import { countSoldiers, soldiersBySide } from '../../lib/establishment'
+import type { RunResult } from '../../types/replay'
 
 /**
  * Run a Monte Carlo batch over the saved plan and watch the odds converge.
@@ -27,6 +29,10 @@ const TICK_COUNTS = [30, 60, 120, 240]
 
 function pct(value: number): string {
   return `${Math.round(value * 100)} %`
+}
+
+function outcomeLabel(result: RunResult): string {
+  return result.outcome === 'blue' ? 'Blue win' : result.outcome === 'red' ? 'Red win' : 'Inconclusive'
 }
 
 function Choice<T extends number>({
@@ -74,6 +80,7 @@ export function SimulationModal({ open, onClose }: Props) {
   const requested = useSimulation((s) => s.requested)
   const soldiersFielded = useSimulation((s) => s.soldiers)
   const results = useSimulation((s) => s.results)
+  const replayPaths = useSimulation((s) => s.replayPaths)
   const failures = useSimulation((s) => s.failures)
   const error = useSimulation((s) => s.error)
   const run = useSimulation((s) => s.run)
@@ -82,6 +89,22 @@ export function SimulationModal({ open, onClose }: Props) {
   const [simulationCount, setSimulationCount] = useState(DEFAULT_SIMULATION_SETTINGS.simulationCount)
   const [ticks, setTicks] = useState(DEFAULT_SIMULATION_SETTINGS.ticks)
   const [engineReady, setEngineReady] = useState<boolean | null>(null)
+  const [viewingIndex, setViewingIndex] = useState<number | null>(null)
+  const [viewError, setViewError] = useState<string | null>(null)
+
+  async function handleViewReplay(index: number) {
+    setViewingIndex(index)
+    setViewError(null)
+    try {
+      const replay = await fetchLiveReplay(replayPaths[index])
+      useReplay.getState().loadEphemeral(replay, `Run ${index + 1}`)
+      onClose()
+    } catch (err: unknown) {
+      setViewError(err instanceof Error ? err.message : 'could not load that replay')
+    } finally {
+      setViewingIndex(null)
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -208,6 +231,47 @@ export function SimulationModal({ open, onClose }: Props) {
             <Stat label="Runs scored" value={String(outcome.runs)} />
             <Stat label="Soldiers fielded" value={String(soldiersFielded)} />
             {failures.length > 0 && <Stat label="Failed" value={String(failures.length)} />}
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-xs tracking-wide text-(--text-dim)">RUNS</div>
+            <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg bg-black/20 p-1.5">
+              {results.map((result, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs hover:bg-white/5"
+                >
+                  <span className="text-(--text-dim)">
+                    Run {i + 1} ·{' '}
+                    <span
+                      className={
+                        result.outcome === 'blue'
+                          ? 'text-(--accent)'
+                          : result.outcome === 'red'
+                            ? 'text-(--hostile)'
+                            : 'text-(--text-dim)'
+                      }
+                    >
+                      {outcomeLabel(result)}
+                    </span>{' '}
+                    · {result.blueLosses} blue / {result.redLosses} red losses
+                  </span>
+                  <button
+                    type="button"
+                    disabled={viewingIndex !== null}
+                    onClick={() => void handleViewReplay(i)}
+                    title="Watch this run on the globe"
+                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-(--text) transition-colors hover:text-(--text-h) disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    {viewingIndex === i ? 'Loading…' : 'View Replay'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {viewError && <div className="mt-1.5 text-xs text-(--hostile)">{viewError}</div>}
           </div>
         )}
 

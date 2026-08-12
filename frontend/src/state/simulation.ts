@@ -11,8 +11,10 @@ import { summarizeBatch, type BatchOutcome, type RunResult } from '../types/repl
  * which is the whole point of running a hundred of them.
  *
  * Runs arrive already scored by the terrain service, so no replay is downloaded
- * here at all; nothing renders a replay yet, and each one repeats the whole
- * battlefield surface.
+ * here at all -- each one repeats the whole battlefield surface. `replayPaths`
+ * keeps only the proxied on-demand fetch path per run (see
+ * `SimulationModal`'s "View Replay"), index-aligned with `results`, not the
+ * replay itself.
  */
 
 export type SimulationPhase = 'idle' | 'submitting' | 'running' | 'done' | 'error'
@@ -35,6 +37,8 @@ interface SimulationState {
   /** soldiers the engine fields, after establishment expansion */
   soldiers: number
   results: RunResult[]
+  /** Index-aligned with `results` -- proxied path to fetch run i's full replay. */
+  replayPaths: string[]
   failures: string[]
   error: string | null
 
@@ -54,6 +58,7 @@ const IDLE = {
   requested: 0,
   soldiers: 0,
   results: [] as RunResult[],
+  replayPaths: [] as string[],
   failures: [] as string[],
   error: null,
 }
@@ -79,9 +84,12 @@ export const useSimulation = create<SimulationState>((set, get) => ({
       })
 
       unsubscribe = subscribeSimulation(batch.eventsUrl, {
-        onResult(result) {
+        onResult(result, event) {
           if (gen !== generation) return
-          set((s) => ({ results: [...s.results, result] }))
+          set((s) => ({
+            results: [...s.results, result],
+            replayPaths: [...s.replayPaths, event.replayPath],
+          }))
         },
         onFailed(event) {
           if (gen !== generation) return

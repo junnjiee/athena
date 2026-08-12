@@ -15,6 +15,13 @@
       "when": 1786070662441,
       "tag": "0001_huge_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786275308981,
+      "tag": "0002_wooden_mongoose",
+      "breakpoints": true
     }
   ]
 }

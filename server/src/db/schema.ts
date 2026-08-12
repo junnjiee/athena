@@ -1,6 +1,7 @@
 import { pgTable, text, integer, real, jsonb, timestamp, customType } from 'drizzle-orm/pg-core'
 import type { BBox, Weather, OsmFeatures, SegmentationInfo } from '../types'
 import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
+import type { ReplayLog } from './replayTypes'
 
 const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -45,4 +46,22 @@ export const plans = pgTable('plans', {
   hHour: text('h_hour'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** A playable replay of a Monte Carlo run, imported from the engine's already-
+ *  produced ReplayLog JSON (schema_version 3). Tied to a battleground so
+ *  soldiers render on real classified terrain -- battlefield.width/height is
+ *  validated against the linked battleground's dimensions on import. */
+export const simulationRuns = pgTable('simulation_runs', {
+  id: text('id').primaryKey(),
+  battlegroundId: text('battleground_id')
+    .notNull()
+    .references(() => battlegrounds.id),
+  name: text('name').notNull(),
+  // Denormalized so the list page never downloads the full replay just to
+  // show step/soldier counts -- same rationale as battlegrounds.featureCounts.
+  stepCount: integer('step_count').notNull(),
+  soldierCount: integer('soldier_count').notNull(),
+  replayLog: jsonb('replay_log').$type<ReplayLog>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

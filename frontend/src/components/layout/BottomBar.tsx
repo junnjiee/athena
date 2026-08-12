@@ -1,4 +1,4 @@
-import { Copy, Play, Save, TrendingUp } from 'lucide-react'
+import { Copy, FileUp, Play, Save, TrendingUp } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 import { usePlan } from '../../state/plan'
 import { batchOutcome, useSimulation } from '../../state/simulation'
@@ -11,6 +11,10 @@ interface Props {
   /** Forks the drawing into a new plan row rather than overwriting. */
   onSaveAsNew: () => void
   saveState: 'idle' | 'saving' | 'saved' | 'error'
+  /** Distinct from Run Simulation's live batches: brings in a replay produced
+   *  by some other means (an older run, one shared by a teammate) so it can be
+   *  watched on the globe. */
+  onImportReplay: () => void
 }
 
 function etaRange(minutes: number): string {
@@ -26,6 +30,7 @@ export function BottomBar({
   onSavePlan,
   onSaveAsNew,
   saveState,
+  onImportReplay,
 }: Props) {
   const phase = useBattleground((s) => s.phase)
   const analysis = useBattleground((s) => s.planAnalysis)
@@ -179,6 +184,15 @@ export function BottomBar({
                   : 'Monte Carlo'}
             </div>
           </span>
+        </button>
+        <button
+          type="button"
+          disabled={!canRunSimulation}
+          onClick={onImportReplay}
+          title="Import a replay result produced by the engine externally"
+          className="glass flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-(--text) transition-colors hover:text-(--text-h) disabled:cursor-not-allowed disabled:text-(--text-dim)"
+        >
+          <FileUp className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </div>
     </div>
