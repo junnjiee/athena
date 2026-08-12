@@ -667,3 +667,53 @@ def test_communication_history_keeps_only_the_last_ten_messages() -> None:
     assert [message.sent_tick for message in loop.communication_history[0]] == list(
         range(3, 13)
     )
+
+
+def test_one_soldiers_failed_request_does_not_end_the_run() -> None:
+    """A stalled or refused provider call costs that soldier its turn, nothing more.
+
+    Requests carry a deadline now, so a provider that hangs raises instead of
+    blocking forever. Failing the whole tick on that would discard every tick a
+    simulation had already paid for, so the soldier simply submits nothing --
+    which execution already models as taking no action.
+    """
+    unlucky = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    fine = Soldier(Team.RED, Position(x=4, y=0, z=0))
+
+    async def chooser(*, soldier: Soldier, **_: object) -> MoveAction:
+        if soldier is unlucky:
+            raise TimeoutError("provider did not respond in time")
+        return MoveAction(direction=MoveDirection.WEST)
+
+    loop = LoopEngine(
+        battlefield=Battlefield(width=5, height=1, soldiers=[unlucky, fine]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=chooser,
+    )
+
+    actions = asyncio.run(loop.collect_valid_actions())
+
+    assert actions == [None, MoveAction(direction=MoveDirection.WEST)]
+
+
+def test_a_failed_request_still_lets_the_tick_commit_everyone_else() -> None:
+    mover = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    broken = Soldier(Team.RED, Position(x=4, y=0, z=0))
+
+    async def chooser(*, soldier: Soldier, **_: object) -> MoveAction:
+        if soldier is broken:
+            raise RuntimeError("provider refused the request")
+        return MoveAction(direction=MoveDirection.EAST)
+
+    loop = LoopEngine(
+        battlefield=Battlefield(width=5, height=1, soldiers=[mover, broken]),
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+        action_chooser=chooser,
+    )
+
+    result = asyncio.run(loop.tick())
+
+    assert result.after.soldiers[0].position == Position(x=1, y=0, z=0)
+    assert result.after.soldiers[1].position == Position(x=4, y=0, z=0)

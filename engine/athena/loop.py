@@ -216,21 +216,35 @@ class LoopEngine:
             )
 
         # asyncio.gather preserves input order, so each result stays aligned with
-        # battlefield.soldiers. It also raises if any soldier task raises, which
-        # keeps this collection phase fail-fast while the engine is still small.
+        # battlefield.soldiers.
+        #
+        # return_exceptions keeps one soldier's bad luck from ending the run.
+        # Requests now carry a deadline, so a provider that stalls raises rather
+        # than hanging forever -- and fail-fast would turn that into a dead
+        # simulation, discarding every tick already paid for. A soldier whose
+        # request failed submits nothing, which the executor already models as
+        # taking no action.
         results = await asyncio.gather(
             *[
                 collect_soldier_action(soldier_index, observed_soldier)
                 for soldier_index, observed_soldier in enumerate(observed_soldiers)
-            ]
+            ],
+            return_exceptions=True,
         )
 
-        return [
-            result
-            if isinstance(result, ChosenTurn) or result is None
-            else ChosenTurn(action=result)
-            for result in results
-        ]
+        turns: list[ChosenTurn | None] = []
+        for soldier_index, result in enumerate(results):
+            if isinstance(result, BaseException):
+                print(
+                    f"[loop] soldier {soldier_index} could not choose an action "
+                    f"this tick: {type(result).__name__}: {result}"
+                )
+                turns.append(None)
+            elif isinstance(result, ChosenTurn) or result is None:
+                turns.append(result)
+            else:
+                turns.append(ChosenTurn(action=result))
+        return turns
 
     async def collect_valid_actions(
         self,
