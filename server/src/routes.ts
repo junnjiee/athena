@@ -28,7 +28,14 @@ const battlegroundBody = z
 export function registerRoutes(app: FastifyInstance, onProgress: ProgressListener): void {
   app.get('/api/health', async () => ({ ok: true }))
 
-  app.post('/api/battleground', async (req, reply) => {
+  app.post('/api/battleground', {
+    config: {
+      rateLimit: {
+        max: config.battlegroundRateLimit,
+        timeWindow: config.battlegroundRateWindowMs,
+      },
+    },
+  }, async (req, reply) => {
     const parsed = battlegroundBody.safeParse(req.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })

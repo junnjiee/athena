@@ -14,7 +14,7 @@ import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
 import { DataQualityWarning } from '../components/panels/DataQualityWarning'
-import { SimulationExportModal } from '../components/panels/SimulationExportModal'
+import { SimulationModal } from '../components/panels/SimulationModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
 import { MissionTimePanel } from '../components/panels/MissionTimePanel'
@@ -74,7 +74,7 @@ export function BattlegroundSelectorPage() {
   const [loadout, setLoadout] = useState<MovementLoadout>(() => defaultLoadout())
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
-  const [showSimulationExport, setShowSimulationExport] = useState(false)
+  const [showSimulation, setShowSimulation] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const phase = useBattleground((s) => s.phase)
@@ -574,20 +574,14 @@ export function BattlegroundSelectorPage() {
         <BottomBar
           canRunSimulation={phase === 'ready'}
           planName={battlegroundName}
-          onRunSimulation={() => setShowSimulationExport(true)}
+          onRunSimulation={() => setShowSimulation(true)}
           onSavePlan={() => void handleSavePlan(false)}
           onSaveAsNew={() => void handleSavePlan(true)}
           saveState={saveState}
         />
       </div>
 
-      <SimulationExportModal
-        open={showSimulationExport}
-        onClose={() => setShowSimulationExport(false)}
-        units={units}
-        objectives={objectives}
-        routes={routes}
-      />
+      <SimulationModal open={showSimulation} onClose={() => setShowSimulation(false)} />
     </div>
   )
 }

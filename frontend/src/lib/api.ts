@@ -115,6 +115,42 @@ export async function deletePlan(id: string): Promise<void> {
   if (!res.ok) throw new Error(await readError(res))
 }
 
+export interface SimulationStatus {
+  /** false when ENGINE_URL/ENGINE_API_TOKEN aren't set server-side */
+  configured: boolean
+  engineUrl: string | null
+}
+
+export async function fetchSimulationStatus(): Promise<SimulationStatus> {
+  const res = await fetch('/api/simulations/status')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as SimulationStatus
+}
+
+export interface SimulationBatch {
+  batchId: string
+  simulationCount: number
+  /** soldiers the engine will field once establishment is expanded — a platoon
+   *  marker is 21 of these, which is what the run actually costs */
+  soldiers: number
+  eventsUrl: string
+}
+
+/** Queues a Monte Carlo batch over a saved plan. Returns as soon as the engine
+ *  accepts it; results arrive on the event stream (see lib/simulationStream.ts). */
+export async function startSimulation(
+  planId: string,
+  options: { simulationCount: number; ticks: number; model?: string },
+): Promise<SimulationBatch> {
+  const res = await fetch(`/api/plans/${planId}/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as SimulationBatch
+}
+
 /** Fetches a saved plan and decodes its terrain snapshot back into GridData,
  *  ready to hand straight to the battleground store's `loadSaved`. */
 export async function fetchPlan(id: string): Promise<SavedPlan> {

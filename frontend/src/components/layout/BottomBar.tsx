@@ -1,6 +1,7 @@
 import { Copy, Play, Save, TrendingUp } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 import { usePlan } from '../../state/plan'
+import { batchOutcome, useSimulation } from '../../state/simulation'
 
 interface Props {
   canRunSimulation: boolean
@@ -31,10 +32,27 @@ export function BottomBar({
   const planTitle = usePlan((s) => s.planTitle)
   const setPlanTitle = usePlan((s) => s.setPlanTitle)
   const savedPlanId = usePlan((s) => s.savedPlanId)
+  const simPhase = useSimulation((s) => s.phase)
+  const simRequested = useSimulation((s) => s.requested)
+  const simResults = useSimulation((s) => s.results)
 
+  const outcome = batchOutcome(simResults)
   const criticals = analysis?.warnings.filter((w) => w.severity === 'critical').length ?? 0
-  const confidence =
-    !analysis ? null : criticals > 0 || analysis.exposure > 0.35 ? 'Low' : analysis.exposure > 0.15 ? 'Medium' : 'High'
+  // A simulated win rate is evidence; route exposure is a heuristic standing in
+  // for one. Once runs exist they decide the confidence readout.
+  const confidence = outcome
+    ? outcome.blueWinRate >= 0.6
+      ? 'High'
+      : outcome.blueWinRate >= 0.35
+        ? 'Medium'
+        : 'Low'
+    : !analysis
+      ? null
+      : criticals > 0 || analysis.exposure > 0.35
+        ? 'Low'
+        : analysis.exposure > 0.15
+          ? 'Medium'
+          : 'High'
 
   const statusLine =
     phase === 'ready'
@@ -75,9 +93,13 @@ export function BottomBar({
       <div className="hidden shrink items-center gap-6 lg:flex xl:gap-10">
         <div className="hidden xl:block">
           <div className="text-xs tracking-wide whitespace-nowrap text-(--text-dim)">
-            ESTIMATED OUTCOME (500 RUNS)
+            {outcome
+              ? `BLUE SUCCESS (${outcome.runs} RUN${outcome.runs === 1 ? '' : 'S'})`
+              : 'ESTIMATED OUTCOME'}
           </div>
-          <div className="text-xl font-medium text-(--text-dim)">—</div>
+          <div className={`text-xl font-medium ${outcome ? 'text-(--text-h)' : 'text-(--text-dim)'}`}>
+            {outcome ? `${Math.round(outcome.blueWinRate * 100)} %` : '—'}
+          </div>
         </div>
         <div>
           <div className="text-xs whitespace-nowrap text-(--text-dim)">Plan Exposure</div>
@@ -148,8 +170,14 @@ export function BottomBar({
         >
           <Play className="h-4 w-4" strokeWidth={2} />
           <span className="text-left leading-tight">
-            Run Simulation
-            <div className="text-xs font-normal opacity-80">500 Runs</div>
+            {simPhase === 'running' ? 'Simulating…' : 'Run Simulation'}
+            <div className="text-xs font-normal opacity-80">
+              {simPhase === 'running'
+                ? `${simResults.length} / ${simRequested}`
+                : outcome
+                  ? 'View results'
+                  : 'Monte Carlo'}
+            </div>
           </span>
         </button>
       </div>
