@@ -4,7 +4,13 @@ import { useBattleground } from '../../state/battleground'
 import { estimateMovement } from '../../lib/movement'
 import { MOVEMENT_PROFILES } from '../../types/movement'
 import type { GridData, Weather } from '../../types/terrain'
-import type { LonLat, PlacedObjective, PlacedRoute, PlacedUnit } from '../../types/entities'
+import type {
+  ForceSide,
+  LonLat,
+  PlacedObjective,
+  PlacedRoute,
+  PlacedUnit,
+} from '../../types/entities'
 import type { PlanWarning, WarningKind } from '../../lib/validate'
 
 interface Props {
@@ -15,6 +21,7 @@ interface Props {
   onDeleteUnit: (id: string) => void
   onDeleteObjective: (id: string) => void
   onDeleteRoute: (id: string) => void
+  onSetObjectiveSide: (id: string, side: ForceSide) => void
 }
 
 type PanelTab = 'roster' | 'validation'
@@ -47,6 +54,7 @@ export function PlanRosterPanel({
   onDeleteUnit,
   onDeleteObjective,
   onDeleteRoute,
+  onSetObjectiveSide,
 }: Props) {
   const grid = useBattleground((s) => s.grid)
   const weather = useBattleground((s) => s.meta?.weather ?? null)
@@ -85,8 +93,19 @@ export function PlanRosterPanel({
               key={objective.id}
               icon={<Star className="h-3.5 w-3.5 text-(--accent)" strokeWidth={1.75} />}
               label={objective.name}
+              subtitle={
+                objective.side === 'red'
+                  ? 'red takes it \u00b7 blue denies'
+                  : 'blue takes it \u00b7 red denies'
+              }
               onLocate={() => onLocate([objective.position])}
               onDelete={() => onDeleteObjective(objective.id)}
+              action={
+                <SideToggle
+                  side={objective.side ?? 'blue'}
+                  onChange={(side) => onSetObjectiveSide(objective.id, side)}
+                />
+              }
             />
           ))}
           {routes.map((route) => {
@@ -162,9 +181,36 @@ interface RowProps {
   subtitle?: string
   onLocate: () => void
   onDelete: () => void
+  /** Row-specific control, shown before the locate and delete buttons. */
+  action?: React.ReactNode
 }
 
-function RosterRow({ icon, label, subtitle, onLocate, onDelete }: RowProps) {
+/** Which force is tasked with an objective. Not decoration: the engine orders
+ *  the owner to take and hold it and the other side to stop them, so flipping
+ *  this swaps who attacks and who defends. */
+function SideToggle({
+  side,
+  onChange,
+}: {
+  side: ForceSide
+  onChange: (side: ForceSide) => void
+}) {
+  const other: ForceSide = side === 'blue' ? 'red' : 'blue'
+  return (
+    <button
+      type="button"
+      title={`Tasked to ${side} \u2014 click to give it to ${other}`}
+      onClick={() => onChange(other)}
+      className={`rounded px-1.5 py-0.5 text-[10px] tracking-wide uppercase transition-colors hover:bg-white/10 ${
+        side === 'blue' ? 'text-(--friendly)' : 'text-(--hostile)'
+      }`}
+    >
+      {side}
+    </button>
+  )
+}
+
+function RosterRow({ icon, label, subtitle, onLocate, onDelete, action }: RowProps) {
   return (
     <div className="group flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-white/5">
       <div className="flex min-w-0 items-center gap-2 text-(--text-h)">
@@ -175,6 +221,7 @@ function RosterRow({ icon, label, subtitle, onLocate, onDelete }: RowProps) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {action}
         <button type="button" title="Locate on map" onClick={onLocate} className="text-(--text-dim) hover:text-(--text-h)">
           <Crosshair className="h-3.5 w-3.5" strokeWidth={1.75} />
         </button>

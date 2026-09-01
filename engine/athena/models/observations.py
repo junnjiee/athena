@@ -36,6 +36,12 @@ class TerrainCell(BaseModel):
         return TERRAIN_LABELS[self.terrain_class]
 
 
+class IncomingFireDistance(StrEnum):
+    NEAR = "near"
+    MEDIUM = "medium"
+    FAR = "far"
+
+
 class ObservedSoldier(BaseModel):
     """Data passed to an agent, bounding what that agent can see."""
 
@@ -58,12 +64,6 @@ class VisibilityObservation(BaseModel):
     submitted_action: Action | None
     visible_soldiers: list[VisibleSoldier]
     available_terrain: list[TerrainCell]
-
-
-class IncomingFireDistance(StrEnum):
-    NEAR = "near"
-    MEDIUM = "medium"
-    FAR = "far"
 
 
 class IncomingFireAlert(BaseModel):

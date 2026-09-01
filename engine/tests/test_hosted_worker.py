@@ -7,6 +7,7 @@ import pytest
 
 from athena.hosted.database import SimulationJob
 from athena.hosted import worker
+from athena.hosted.runner import RunOutcome
 
 
 class FakeReplay:
@@ -14,17 +15,36 @@ class FakeReplay:
         return '{"schema_version":3}'
 
 
+OUTCOME = RunOutcome(
+    outcome="blue",
+    ticks=4,
+    blue_alive=3,
+    red_alive=0,
+    blue_losses=1,
+    red_losses=2,
+    shots_fired=9,
+    hits=2,
+    agents=2,
+    followers=3,
+    seed=7,
+)
+
+
 class FakeRepository:
     def __init__(self, job: SimulationJob) -> None:
         self.job = job
         self.completed = None
         self.failed = None
+        self.progress = []
 
     async def claim_simulation(self, _simulation_id):
         return self.job
 
-    async def complete_simulation(self, job, replay_key) -> None:
-        self.completed = (job, replay_key)
+    async def record_progress(self, batch_id, data) -> None:
+        self.progress.append((batch_id, data))
+
+    async def complete_simulation(self, job, replay_key, outcome=None) -> None:
+        self.completed = (job, replay_key, outcome)
 
     async def fail_simulation(self, job, error) -> None:
         self.failed = (job, error)
@@ -59,12 +79,14 @@ def test_worker_pulls_a_plan_scenario_without_touching_the_bucket(monkeypatch) -
 
     storage.download_file = refuse_download
 
-    async def fake_run(base_url, plan_id, *, ticks, model):
+    async def fake_run(base_url, plan_id, *, ticks, model, seed, on_progress=None):
         assert base_url == "http://terrain.test"
         assert plan_id == "plan-1"
         assert ticks == 7
         assert model == "some/model"
-        return FakeReplay()
+        # Derived from the batch id and index, so a batch reproduces itself.
+        assert seed == (job.batch_id.int + job.simulation_index) % (2**31)
+        return FakeReplay(), OUTCOME
 
     monkeypatch.setattr(worker, "run_plan_simulation", fake_run)
     asyncio.run(
@@ -122,10 +144,11 @@ def test_worker_claims_runs_uploads_and_completes(monkeypatch) -> None:
     repository = FakeRepository(job)
     storage = FakeStorage()
 
-    async def fake_run(_path, *, ticks, model):
+    async def fake_run(_path, *, ticks, model, seed, on_progress=None):
         assert ticks == 5
         assert model is None
-        return FakeReplay()
+        assert seed == (job.batch_id.int + job.simulation_index) % (2**31)
+        return FakeReplay(), OUTCOME
 
     monkeypatch.setattr(worker, "run_payload_simulation", fake_run)
     asyncio.run(
@@ -139,3 +162,22 @@ def test_worker_claims_runs_uploads_and_completes(monkeypatch) -> None:
     assert repository.completed[0] == job
     assert storage.replay[0] == b'{"schema_version":3}\n'
     assert storage.replay[1] == repository.completed[1]
+    # The outcome rides out with the completion, so scoring a batch never has to
+    # fetch the replay back.
+    assert repository.completed[2] == {
+        "outcome": "blue",
+        "ticks": 4,
+        "blueAlive": 3,
+        "redAlive": 0,
+        "blueLosses": 1,
+        "redLosses": 2,
+        "shotsFired": 9,
+        "hits": 2,
+        "agents": 2,
+        "followers": 3,
+        "seed": 7,
+        "modelCalls": 0,
+        "standingOrders": 0,
+        "callTicks": 0,
+        "providerRequests": 0,
+    }

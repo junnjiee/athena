@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ClipboardList, Crosshair, Layers } from 'lucide-react'
 import * as Cesium from 'cesium'
 import { CesiumGlobe } from '../components/globe/CesiumGlobe'
 import { MapControls } from '../components/globe/MapControls'
@@ -8,6 +9,11 @@ import { DrawPlanToolbar } from '../components/toolbar/DrawPlanToolbar'
 import { TerrainLayersPanel } from '../components/panels/TerrainLayersPanel'
 import { SelectionStatsPanel } from '../components/panels/SelectionStatsPanel'
 import { PlanRosterPanel } from '../components/panels/PlanRosterPanel'
+import { CollapsiblePanel } from '../components/panels/CollapsiblePanel'
+import { PlaybackBar } from '../components/panels/PlaybackBar'
+import { EngineActivityPanel } from '../components/panels/EngineActivityPanel'
+import { SimulationResultStrip } from '../components/panels/SimulationResultStrip'
+import { usePlayback } from '../state/playback'
 import { MovementModePanel } from '../components/panels/MovementModePanel'
 import { GroundSearchPanel } from '../components/panels/GroundSearchPanel'
 import { PlacementHint } from '../components/panels/PlacementHint'
@@ -99,6 +105,8 @@ export function BattlegroundSelectorPage() {
   const deleteUnit = usePlan((s) => s.deleteUnit)
   const deleteObjective = usePlan((s) => s.deleteObjective)
   const deleteRoute = usePlan((s) => s.deleteRoute)
+  const setObjectiveSide = usePlan((s) => s.setObjectiveSide)
+  const watchingReplay = usePlayback((s) => s.replay !== null)
   const clearPlan = usePlan((s) => s.clearPlan)
 
   const showTopo = viewMode === 'topo' && phase === 'ready' && grid !== null
@@ -472,28 +480,49 @@ export function BattlegroundSelectorPage() {
             <div className="pointer-events-none absolute top-24 right-4 left-60 flex items-start justify-between gap-3">
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {canPlan && (
-                  <PlanRosterPanel
-                    units={units}
-                    objectives={objectives}
-                    routes={routes}
-                    onLocate={flyToPositions}
-                    onDeleteUnit={handleDeleteUnit}
-                    onDeleteObjective={handleDeleteObjective}
-                    onDeleteRoute={deleteRoute}
-                  />
+                  <CollapsiblePanel
+                    id="roster"
+                    title="Units & Objectives"
+                    icon={<ClipboardList className="h-3.5 w-3.5 text-(--text-dim)" strokeWidth={1.75} />}
+                  >
+                    <PlanRosterPanel
+                      units={units}
+                      objectives={objectives}
+                      routes={routes}
+                      onLocate={flyToPositions}
+                      onDeleteUnit={handleDeleteUnit}
+                      onDeleteObjective={handleDeleteObjective}
+                      onDeleteRoute={deleteRoute}
+                      onSetObjectiveSide={setObjectiveSide}
+                    />
+                  </CollapsiblePanel>
                 )}
                 {selection === null && (
                   <GroundSearchPanel getViewer={getViewer} toolMode={toolMode} onSetToolMode={setToolMode} />
                 )}
-                <TerrainLayersPanel
-                  satelliteVisible={satelliteVisible}
-                  onToggleSatellite={toggleSatellite}
-                  elevationExaggerated={elevationExaggerated}
-                  onToggleElevation={toggleElevation}
-                  photoActive={viewMode === 'photo'}
-                />
+                {/* Layers are set once and then left alone, so this starts shut:
+                    the map is what the screen is for. */}
+                <CollapsiblePanel
+                  id="terrain-layers"
+                  title="Terrain Layers"
+                  icon={<Layers className="h-3.5 w-3.5 text-(--text-dim)" strokeWidth={1.75} />}
+                  defaultOpen={false}
+                  width="w-44"
+                >
+                  <TerrainLayersPanel
+                    satelliteVisible={satelliteVisible}
+                    onToggleSatellite={toggleSatellite}
+                    elevationExaggerated={elevationExaggerated}
+                    onToggleElevation={toggleElevation}
+                    photoActive={viewMode === 'photo'}
+                  />
+                </CollapsiblePanel>
               </div>
               <div className="pointer-events-auto flex flex-col gap-3">
+                {/* Live engine state while a batch runs, over the map rather
+                    than behind a modal: the ground is what you want to be
+                    looking at while it works. */}
+                <EngineActivityPanel />
                 {activeTab === 'layers' && (
                   <>
                     <DrawPlanToolbar
@@ -524,7 +553,14 @@ export function BattlegroundSelectorPage() {
                 {phase === 'ready' ? (
                   <>
                     <DataQualityWarning />
-                    <TerrainInfoPanel />
+                    <CollapsiblePanel
+                      id="terrain-info"
+                      title="Terrain Info"
+                      icon={<Crosshair className="h-3.5 w-3.5 text-(--text-dim)" strokeWidth={1.75} />}
+                      width="w-56"
+                    >
+                      <TerrainInfoPanel />
+                    </CollapsiblePanel>
                     <button
                       type="button"
                       onClick={handleClear}
@@ -564,7 +600,19 @@ export function BattlegroundSelectorPage() {
         <ReasoningPanel />
       </div>
 
-      {toolMode !== 'navigate' && (
+      {watchingReplay && (
+        <div className="pointer-events-none absolute inset-x-60 bottom-24 z-30 flex justify-center">
+          <PlaybackBar />
+        </div>
+      )}
+
+      {!watchingReplay && (
+        <div className="pointer-events-none absolute inset-x-60 bottom-24 z-30 flex justify-center">
+          <SimulationResultStrip />
+        </div>
+      )}
+
+      {toolMode !== 'navigate' && !watchingReplay && (
         <div className="pointer-events-none absolute inset-x-60 top-24 z-30 flex justify-center">
           <PlacementHint toolMode={toolMode} isDrawingRoute={isDrawingRoute} topo={showTopo} />
         </div>

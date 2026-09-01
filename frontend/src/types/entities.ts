@@ -38,6 +38,10 @@ export interface PlacedObjective {
   description: string
   position: LonLat
   radiusMeters: number
+  /** Which side is tasked with it. The engine orders the owner to take and hold
+   *  it and the other side to deny it; absent leaves it contested, which is how
+   *  objectives saved before this field existed load. */
+  side?: ForceSide
 }
 
 export type RouteEndpointRef = { kind: 'unit'; id: string } | { kind: 'objective'; id: string }

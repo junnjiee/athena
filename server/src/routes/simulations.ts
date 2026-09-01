@@ -1,13 +1,14 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import { Readable } from 'node:stream'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { summarizeRun, type ReplayLog } from '../services/replaySummary'
+import { summarizeRun, type ReplayLog, type RunResult } from '../services/replaySummary'
 import { config } from '../config'
 import { db } from '../db/client'
-import { battlegrounds, plans } from '../db/schema'
+import { battlegrounds, plans, simulationBatches } from '../db/schema'
 import {
   buildSimulationPayload,
+  countAgents,
   countSoldiers,
   encodeSimulationPayload,
 } from '../services/simulationPayload'
@@ -39,6 +40,8 @@ interface SubmitBatchResponse {
   batchId: string
   simulationCount: number
   eventsUrl: string
+  /** Ground problems the engine found while validating the payload. */
+  diagnostics?: ImportDiagnostics
 }
 
 function engineUnconfigured(): string | null {
@@ -82,15 +85,65 @@ function formatBlock(block: SseBlock, data: unknown): string {
   )
 }
 
+/** Ground and plan problems the engine found while validating the payload. */
+interface ImportDiagnostics {
+  cells: number
+  unclimbableSteps: number
+  /** Absent when that side drew no objective. False means the ground between
+   *  the force and its objective is severed — a river with no crossing, a cliff
+   *  line — so the plan is not slow, it is impossible. */
+  blueObjectiveReachable?: boolean
+  redObjectiveReachable?: boolean
+}
+
+interface EngineBatchSummary {
+  batchId: string
+  status: string
+  completed: number
+  failed: number
+  completedAt: string | null
+}
+
+interface EngineBatchDetail {
+  batchId: string
+  simulationCount: number
+  ticks: number
+  model: string | null
+  status: string
+  createdAt: string
+  completedAt: string | null
+  runs: {
+    simulationId: string
+    simulationIndex: number
+    status: string
+    outcome: RunResult | null
+    error: string | null
+    replayUrl: string | null
+  }[]
+}
+
 interface CompletedEvent {
   simulationId: string
   simulationIndex: number
   replayUrl: string
+  /** The engine's own scoring, present since it started reporting outcomes on
+   *  the completion event. Absent for a batch run by an older engine. */
+  outcome?: RunResult
 }
 
-/** Fetch one replay and reduce it. A replay that cannot be read is reported as
- *  a summary-less completion rather than dropped, so the client can say a run
- *  finished but could not be scored. */
+/**
+ * The run's result, preferring the engine's own count over reading the replay.
+ *
+ * The engine knows who was left standing at the moment the run ends, so it now
+ * says so on the completion event. Before that this had to fetch the replay to
+ * find out — and a replay repeats the whole battlefield surface, ~17 MB on an
+ * 800×800 ground, so a 100-run batch pulled ~1.7 GB from the bucket to produce
+ * one win rate.
+ *
+ * The fetch stays as a fallback for batches queued by an engine that does not
+ * report outcomes, and because a replay that cannot be read should be reported
+ * as an unscored completion rather than dropped.
+ */
 async function summarizeCompleted(
   event: CompletedEvent,
   log: FastifyBaseLogger,
@@ -100,6 +153,8 @@ async function summarizeCompleted(
     simulationIndex: event.simulationIndex,
     replayPath: replayPath(event.replayUrl),
   }
+
+  if (event.outcome) return { ...base, summary: event.outcome }
 
   try {
     const res = await fetch(event.replayUrl, {
@@ -165,6 +220,66 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
     engineUrl: config.engineUrl || null,
   }))
 
+  /**
+   * Checks a plan against its ground without queueing anything.
+   *
+   * The run dialog calls this when it opens, so an impossible plan is refused
+   * before it costs a batch rather than after. An objective on the far side of
+   * a river with no crossing is the case that matters: it runs, the force walks
+   * to the bank, and the answer comes back "inconclusive" — which reads exactly
+   * like a plan that was merely too slow.
+   */
+  app.post<{ Params: { id: string } }>('/api/plans/:id/diagnostics', async (req, reply) => {
+    const missing = engineUnconfigured()
+    if (missing) return reply.status(503).send({ error: missing })
+
+    const rows = await db
+      .select({ plan: plans, battleground: battlegrounds })
+      .from(plans)
+      .innerJoin(battlegrounds, eq(plans.battlegroundId, battlegrounds.id))
+      .where(eq(plans.id, req.params.id))
+      .limit(1)
+    const row = rows[0]
+    if (!row) return reply.status(404).send({ error: 'unknown plan' })
+    if (countSoldiers(row.plan.units) === 0) return { cells: 0, unclimbableSteps: 0 }
+
+    const payload = encodeSimulationPayload(
+      buildSimulationPayload({
+        battleground: {
+          bbox: row.battleground.bbox,
+          gridBuffer: row.battleground.gridBuffer,
+          isDay: row.battleground.weather?.isDay ?? null,
+        },
+        plan: {
+          units: row.plan.units,
+          objectives: row.plan.objectives,
+          routes: row.plan.routes,
+        },
+      }),
+    )
+
+    const form = new FormData()
+    form.append(
+      'payload',
+      new Blob([new Uint8Array(payload)], { type: 'application/gzip' }),
+      'payload.json.gz',
+    )
+
+    try {
+      const res = await fetch(`${config.engineUrl}/v1/payload-diagnostics`, {
+        method: 'POST',
+        headers: authorization(),
+        body: form,
+        signal: AbortSignal.timeout(config.engineTimeoutMs),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return (await res.json()) as ImportDiagnostics
+    } catch (error: unknown) {
+      app.log.error({ error }, 'engine diagnostics failed')
+      return reply.status(502).send({ error: 'could not reach the simulation engine' })
+    }
+  })
+
   /** Queues a Monte Carlo batch over a saved plan. Returns as soon as the
    *  engine accepts it; results arrive on the event stream below. */
   app.post<{ Params: { id: string } }>('/api/plans/:id/simulate', async (req, reply) => {
@@ -195,12 +310,22 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
         .send({ error: 'this plan has no units to simulate — place a force first' })
     }
     if (soldiers > config.maxSoldiersPerSimulation) {
-      // Every soldier is an LLM call per tick, so this is a cost ceiling, not a
-      // technical one. Say what the plan actually costs rather than "too big".
       return reply.status(422).send({
         error:
           `this plan fields ${soldiers} soldiers; the limit is ` +
           `${config.maxSoldiersPerSimulation}. Reduce unit strengths on the Units page.`,
+      })
+    }
+
+    const agents = countAgents(row.plan.units)
+    if (agents > config.maxAgentsPerSimulation) {
+      // Section commanders are the ones spending money, so this is the cost
+      // ceiling. Say what the plan actually costs rather than "too big".
+      return reply.status(422).send({
+        error:
+          `this plan fields ${agents} section commanders, each one model call ` +
+          `per tick; the limit is ${config.maxAgentsPerSimulation}. Reduce unit ` +
+          `strengths or the number of markers.`,
       })
     }
 
@@ -209,8 +334,15 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
         battleground: {
           bbox: row.battleground.bbox,
           gridBuffer: row.battleground.gridBuffer,
+          // Daylight over this ground, from the forecast the pipeline stored.
+          // A plan drawn for an 0300 approach used to simulate like a midday one.
+          isDay: row.battleground.weather?.isDay ?? null,
         },
-        plan: { units: row.plan.units, objectives: row.plan.objectives },
+        plan: {
+          units: row.plan.units,
+          objectives: row.plan.objectives,
+          routes: row.plan.routes,
+        },
       }),
     )
 
@@ -247,15 +379,152 @@ export function registerSimulationRoutes(app: FastifyInstance): void {
     }
 
     const body = (await res.json()) as SubmitBatchResponse
+
+    // Recorded after the engine accepts it, so a rejected submission leaves no
+    // history row. The plan name is snapshotted: renaming a plan later should
+    // not relabel a batch that ran against the old one.
+    await db.insert(simulationBatches).values({
+      id: body.batchId,
+      planId: row.plan.id,
+      planName: row.plan.name,
+      battlegroundId: row.battleground.id,
+      simulationCount: body.simulationCount,
+      ticks: parsed.data.ticks,
+      model: parsed.data.model ?? null,
+      soldiers,
+    })
+
     return reply.status(202).send({
       batchId: body.batchId,
       simulationCount: body.simulationCount,
       /** Soldiers the engine will actually field, after establishment expansion —
        *  the number the operator drew is markers, not men. */
       soldiers,
+      /** Of those, the ones whose decisions cost a model call. */
+      agents,
+      /** Quantizing real elevation to integer metres can leave steps a soldier
+       *  cannot climb. Surfaced before the batch runs rather than after, where
+       *  it looks like agents that mysteriously will not advance. */
+      diagnostics: body.diagnostics ?? null,
       eventsUrl: `/api/simulations/${body.batchId}/events`,
     })
   })
+
+  /**
+   * Batches this service has submitted, newest first, with the engine's stored
+   * results attached.
+   *
+   * Neither side can answer this alone: the engine knows every run's outcome but
+   * is handed an uploaded scenario, so it has no idea which plan a batch came
+   * from; this service knows the plan but deliberately does not duplicate the
+   * results. One list read from each, joined on the batch id.
+   */
+  app.get('/api/simulations', async (_req, reply) => {
+    const missing = engineUnconfigured()
+    if (missing) return reply.status(503).send({ error: missing })
+
+    const rows = await db
+      .select()
+      .from(simulationBatches)
+      .orderBy(desc(simulationBatches.createdAt))
+      .limit(50)
+    if (rows.length === 0) return { batches: [] }
+
+    let engineBatches: Map<string, EngineBatchSummary>
+    try {
+      const res = await fetch(`${config.engineUrl}/v1/simulation-batches?limit=100`, {
+        headers: authorization(),
+        signal: AbortSignal.timeout(config.engineTimeoutMs),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const body = (await res.json()) as { batches: EngineBatchSummary[] }
+      engineBatches = new Map(body.batches.map((batch) => [batch.batchId, batch]))
+    } catch (error: unknown) {
+      app.log.error({ error }, 'engine batch list failed')
+      return reply.status(502).send({ error: 'could not reach the simulation engine' })
+    }
+
+    return {
+      batches: rows.map((row) => {
+        const engine = engineBatches.get(row.id)
+        return {
+          batchId: row.id,
+          planId: row.planId,
+          planName: row.planName,
+          battlegroundId: row.battlegroundId,
+          simulationCount: row.simulationCount,
+          ticks: row.ticks,
+          model: row.model,
+          soldiers: row.soldiers,
+          createdAt: row.createdAt,
+          // A batch the engine no longer holds is reported as unknown rather
+          // than hidden: the row is evidence the run happened.
+          status: engine?.status ?? 'unknown',
+          completed: engine?.completed ?? 0,
+          failed: engine?.failed ?? 0,
+          completedAt: engine?.completedAt ?? null,
+        }
+      }),
+    }
+  })
+
+  /** One batch: the plan it ran, plus every run's stored outcome. This is what
+   *  makes a completed batch readable after its event stream is gone. */
+  app.get<{ Params: { batchId: string } }>(
+    '/api/simulations/:batchId',
+    async (req, reply) => {
+      const missing = engineUnconfigured()
+      if (missing) return reply.status(503).send({ error: missing })
+
+      const rows = await db
+        .select()
+        .from(simulationBatches)
+        .where(eq(simulationBatches.id, req.params.batchId))
+        .limit(1)
+      const row = rows[0]
+
+      let detail: EngineBatchDetail
+      try {
+        const res = await fetch(
+          `${config.engineUrl}/v1/simulation-batches/${req.params.batchId}`,
+          {
+            headers: authorization(),
+            signal: AbortSignal.timeout(config.engineTimeoutMs),
+          },
+        )
+        if (res.status === 404) return reply.status(404).send({ error: 'unknown batch' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        detail = (await res.json()) as EngineBatchDetail
+      } catch (error: unknown) {
+        app.log.error({ error }, 'engine batch detail failed')
+        return reply.status(502).send({ error: 'could not reach the simulation engine' })
+      }
+
+      return {
+        batchId: detail.batchId,
+        planId: row?.planId ?? null,
+        planName: row?.planName ?? null,
+        battlegroundId: row?.battlegroundId ?? null,
+        soldiers: row?.soldiers ?? null,
+        simulationCount: detail.simulationCount,
+        ticks: detail.ticks,
+        model: detail.model,
+        status: detail.status,
+        createdAt: detail.createdAt,
+        completedAt: detail.completedAt,
+        runs: detail.runs.map((run) => ({
+          simulationId: run.simulationId,
+          simulationIndex: run.simulationIndex,
+          status: run.status,
+          summary: run.outcome,
+          error: run.error,
+          // Presigned for the bucket's internal hostname, so it is proxied
+          // rather than handed to the browser -- same reasoning as the stream.
+          replayPath: run.replayUrl ? replayPath(run.replayUrl) : null,
+        })),
+      }
+    },
+  )
 
   /**
    * Fetches one replay from the engine's object store on the browser's behalf.

@@ -40,6 +40,7 @@ from athena.terrain import (
 )
 from athena.models.replay import (
     ReplayBattlefield,
+    ReplayDecision,
     ReplayCommunicationGroup,
     ReplayLog,
     ReplayMessage,
@@ -69,6 +70,7 @@ __all__ = [
     "ObservedSoldier",
     "Position",
     "ReplayBattlefield",
+    "ReplayDecision",
     "ReplayCommunicationGroup",
     "ReplayLog",
     "ReplayMessage",

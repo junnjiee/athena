@@ -32,6 +32,9 @@ const placedObjectiveSchema = z.object({
   description: z.string(),
   position: lonLat,
   radiusMeters: z.number(),
+  // Optional so objectives drawn before the field existed still load. Absent
+  // means contested: the engine tells both sides the objective is theirs.
+  side: z.enum(['blue', 'red']).optional(),
 })
 
 const routeEndRefSchema = z

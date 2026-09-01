@@ -8,11 +8,22 @@ import type { GridChannels } from '../src/types'
 /** Rows the stubbed drizzle chain resolves to; swapped per test. */
 let rows: unknown[] = []
 
+/** Batches recorded by the route under test, for assertions below. */
+let inserted: unknown[] = []
+
 function queryChain(): unknown {
   const chain: Record<string, unknown> = {}
-  for (const method of ['select', 'from', 'innerJoin', 'where', 'limit']) {
+  for (const method of ['select', 'from', 'innerJoin', 'where', 'limit', 'orderBy']) {
     chain[method] = () => chain
   }
+  // The route records the batch it just queued. Writes resolve rather than
+  // returning rows, so they get their own terminal instead of the chain's.
+  chain.insert = () => ({
+    values: (value: unknown) => {
+      inserted.push(value)
+      return Promise.resolve()
+    },
+  })
   chain.then = (resolve: (value: unknown[]) => unknown) => Promise.resolve(rows).then(resolve)
   return chain
 }
@@ -39,10 +50,10 @@ function gridBuffer(): Buffer {
 }
 
 /** A joined plan+battleground row, as the simulate route selects it. */
-function planRow(units: unknown[]) {
+function planRow(units: unknown[], routes: unknown[] = []) {
   return {
-    plan: { id: 'plan-1', units, objectives: [] },
-    battleground: { bbox: BBOX, gridBuffer: gridBuffer() },
+    plan: { id: 'plan-1', name: 'Test Plan', units, objectives: [], routes },
+    battleground: { id: 'bg-1', bbox: BBOX, gridBuffer: gridBuffer() },
   }
 }
 
@@ -80,6 +91,7 @@ async function app() {
 const realFetch = globalThis.fetch
 afterEach(() => {
   globalThis.fetch = realFetch
+  inserted = []
 })
 
 /** Captures the outbound engine request and returns a canned response. */
@@ -264,10 +276,30 @@ describe('POST /api/plans/:id/simulate', () => {
     expect(calls).toHaveLength(0)
   })
 
-  test('refuses a plan whose establishment blows the cost ceiling', async () => {
-    // 5 x 21 = 105 soldiers, over the 80-soldier limit. Every soldier is an LLM
-    // call per tick, so this has to fail before the batch is queued.
+  test('a platoon-heavy plan now runs, because only commanders cost a call', async () => {
+    // 5 x 21 = 105 soldiers. That used to be refused outright, because every
+    // soldier was a model call per tick. They are now 15 sections, so the batch
+    // costs 15 calls a tick rather than 105.
     rows = [planRow(Array.from({ length: 5 }, (_, i) => marker({ id: `u${i}`, strength: 21 })))]
+    stubEngine(accepted())
+
+    const res = await (await app()).inject({
+      method: 'POST',
+      url: '/api/plans/plan-1/simulate',
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(202)
+    expect(res.json<{ soldiers: number; agents: number }>()).toMatchObject({
+      soldiers: 105,
+      agents: 15,
+    })
+  })
+
+  test('refuses a plan with more section commanders than the cost ceiling', async () => {
+    // 41 single-soldier markers is 41 sections, so 41 model calls a tick. The
+    // commanders are the bill, so they are what the ceiling counts.
+    rows = [planRow(Array.from({ length: 41 }, (_, i) => marker({ id: `u${i}` })))]
     const calls = stubEngine(accepted())
 
     const res = await (await app()).inject({
@@ -277,7 +309,25 @@ describe('POST /api/plans/:id/simulate', () => {
     })
 
     expect(res.statusCode).toBe(422)
-    expect(res.json<{ error: string }>().error).toContain('105')
+    expect(res.json<{ error: string }>().error).toContain('41 section commanders')
+    expect(calls).toHaveLength(0)
+  })
+
+  test('refuses a plan with more soldiers than a run can carry', async () => {
+    // 12 x 21 = 252 soldiers but only 36 commanders, so this clears the cost
+    // ceiling and fails on the other one: per-tick visibility work is quadratic
+    // in soldier count regardless of who is making the decisions.
+    rows = [planRow(Array.from({ length: 12 }, (_, i) => marker({ id: `u${i}`, strength: 21 })))]
+    const calls = stubEngine(accepted())
+
+    const res = await (await app()).inject({
+      method: 'POST',
+      url: '/api/plans/plan-1/simulate',
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json<{ error: string }>().error).toContain('252 soldiers')
     expect(calls).toHaveLength(0)
   })
 
@@ -472,5 +522,141 @@ describe('GET /api/simulations/status', () => {
       engineUrl: 'https://engine.test',
     })
     expect(res.body).not.toContain('engine-secret')
+  })
+})
+
+describe('scoring a run without reading its replay', () => {
+  const silent = { error: () => {} } as unknown as Parameters<typeof summarizeStream>[1]
+
+  async function drain(chunks: string[]): Promise<string> {
+    let out = ''
+    for await (const block of summarizeStream(sseBody(chunks), silent)) out += block
+    return out
+  }
+
+  test("the engine's own outcome is used and the replay is never fetched", async () => {
+    // This is the whole point: a replay repeats the battlefield surface, ~17 MB
+    // on an 800x800 ground, so fetching one per run to compute a win rate moved
+    // ~1.7 GB for a 100-run batch. The engine knows who won when the run ends.
+    const calls = stubByUrl([[/.*/, () => new Response('unexpected', { status: 500 })]])
+    const event = {
+      simulationId: 'sim-1',
+      simulationIndex: 0,
+      replayUrl: 'https://bucket.test/replays/sim-1.json.gz',
+      outcome: {
+        outcome: 'blue',
+        ticks: 22,
+        blueAlive: 5,
+        redAlive: 0,
+        blueLosses: 2,
+        redLosses: 4,
+        shotsFired: 31,
+        hits: 4,
+      },
+    }
+
+    const out = await drain([
+      `id: 7\nevent: simulation.completed\ndata: ${JSON.stringify(event)}\n\n`,
+    ])
+    const forwarded = JSON.parse(out.split('data: ')[1])
+
+    expect(calls).toEqual([])
+    expect(forwarded.summary.outcome).toBe('blue')
+    expect(forwarded.summary.shotsFired).toBe(31)
+    // The replay is still reachable on demand, just not fetched to score.
+    expect(forwarded.replayPath).toContain('/api/simulations/replay?url=')
+    expect(out.startsWith('id: 7\n')).toBe(true)
+  })
+
+  test('a batch from an engine that reports no outcome still falls back to the replay', async () => {
+    const replay = {
+      schema_version: 3,
+      steps: [
+        {
+          step: 0,
+          soldiers: [
+            { soldier_index: 0, team: 'blue', survival_status: 'alive' },
+            { soldier_index: 1, team: 'red', survival_status: 'alive' },
+          ],
+          shots: [],
+        },
+        {
+          step: 1,
+          soldiers: [
+            { soldier_index: 0, team: 'blue', survival_status: 'alive' },
+            { soldier_index: 1, team: 'red', survival_status: 'dead' },
+          ],
+          shots: [{ hit: true }],
+        },
+      ],
+    }
+    const calls = stubByUrl([
+      [/replays/, () => new Response(JSON.stringify(replay), { status: 200 })],
+    ])
+    const event = {
+      simulationId: 'sim-2',
+      simulationIndex: 1,
+      replayUrl: 'https://bucket.test/replays/sim-2.json.gz',
+    }
+
+    const out = await drain([
+      `id: 8\nevent: simulation.completed\ndata: ${JSON.stringify(event)}\n\n`,
+    ])
+    const forwarded = JSON.parse(out.split('data: ')[1])
+
+    expect(calls).toHaveLength(1)
+    expect(forwarded.summary.outcome).toBe('blue')
+  })
+})
+
+describe('batch history', () => {
+  test('a queued batch is recorded against the plan it came from', async () => {
+    // The engine is handed an uploaded scenario, so it has no idea which plan a
+    // batch belongs to. Without this row a completed batch cannot be traced back
+    // to the drawing that produced it.
+    rows = [planRow([marker()])]
+    stubEngine(
+      new Response(
+        JSON.stringify({
+          batchId: 'batch-9',
+          simulationCount: 3,
+          eventsUrl: '/v1/simulation-batches/batch-9/events',
+        }),
+        { status: 202, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+
+    const instance = await app()
+    const res = await instance.inject({
+      method: 'POST',
+      url: '/api/plans/plan-1/simulate',
+      payload: { simulationCount: 3, ticks: 20 },
+    })
+
+    expect(res.statusCode).toBe(202)
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toMatchObject({
+      id: 'batch-9',
+      planId: 'plan-1',
+      planName: 'Test Plan',
+      battlegroundId: 'bg-1',
+      simulationCount: 3,
+      ticks: 20,
+      soldiers: 1,
+    })
+  })
+
+  test('a rejected submission leaves no history row', async () => {
+    rows = [planRow([marker()])]
+    stubEngine(new Response('nope', { status: 500 }))
+
+    const instance = await app()
+    await instance.inject({
+      method: 'POST',
+      url: '/api/plans/plan-1/simulate',
+      payload: {},
+    })
+
+    expect(inserted).toEqual([])
   })
 })

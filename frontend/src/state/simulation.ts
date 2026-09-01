@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { startSimulation } from '../lib/api'
-import { subscribeSimulation } from '../lib/simulationStream'
+import { startSimulation, type ImportDiagnostics } from '../lib/api'
+import { subscribeSimulation, type SimulationProgress } from '../lib/simulationStream'
 import { summarizeBatch, type BatchOutcome, type RunResult } from '../types/replay'
 
 /**
@@ -34,8 +34,16 @@ interface SimulationState {
   requested: number
   /** soldiers the engine fields, after establishment expansion */
   soldiers: number
+  /** ground problems the engine found while validating the payload */
+  diagnostics: ImportDiagnostics | null
+  /** Proxied path to a finished run, so the operator can go straight from
+   *  "done" to watching it without navigating anywhere. */
+  replayPath: string | null
   results: RunResult[]
   failures: string[]
+  /** Where each run in flight has got to, keyed by its index. This is what
+   *  makes a multi-minute wait legible rather than a bar that sits at zero. */
+  progress: Record<number, SimulationProgress>
   error: string | null
 
   run: (planId: string, settings: SimulationSettings) => Promise<void>
@@ -53,8 +61,11 @@ const IDLE = {
   batchId: null,
   requested: 0,
   soldiers: 0,
+  diagnostics: null as ImportDiagnostics | null,
+  replayPath: null as string | null,
   results: [] as RunResult[],
   failures: [] as string[],
+  progress: {} as Record<number, SimulationProgress>,
   error: null,
 }
 
@@ -76,12 +87,29 @@ export const useSimulation = create<SimulationState>((set, get) => ({
         batchId: batch.batchId,
         requested: batch.simulationCount,
         soldiers: batch.soldiers,
+        diagnostics: batch.diagnostics,
       })
 
       unsubscribe = subscribeSimulation(batch.eventsUrl, {
-        onResult(result) {
+        onResult(result, event) {
           if (gen !== generation) return
-          set((s) => ({ results: [...s.results, result] }))
+          set((s) => {
+            // A finished run stops being "in flight"; leaving its last progress
+            // behind would keep it in the live panel for the whole batch.
+            const progress = { ...s.progress }
+            delete progress[event.simulationIndex]
+            return {
+              results: [...s.results, result],
+              progress,
+              replayPath: s.replayPath ?? event.replayPath,
+            }
+          })
+        },
+        onProgress(event) {
+          if (gen !== generation) return
+          set((s) => ({
+            progress: { ...s.progress, [event.simulationIndex]: event },
+          }))
         },
         onFailed(event) {
           if (gen !== generation) return

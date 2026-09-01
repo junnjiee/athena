@@ -57,7 +57,7 @@ def test_replay_records_initial_state_and_completed_tick(tmp_path) -> None:
     restored = ReplayLog.model_validate_json(serialized)
 
     assert restored == recorder.log
-    assert json.loads(serialized)["schema_version"] == 3
+    assert json.loads(serialized)["schema_version"] == 4
     assert set(json.loads(serialized)["steps"][1]["shots"][0]) == {
         "shooter_index",
         "target_index",
@@ -149,3 +149,28 @@ def test_replay_omits_rejected_move_attempts() -> None:
     assert step.soldiers[1].position == Position(x=1, y=0, z=0)
     assert step.shots == ()
     assert step.messages == ()
+
+
+def test_a_replay_no_longer_repeats_the_battlefield_surface() -> None:
+    """Schema 4 drops the per-cell surface.
+
+    It was 16 MB of a 17 MB replay on an 800x800 ground and byte-identical in
+    every run of a batch. Elevation is in the terrain grid a client already
+    holds, and each soldier and shot still carries its own z.
+    """
+    soldier = Soldier(Team.BLUE, Position(x=0, y=0, z=1))
+    battlefield = Battlefield(
+        width=4,
+        height=4,
+        soldiers=[soldier],
+        surface={Position(x=x, y=y, z=1) for x in range(4) for y in range(4)},
+    )
+    log = ReplayRecorder(battlefield.snapshot()).log
+
+    assert not hasattr(log.battlefield, "surface")
+    assert "surface" not in log.model_dump()["battlefield"]
+    # The class grid stays: it is a hundredth the size and is what makes a
+    # replay describe its own ground.
+    assert len(log.battlefield.terrain_classes) == 16
+    # Elevation survives where a viewer needs it.
+    assert log.steps[0].soldiers[0].position.z == 1

@@ -7,6 +7,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import ValidationError
 
 from athena import agent
+from athena.params import COMMUNICATION_HISTORY_LIMIT
 from athena.context_view import render_agent_context
 from athena.world_state import Battlefield
 from athena.resolvers.movement import MovementResolver
@@ -118,9 +119,9 @@ def test_openrouter_receives_current_observation_and_visibility_history(
     assert "up to 7 prior ticks" in messages[0][1]
     assert "exact pre-action position and the action you" in messages[0][1]
     assert "does not report whether a move was accepted" in messages[0][1]
-    assert "up to 10 messages" in messages[0][1]
+    assert f"up to {COMMUNICATION_HISTORY_LIMIT} messages" in messages[0][1]
     assert "receive it on the next tick" in messages[0][1]
-    assert "elevation differs by more than 2 levels" in messages[0][1]
+    assert "differs in elevation by more than 2 levels" in messages[0][1]
     assert messages[1][1] == render_agent_context(agent_context)
     # The rendered message carries the same facts the JSON dump did.
     human = messages[1][1]

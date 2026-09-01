@@ -15,6 +15,8 @@ import {
   rotateOffset,
 } from '../../lib/tacticalGeometry'
 import { TopoPlanOverlay } from './TopoPlanOverlay'
+import { currentStep, usePlayback } from '../../state/playback'
+import type { ReplayStep } from '../../types/replay'
 import type { GridData, OsmFeatures, RoadClass } from '../../types/terrain'
 import type {
   LonLat,
@@ -90,6 +92,7 @@ export function TopoMapView({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  const replayStep = usePlayback(currentStep)
 
   useEffect(() => {
     const container = containerRef.current
@@ -117,10 +120,24 @@ export function TopoMapView({
     if (!ctx) return
     ctx.scale(dpr, dpr)
     drawTopoMap(ctx, grid, features, units, objectives, routes, size.w, size.h, selectedUnitId)
-  }, [grid, features, units, objectives, routes, size.w, size.h, selectedUnitId])
+    // A run being watched is drawn over the ground it was fought on, alongside
+    // the plan that produced it. Seeing the two together is the point: a
+    // separate picture of the battlefield is a different battlefield.
+    if (replayStep) {
+      drawReplayStep(ctx, makeTopoProjection(grid, size.w, size.h), replayStep)
+    }
+  }, [grid, features, units, objectives, routes, size.w, size.h, selectedUnitId, replayStep])
 
   return (
-    <div ref={containerRef} className="absolute inset-0">
+    // Inset to the free area rather than full-bleed. The sidebar, header and
+    // bottom bar are opaque glass sitting *over* the map, so a full-bleed canvas
+    // puts a band of undrawable ground under each of them -- you cannot place a
+    // unit or start a route near any edge. Sizing is driven by this element's
+    // own box (ResizeObserver below), so the canvas follows.
+    <div
+      ref={containerRef}
+      className="absolute top-20 right-4 bottom-24 left-60 overflow-hidden rounded-2xl border border-(--border)"
+    >
       <canvas ref={canvasRef} className="h-full w-full" />
       {size.w > 0 && size.h > 0 && (
         <TopoPlanOverlay
@@ -145,6 +162,54 @@ export function TopoMapView({
       )}
     </div>
   )
+}
+
+/** One tick of a run: tracers first, then soldiers, so nobody is hidden under
+ *  their own fire. Casualties stay on the map in grey — where a force died is
+ *  the most informative thing on the picture. */
+function drawReplayStep(
+  ctx: CanvasRenderingContext2D,
+  projection: ReturnType<typeof makeTopoProjection>,
+  step: ReplayStep,
+): void {
+  ctx.save()
+
+  ctx.lineWidth = 1
+  for (const shot of step.shots) {
+    const [fx, fy] = projection.projectCell(
+      shot.shooter_position.x,
+      shot.shooter_position.y,
+    )
+    const [tx, ty] = projection.projectCell(
+      shot.target_position.x,
+      shot.target_position.y,
+    )
+    ctx.strokeStyle = shot.hit ? 'rgba(255, 215, 160, 0.95)' : 'rgba(255, 215, 160, 0.3)'
+    ctx.beginPath()
+    ctx.moveTo(fx, fy)
+    ctx.lineTo(tx, ty)
+    ctx.stroke()
+  }
+
+  for (const soldier of step.soldiers) {
+    const [ax, ay] = projection.projectCell(soldier.position.x, soldier.position.y)
+    const alive = soldier.survival_status === 'alive'
+    ctx.fillStyle = alive
+      ? soldier.team === 'blue'
+        ? FRIENDLY_HEX
+        : HOSTILE_HEX
+      : 'rgba(150,150,150,0.85)'
+    ctx.beginPath()
+    ctx.arc(ax, ay, alive ? 3.5 : 2.5, 0, Math.PI * 2)
+    ctx.fill()
+    if (alive) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+  }
+
+  ctx.restore()
 }
 
 function drawTopoMap(

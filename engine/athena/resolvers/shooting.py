@@ -1,11 +1,17 @@
+from math import sqrt
 from random import Random
 
+from athena.geometry import squared_distance
 from athena.world_state import Soldier
 from athena.params import (
     BASE_HIT_PROBABILITY,
     ELEVATION_HIT_MODIFIER_PER_LEVEL,
+    LONG_RANGE_HIT_FLOOR,
     MAXIMUM_HIT_PROBABILITY,
+    SUPPRESSION_HIT_MULTIPLIER,
     MINIMUM_HIT_PROBABILITY,
+    RIFLE_EFFECTIVE_RANGE,
+    RIFLE_MAXIMUM_RANGE,
 )
 from athena.models import (
     ActionValidationResult,
@@ -25,6 +31,10 @@ class ShootingResolver:
         elevation_modifier_per_level: float = ELEVATION_HIT_MODIFIER_PER_LEVEL,
         minimum_hit_probability: float = MINIMUM_HIT_PROBABILITY,
         maximum_hit_probability: float = MAXIMUM_HIT_PROBABILITY,
+        effective_range: float = RIFLE_EFFECTIVE_RANGE,
+        maximum_range: float = RIFLE_MAXIMUM_RANGE,
+        long_range_floor: float = LONG_RANGE_HIT_FLOOR,
+        suppression_multiplier: float = SUPPRESSION_HIT_MULTIPLIER,
         rng: Random | None = None,
     ) -> None:
         """Configure explicit simulation assumptions for rifle hit resolution.
@@ -36,6 +46,10 @@ class ShootingResolver:
         self.elevation_modifier_per_level = elevation_modifier_per_level
         self.minimum_hit_probability = minimum_hit_probability
         self.maximum_hit_probability = maximum_hit_probability
+        self.effective_range = effective_range
+        self.maximum_range = maximum_range
+        self.long_range_floor = long_range_floor
+        self.suppression_multiplier = suppression_multiplier
         self.rng = rng or Random()
 
     def verify_shoot_action(
@@ -60,6 +74,11 @@ class ShootingResolver:
     ) -> ActionValidationResult:
         if soldier.survival_status != SurvivalState.ALIVE:
             return ActionValidationResult.rejected("Only an alive soldier can shoot.")
+
+        if soldier.reloading:
+            return ActionValidationResult.rejected(
+                "Your magazine is empty and you are reloading this tick."
+            )
 
         matching_targets = [
             visible_soldier
@@ -110,18 +129,38 @@ class ShootingResolver:
 
         return eligible_targets[0]
 
+    def range_factor(self, distance: float) -> float:
+        """How much of a shot's chance survives the distance to the target.
+
+        One out to the effective range, falling linearly to the long-range floor
+        at the maximum range and staying there beyond it. Distance had no effect
+        at all before: a soldier hit ninety percent of the time at any range it
+        could see, which was harmless while vision was ten metres and wrong once
+        vision reached an establishment's real range.
+        """
+        if distance <= self.effective_range:
+            return 1.0
+        if distance >= self.maximum_range:
+            return self.long_range_floor
+
+        span = self.maximum_range - self.effective_range
+        travelled = (distance - self.effective_range) / span
+        return 1.0 - travelled * (1.0 - self.long_range_floor)
+
     def hit_probability(
         self,
         shooter_position: Position,
         target_position: Position,
         target_protection: float = 0.0,
+        shooter_suppressed: bool = False,
     ) -> float:
-        """Probability of hitting a target, before terrain then after it.
+        """Probability of hitting a target: marksmanship, then range, then cover.
 
         Elevation is bounded by the marksmanship floor and ceiling, which model
-        how well a soldier can shoot. Terrain protection applies afterwards as a
-        proportional reduction, so hard cover can drive the chance below that
-        floor: the floor describes the shooter, not the target's shelter.
+        how well a soldier can shoot. Range and terrain protection apply
+        afterwards as proportional reductions, so distance or hard cover can
+        drive the chance below that floor: the floor describes the shooter, not
+        how far away the target is or what it is standing behind.
         """
         elevation_difference = shooter_position.z - target_position.z
         probability = (
@@ -132,7 +171,13 @@ class ShootingResolver:
             self.minimum_hit_probability,
             min(self.maximum_hit_probability, probability),
         )
-        return bounded * (1.0 - max(0.0, min(1.0, target_protection)))
+        distance = sqrt(squared_distance(shooter_position, target_position))
+        return (
+            bounded
+            * self.range_factor(distance)
+            * (self.suppression_multiplier if shooter_suppressed else 1.0)
+            * (1.0 - max(0.0, min(1.0, target_protection)))
+        )
 
     def resolve_shot(
         self,
@@ -150,6 +195,7 @@ class ShootingResolver:
             shooter.position,
             target.position,
             snapshot.profile_at(target.position.x, target.position.y).protection,
+            shooter_suppressed=shooter.suppressed,
         )
         roll = self.rng.random()
         return ShotOutcome(

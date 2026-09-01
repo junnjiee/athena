@@ -52,6 +52,14 @@ export interface RunResult {
   redLosses: number
   shotsFired: number
   hits: number
+  /** Reported by the engine: what the run actually spent. */
+  seed?: number
+  agents?: number
+  followers?: number
+  modelCalls?: number
+  standingOrders?: number
+  callTicks?: number
+  providerRequests?: number
 }
 
 function aliveByTeam(step: ReplayStep | undefined): Record<ReplayTeam, number> {

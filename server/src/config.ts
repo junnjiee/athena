@@ -32,11 +32,13 @@ export const config = {
   /** Uploading a gzipped scenario is still a small POST; the engine validates it,
    *  queues the batch, and returns 202 without running anything. */
   engineTimeoutMs: 30_000,
-  /** Every soldier is one LLM call per tick, so a batch costs
-   *  `soldiers × ticks × simulationCount` requests. A platoon-on-platoon plan is
-   *  already 42 soldiers; this rejects the plan that would quietly spend a
-   *  fortune rather than discovering it on the invoice. */
-  maxSoldiersPerSimulation: 80,
+  /** Only section commanders make a model call now — the rest run the engine's
+   *  section policy — so a batch costs `agents × ticks × simulationCount`
+   *  requests rather than one per soldier. Both are capped: agents because they
+   *  are the bill, and soldiers because a run's per-tick work is quadratic in
+   *  soldier count regardless of who is deciding. */
+  maxAgentsPerSimulation: 40,
+  maxSoldiersPerSimulation: 240,
 
   /** Origin of the engine's object store, e.g. `https://storage.railway.app` or
    *  `http://minio:9000`. Replays are fetched through this service rather than
@@ -114,8 +116,10 @@ export const config = {
   /** Grid sizing: cells are square, fixed at this size regardless of selection extent
    *  (the simulation team needs a constant, predictable resolution to build against). */
   cellMeters: 1,
-  /** Reject selections larger than this on either axis (matches frontend's 400 m clamp, with margin). */
-  maxExtentMeters: 800,
+  /** Reject selections larger than this on either axis. Matches the frontend's
+   *  1 km clamp exactly: cells are one metre, so a full-size ground is
+   *  1000x1000 = 1,000,000 cells. */
+  maxExtentMeters: 1000,
 
   jobCacheSize: 24,
 

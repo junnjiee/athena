@@ -3,6 +3,11 @@ from random import Random
 
 from athena.world_state import Battlefield
 from athena.loop import LoopEngine
+from athena.params import (
+    COMMUNICATION_HISTORY_LIMIT,
+    INCOMING_FIRE_HISTORY_LIMIT,
+    VISIBILITY_HISTORY_LIMIT,
+)
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.shooting import ShootingResolver
 from athena.resolvers.vision import VisionResolver
@@ -234,7 +239,7 @@ def test_resolved_shot_alerts_alive_soldiers_near_target_on_next_tick() -> None:
     )
 
 
-def test_incoming_fire_history_expires_after_ten_completed_ticks() -> None:
+def test_incoming_fire_history_expires_after_the_configured_window() -> None:
     received_contexts: list[AgentContext] = []
 
     async def record_context(agent_context: AgentContext, **_: object) -> None:
@@ -252,7 +257,7 @@ def test_incoming_fire_history_expires_after_ten_completed_ticks() -> None:
     )
 
     loop.execute_actions([ShootAction(target_position=target.position), None])
-    for _ in range(9):
+    for _ in range(INCOMING_FIRE_HISTORY_LIMIT - 1):
         loop.execute_actions([None, None])
 
     asyncio.run(loop.collect_valid_actions())
@@ -443,7 +448,14 @@ def test_history_records_pre_action_position_and_submitted_actions() -> None:
     assert result.observations[2].submitted_action is None
 
 
-def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:
+def test_visibility_history_keeps_only_the_configured_window() -> None:
+    """Written against the constant, not a number.
+
+    The window is a latency dial: every remembered tick is prompt the model
+    reads and reasons over on every call, and measured per-call latency tracks
+    prompt size closely. It gets retuned, and a test naming "ten" breaks each
+    time without saying anything true.
+    """
     received_contexts: list[AgentContext] = []
 
     async def record_context(agent_context: AgentContext, **_: object) -> None:
@@ -458,13 +470,14 @@ def test_visibility_history_keeps_only_the_last_ten_ticks() -> None:
         action_chooser=record_context,
     )
 
-    for _ in range(12):
+    ticks = VISIBILITY_HISTORY_LIMIT + 2
+    for _ in range(ticks):
         asyncio.run(loop.tick())
 
     assert [
         observation.tick
         for observation in received_contexts[-1].visibility_history
-    ] == list(range(2, 12))
+    ] == list(range(ticks - VISIBILITY_HISTORY_LIMIT, ticks))
 
 
 def test_tick_delivers_broadcasts_to_overlapping_groups_on_the_next_tick() -> None:
@@ -631,7 +644,7 @@ def test_pre_tick_living_sender_transmits_when_hit_during_the_same_tick() -> Non
     assert [message.content for message in result.team_messages] == ["Taking fire."]
 
 
-def test_communication_history_keeps_only_the_last_ten_messages() -> None:
+def test_communication_history_keeps_only_the_configured_window() -> None:
     group = CommunicationGroup(
         group_id="blue-team",
         name="Blue Team",
@@ -653,7 +666,8 @@ def test_communication_history_keeps_only_the_last_ten_messages() -> None:
         movement_resolver=MovementResolver(),
     )
 
-    for tick in range(1, 13):
+    sent = COMMUNICATION_HISTORY_LIMIT + 2
+    for tick in range(1, sent + 1):
         loop.execute_actions(
             [None],
             broadcasts=[
@@ -665,7 +679,7 @@ def test_communication_history_keeps_only_the_last_ten_messages() -> None:
         )
 
     assert [message.sent_tick for message in loop.communication_history[0]] == list(
-        range(3, 13)
+        range(sent - COMMUNICATION_HISTORY_LIMIT + 1, sent + 1)
     )
 
 

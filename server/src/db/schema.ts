@@ -46,3 +46,34 @@ export const plans = pgTable('plans', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/**
+ * A batch this service submitted, and the plan it was drawn from.
+ *
+ * Deliberately *not* a copy of the results. The engine stores every run's
+ * outcome itself and serves it back on `GET /v1/simulation-batches/{id}`, so
+ * duplicating it here would give two records that can disagree — and recording
+ * results as the event stream passes would lose them the moment the operator
+ * closed the tab, which is the failure this table exists to fix.
+ *
+ * What the engine cannot know is which plan a batch belongs to: it is handed an
+ * uploaded scenario, not a plan id. That mapping is the whole point of this row.
+ */
+export const simulationBatches = pgTable('simulation_batches', {
+  id: text('id').primaryKey(),
+  planId: text('plan_id')
+    .notNull()
+    .references(() => plans.id, { onDelete: 'cascade' }),
+  /** Plan name as it read when the batch ran — a later rename should not
+   *  silently relabel history. */
+  planName: text('plan_name').notNull(),
+  battlegroundId: text('battleground_id')
+    .notNull()
+    .references(() => battlegrounds.id),
+  simulationCount: integer('simulation_count').notNull(),
+  ticks: integer('ticks').notNull(),
+  model: text('model'),
+  /** Soldiers actually fielded, after establishment expansion. */
+  soldiers: integer('soldiers').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})

@@ -6,6 +6,7 @@ from athena.world_state import Battlefield
 from athena.loop import LoopEngine
 from athena.resolvers.movement import MovementResolver
 from athena.resolvers.vision import VisionResolver
+from athena.params import MAX_VISION_RANGE
 from athena.world_state import Soldier
 from athena.models import Position, SurvivalState, Team, TerrainClass
 
@@ -199,16 +200,34 @@ def test_elevation_difference_counts_toward_distance() -> None:
 def test_vision_range_is_capped() -> None:
     resolver = VisionResolver()
 
-    # An enormous nominal vision range still cannot see past the cap of 100.
+    # An enormous nominal vision range still cannot see past the cap, which is
+    # set high enough for a Recon Section's real 500 m to survive it.
     assert resolver.is_in_vision_range(
         Position(x=0, y=0, z=0),
-        Position(x=100, y=0, z=0),
+        Position(x=int(MAX_VISION_RANGE), y=0, z=0),
         observer_vision_range=10_000,
     )
     assert not resolver.is_in_vision_range(
         Position(x=0, y=0, z=0),
-        Position(x=101, y=0, z=0),
+        Position(x=int(MAX_VISION_RANGE) + 1, y=0, z=0),
         observer_vision_range=10_000,
+    )
+
+
+def test_an_orbat_vision_range_survives_the_cap() -> None:
+    # Recon is drawn at 500 m against a Rifle Section's 300 m. Both used to be
+    # clamped to 100, which made the distinction decorative.
+    resolver = VisionResolver()
+
+    assert resolver.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=480, y=0, z=0),
+        observer_vision_range=500,
+    )
+    assert not resolver.is_in_vision_range(
+        Position(x=0, y=0, z=0),
+        Position(x=480, y=0, z=0),
+        observer_vision_range=300,
     )
 
 
@@ -491,4 +510,68 @@ def test_terrain_visibility_matches_soldier_visibility() -> None:
     assert not resolver.verify_los(battlefield, observer, target)
     assert not resolver.verify_terrain_los(
         battlefield, observer.position, target.position, 30
+    )
+
+
+def test_a_soldier_may_see_and_engage_at_its_full_vision_range() -> None:
+    # Detection used to be reported only within the ground the agent was shown,
+    # because a flat hit probability with no range term made a 300 m shot as
+    # reliable as a 5 m one. The shooting resolver now discounts distance, so
+    # what a soldier can see it can shoot at -- badly, at range.
+    from athena.world_state import Soldier
+    from athena.models import Team
+
+    observer = Soldier(Team.BLUE, Position(x=0, y=40, z=0), vision_range=500)
+    far_enemy = Soldier(Team.RED, Position(x=80, y=40, z=0))
+    battlefield = Battlefield(
+        width=120,
+        height=80,
+        soldiers=[observer, far_enemy],
+        surface={
+            Position(x=x, y=y, z=0) for x in range(120) for y in range(80)
+        },
+    )
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    observed = loop.observed_soldiers_map()[0]
+
+    assert [s.position for s in observed.visible_soldiers] == [
+        Position(x=80, y=40, z=0)
+    ]
+
+
+def test_the_drawn_map_stays_bounded_however_far_a_soldier_can_see() -> None:
+    # Terrain is quadratic in radius with a sightline walk per cell, and every
+    # cell it returns becomes prompt tokens on every call of every tick. A
+    # 500 m vision range must not turn into a 1001x1001 character map.
+    from athena.params import MAX_RENDERED_TERRAIN_RADIUS
+    from athena.world_state import Soldier
+    from athena.models import Team
+
+    observer = Soldier(Team.BLUE, Position(x=60, y=60, z=0), vision_range=500)
+    battlefield = Battlefield(
+        width=140,
+        height=140,
+        soldiers=[observer],
+        surface={
+            Position(x=x, y=y, z=0) for x in range(140) for y in range(140)
+        },
+    )
+    loop = LoopEngine(
+        battlefield=battlefield,
+        vision_resolver=VisionResolver(),
+        movement_resolver=MovementResolver(),
+    )
+
+    cells = loop.nearby_terrain_map()[0]
+    span = MAX_RENDERED_TERRAIN_RADIUS
+
+    assert cells
+    assert all(
+        abs(cell.position.x - 60) <= span and abs(cell.position.y - 60) <= span
+        for cell in cells
     )

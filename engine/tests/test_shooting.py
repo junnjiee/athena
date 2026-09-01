@@ -8,6 +8,11 @@ from athena.agent import (
     _resolve_action,
 )
 from athena.params import (
+    BASE_HIT_PROBABILITY,
+    MAGAZINE_ROUNDS,
+    SUPPRESSION_HIT_MULTIPLIER,
+    LONG_RANGE_HIT_FLOOR,
+    MINIMUM_HIT_PROBABILITY,
     TERRAIN_PROFILES,
     build_system_prompt as build_openrouter_system_prompt,
     impassable_terrain_names,
@@ -84,7 +89,7 @@ def test_hold_action_serializes_without_parameters() -> None:
 
 
 def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
-    assert "hold position, move one grid cell, or shoot" in SYSTEM_PROMPT
+    assert "hold position, move, or shoot" in SYSTEM_PROMPT
     assert "x, y, and z" in SYSTEM_PROMPT
     assert "terrain is drawn as a map" in SYSTEM_PROMPT
     assert "casualty or dead soldier" in SYSTEM_PROMPT
@@ -92,15 +97,37 @@ def test_openrouter_prompt_allows_shooting_visible_enemies() -> None:
     assert "approximate bearing and distance" in SYSTEM_PROMPT
 
 
-@pytest.mark.parametrize("prompt", [SYSTEM_PROMPT, OLLAMA_SYSTEM_PROMPT])
-def test_agent_prompts_list_illegal_movement_actions(prompt: str) -> None:
-    assert "\n\nIllegal actions:\n" in prompt
-    assert "- Moving outside the battlefield." in prompt
-    assert "- Moving more than one grid cell." in prompt
-    assert "- Moving into impassable terrain (Water, Structure)." in prompt
-    assert "elevation differs by more than one level" in prompt
-    assert "cell occupied by a casualty or dead soldier" in prompt
-    assert "cell occupied by a stationary living soldier" in prompt
+def test_openrouter_prompt_states_the_movement_allowance() -> None:
+    # A soldier can now travel several cells in a tick, bounded by what the
+    # ground costs, so the prompt has to say what it may spend and on what.
+    assert "how many cells to travel" in SYSTEM_PROMPT
+    assert "from 1 to 10" in SYSTEM_PROMPT
+    assert "your allowance for the tick, which is 5" in SYSTEM_PROMPT
+    assert "open ground costs 1.0, road 0.8" in SYSTEM_PROMPT
+    # Overshooting shortens the move rather than failing it; an agent told
+    # otherwise would waste a retry, and a retry is another model call.
+    assert "is not an error -- you simply travel less far" in SYSTEM_PROMPT
+
+
+def test_openrouter_prompt_lists_illegal_movement_actions() -> None:
+    assert "\n\nIllegal actions:\n" in SYSTEM_PROMPT
+    assert "would leave the battlefield" in SYSTEM_PROMPT or (
+        "off the battlefield" in SYSTEM_PROMPT
+    )
+    assert "impassable (Water, Structure)" in SYSTEM_PROMPT
+    assert "- Moving a distance below 1 or above 10." in SYSTEM_PROMPT
+
+
+def test_ollama_prompt_lists_illegal_movement_actions() -> None:
+    # The Ollama backend is deliberately not carried forward (see AGENTS.md), so
+    # its prompt still describes the one-cell move it was written against.
+    assert "\n\nIllegal actions:\n" in OLLAMA_SYSTEM_PROMPT
+    assert "- Moving outside the battlefield." in OLLAMA_SYSTEM_PROMPT
+    assert "- Moving more than one grid cell." in OLLAMA_SYSTEM_PROMPT
+    assert "- Moving into impassable terrain (Water, Structure)." in OLLAMA_SYSTEM_PROMPT
+    assert "elevation differs by more than one level" in OLLAMA_SYSTEM_PROMPT
+    assert "cell occupied by a casualty or dead soldier" in OLLAMA_SYSTEM_PROMPT
+    assert "cell occupied by a stationary living soldier" in OLLAMA_SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize("prompt", [SYSTEM_PROMPT, OLLAMA_SYSTEM_PROMPT])
@@ -127,7 +154,7 @@ def test_agent_prompts_use_effective_engine_limits() -> None:
     ollama_prompt = build_ollama_system_prompt(max_elevation_change=2)
 
     assert "up to 7 prior ticks" in openrouter_prompt
-    assert "elevation differs by more than 2 levels" in openrouter_prompt
+    assert "differs in elevation by more than 2 levels" in openrouter_prompt
     assert "elevation differs by more than 2 levels" in ollama_prompt
 
 
@@ -346,8 +373,8 @@ def test_action_resolution_retries_invalid_shot_then_accepts_move() -> None:
     [
         (False, 0, True, "Moving east was rejected by the movement rules."),
         (False, 2, False, "Moving east was rejected by the movement rules."),
-        (True, 0, True, "is impassable terrain (Structure)"),
-        (True, 2, False, "Destination elevation differs by 2 levels"),
+        (True, 0, True, "enters impassable terrain (Structure)"),
+        (True, 2, False, "climbs 2 elevation levels"),
     ],
 )
 def test_move_retry_feedback_only_explains_visible_terrain(
@@ -612,3 +639,91 @@ def test_terrain_cell_serializes_a_readable_class_name() -> None:
     assert '"terrain":"Dense Forest"' in cell.model_dump_json()
     # The index survives the round trip so engine consumers keep the enum.
     assert TerrainCell.model_validate_json(cell.model_dump_json()) == cell
+
+
+def test_distance_discounts_a_shot() -> None:
+    # Before this, a soldier hit ninety percent of the time at any range it
+    # could see. That was harmless while vision was ten metres and wrong once
+    # vision reached an establishment's real range.
+    resolver = ShootingResolver()
+    origin = Position(x=0, y=0, z=0)
+
+    close = resolver.hit_probability(origin, Position(x=10, y=0, z=0))
+    effective = resolver.hit_probability(origin, Position(x=50, y=0, z=0))
+    medium = resolver.hit_probability(origin, Position(x=200, y=0, z=0))
+    far = resolver.hit_probability(origin, Position(x=400, y=0, z=0))
+
+    assert close == effective == BASE_HIT_PROBABILITY
+    assert effective > medium > far
+    assert far == pytest.approx(BASE_HIT_PROBABILITY * LONG_RANGE_HIT_FLOOR)
+
+
+def test_beyond_maximum_range_a_shot_stays_at_the_floor() -> None:
+    resolver = ShootingResolver()
+    origin = Position(x=0, y=0, z=0)
+
+    assert resolver.range_factor(500.0) == LONG_RANGE_HIT_FLOOR
+    assert resolver.hit_probability(
+        origin, Position(x=900, y=0, z=0)
+    ) == pytest.approx(BASE_HIT_PROBABILITY * LONG_RANGE_HIT_FLOOR)
+
+
+def test_range_and_cover_stack_below_the_marksmanship_floor() -> None:
+    # The floor describes the shooter, not how far away the target is or what it
+    # is standing behind, so both may drive the chance under it.
+    resolver = ShootingResolver()
+    probability = resolver.hit_probability(
+        Position(x=0, y=0, z=0),
+        Position(x=200, y=0, z=0),
+        target_protection=0.75,
+    )
+
+    assert probability < MINIMUM_HIT_PROBABILITY
+
+
+def test_a_suppressed_shooter_shoots_badly() -> None:
+    # Without this the model had no answer to incoming fire: two sides inside
+    # effective range traded near-certain hits and a firefight resolved in two
+    # or three ticks with both sides destroyed.
+    resolver = ShootingResolver()
+    origin = Position(x=0, y=0, z=0)
+    target = Position(x=10, y=0, z=0)
+
+    calm = resolver.hit_probability(origin, target)
+    under_fire = resolver.hit_probability(origin, target, shooter_suppressed=True)
+
+    assert under_fire == pytest.approx(calm * SUPPRESSION_HIT_MULTIPLIER)
+    assert under_fire < calm
+
+
+def test_a_reloading_soldier_cannot_shoot() -> None:
+    shooter = Soldier(Team.BLUE, Position(x=1, y=1, z=0))
+    target_position = Position(x=4, y=3, z=0)
+    observed = observation(
+        shooter,
+        [visible_soldier(Team.RED, target_position)],
+    )
+
+    for _ in range(MAGAZINE_ROUNDS):
+        shooter.fire()
+
+    validation = ShootingResolver().validate_shoot_action(
+        observed,
+        shooter,
+        ShootAction(target_position=target_position),
+    )
+
+    assert not validation.valid
+    assert "reloading" in (validation.reason or "")
+
+
+def test_a_reload_costs_exactly_one_tick() -> None:
+    shooter = Soldier(Team.BLUE, Position(x=0, y=0, z=0))
+    for _ in range(MAGAZINE_ROUNDS):
+        shooter.fire()
+    assert shooter.reloading is True
+
+    shooter.finish_reload()
+
+    assert shooter.reloading is False
+    assert shooter.rounds == MAGAZINE_ROUNDS

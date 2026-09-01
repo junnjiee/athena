@@ -10,6 +10,7 @@ from athena.loaders import (
     project_cell,
 )
 from athena.loaders.terrain_payload import (
+    import_diagnostics,
     BoundingBox,
     GeoPoint,
     TerrainPayload,
@@ -273,3 +274,209 @@ def test_payload_round_trips_through_the_model(tmp_path) -> None:
     assert isinstance(payload, TerrainPayload)
     assert payload.terrain.cell_meters == 1
     assert payload.units[0].side == "red"
+
+
+def _ground(**extra) -> dict:
+    """A 4x4 flat payload with one blue and one red marker."""
+    payload = {
+        "terrain": {
+            "bbox": {"west": 0, "south": 0, "east": 1, "north": 1},
+            "width": 4,
+            "height": 4,
+            "cellMeters": 1,
+            "classNames": {"0": "Open Ground"},
+            "cells": {"elevation": [0] * 16, "cls": [0] * 16},
+        },
+        "units": [
+            {
+                "id": "blue-1",
+                "side": "blue",
+                "name": "Blue 1",
+                "position": {"longitude": 0.1, "latitude": 0.9},
+            },
+            {
+                "id": "red-1",
+                "side": "red",
+                "name": "Red 1",
+                "position": {"longitude": 0.9, "latitude": 0.1},
+            },
+        ],
+    }
+    payload.update(extra)
+    return payload
+
+
+def test_a_trench_override_makes_the_ground_protective() -> None:
+    # A trench used to reach the engine as one soldier standing on whatever the
+    # classifier decided that cell was, so the works themselves did nothing.
+    from athena.params import TERRAIN_PROFILES
+    from athena.models import TerrainClass
+
+    raw = _ground()
+    raw["terrain"]["overrides"] = [
+        {"index": 5, "cls": int(TerrainClass.TRENCH)},
+        {"index": 6, "cls": int(TerrainClass.TRENCH)},
+    ]
+
+    battlefield = build_battlefield_from_payload(
+        TerrainPayload.model_validate(raw)
+    )
+
+    assert battlefield.terrain_at(1, 1) == TerrainClass.TRENCH
+    assert battlefield.terrain_at(2, 1) == TerrainClass.TRENCH
+    assert battlefield.terrain_at(0, 0) == TerrainClass.OPEN_GROUND
+    assert TERRAIN_PROFILES[TerrainClass.TRENCH].protection > (
+        TERRAIN_PROFILES[TerrainClass.OPEN_GROUND].protection
+    )
+
+
+def test_an_override_outside_the_grid_is_ignored() -> None:
+    # Footprints are derived from drawn markers, and a marker near the edge can
+    # produce a cell just off the ground.
+    from athena.models import TerrainClass
+
+    raw = _ground()
+    raw["terrain"]["overrides"] = [{"index": 9999, "cls": int(TerrainClass.TRENCH)}]
+
+    battlefield = build_battlefield_from_payload(
+        TerrainPayload.model_validate(raw)
+    )
+
+    assert all(
+        battlefield.terrain_at(x, y) == TerrainClass.OPEN_GROUND
+        for x in range(4)
+        for y in range(4)
+    )
+
+
+def test_a_night_plan_halves_what_a_soldier_can_pick_out() -> None:
+    from athena.params import DEFAULT_SOLDIER_VISION_RANGE, NIGHT_VISION_MULTIPLIER
+
+    day = build_battlefield_from_payload(
+        TerrainPayload.model_validate(_ground(isDay=True))
+    )
+    night = build_battlefield_from_payload(
+        TerrainPayload.model_validate(_ground(isDay=False))
+    )
+
+    assert day.soldiers[0].vision_range == DEFAULT_SOLDIER_VISION_RANGE
+    assert night.soldiers[0].vision_range == (
+        DEFAULT_SOLDIER_VISION_RANGE * NIGHT_VISION_MULTIPLIER
+    )
+
+
+def test_a_plan_with_no_daylight_stated_simulates_as_daytime() -> None:
+    from athena.params import DEFAULT_SOLDIER_VISION_RANGE
+
+    battlefield = build_battlefield_from_payload(
+        TerrainPayload.model_validate(_ground())
+    )
+
+    assert battlefield.soldiers[0].vision_range == DEFAULT_SOLDIER_VISION_RANGE
+
+
+def test_an_establishment_brings_its_own_vision_range() -> None:
+    raw = _ground()
+    raw["units"][0]["visionRangeM"] = 500
+
+    battlefield = build_battlefield_from_payload(
+        TerrainPayload.model_validate(raw)
+    )
+
+    assert battlefield.soldiers[0].vision_range == 500
+    assert battlefield.soldiers[1].vision_range == 10.0
+
+
+def test_a_gait_sets_the_movement_allowance() -> None:
+    from athena.params import DEFAULT_MOVE_BUDGET, MOVE_BUDGET_BY_GAIT
+
+    raw = _ground()
+    raw["units"][0]["movementType"] = "charge"
+
+    battlefield = build_battlefield_from_payload(
+        TerrainPayload.model_validate(raw)
+    )
+
+    assert battlefield.soldiers[0].move_budget == MOVE_BUDGET_BY_GAIT["charge"]
+    assert battlefield.soldiers[1].move_budget == DEFAULT_MOVE_BUDGET
+
+
+def _severed_ground(**extra) -> dict:
+    """A 9x9 ground cut in two by a river with no crossing."""
+    water = {(x, 4) for x in range(9)}
+    cls = [
+        5 if (x, y) in water else 0
+        for y in range(9)
+        for x in range(9)
+    ]
+    payload = {
+        "terrain": {
+            "bbox": {"west": 0, "south": 0, "east": 1, "north": 1},
+            "width": 9,
+            "height": 9,
+            "cellMeters": 1,
+            "classNames": {"0": "Open Ground", "5": "Water"},
+            "cells": {"elevation": [0] * 81, "cls": cls},
+        },
+        "units": [
+            {
+                "id": "blue-1",
+                "side": "blue",
+                "name": "Blue 1",
+                "position": {"longitude": 0.5, "latitude": 0.05},
+            },
+            {
+                "id": "red-1",
+                "side": "red",
+                "name": "Red 1",
+                "position": {"longitude": 0.5, "latitude": 0.95},
+            },
+        ],
+        "objectives": [
+            {
+                "id": "obj-1",
+                "name": "OBJ",
+                "position": {"longitude": 0.5, "latitude": 0.95},
+                "radiusMeters": 1.0,
+                "side": "blue",
+            }
+        ],
+    }
+    payload.update(extra)
+    return payload
+
+
+def test_an_objective_across_an_uncrossable_river_is_reported_before_the_batch_runs():
+    """The failure this exists for happened on real ground.
+
+    A force walked to a river with no crossing, stood on the bank for 120 ticks,
+    and the batch came back "inconclusive" -- indistinguishable from a plan that
+    was merely too slow. The plan was not slow, it was impossible.
+    """
+    diagnostics = import_diagnostics(
+        TerrainPayload.model_validate(_severed_ground())
+    )
+
+    assert diagnostics["blueObjectiveReachable"] is False
+    # Red is standing on it.
+    assert diagnostics["redObjectiveReachable"] is True
+
+
+def test_a_reachable_objective_is_reported_as_such() -> None:
+    raw = _severed_ground()
+    # Open a crossing at the eastern end.
+    raw["terrain"]["cells"]["cls"][4 * 9 + 8] = 0
+
+    diagnostics = import_diagnostics(TerrainPayload.model_validate(raw))
+
+    assert diagnostics["blueObjectiveReachable"] is True
+
+
+def test_a_plan_with_no_objective_reports_no_reachability() -> None:
+    raw = _severed_ground()
+    raw["objectives"] = []
+
+    diagnostics = import_diagnostics(TerrainPayload.model_validate(raw))
+
+    assert "blueObjectiveReachable" not in diagnostics
+    assert "redObjectiveReachable" not in diagnostics

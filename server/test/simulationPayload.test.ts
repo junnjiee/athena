@@ -2,6 +2,7 @@ import { gunzipSync } from 'node:zlib'
 import { describe, expect, test } from 'bun:test'
 import {
   buildSimulationPayload,
+  countAgents,
   countSoldiers,
   encodeSimulationPayload,
   soldiersFor,
@@ -10,7 +11,7 @@ import {
 import { packGrid } from '../src/services/grid'
 import { TERRAIN_CLASS } from '../src/types'
 import type { GridChannels } from '../src/types'
-import type { PlacedUnit } from '../src/db/planTypes'
+import type { PlacedRoute, PlacedUnit } from '../src/db/planTypes'
 
 const BBOX = { west: 0, south: 0, east: 0.01, north: 0.01 }
 
@@ -49,10 +50,15 @@ function unit(overrides: Partial<PlacedUnit> = {}): PlacedUnit {
   }
 }
 
-function build(units: PlacedUnit[], objectives: EnginePayload['objectives'] = []): EnginePayload {
+function build(
+  units: PlacedUnit[],
+  objectives: EnginePayload['objectives'] = [],
+  routes: PlacedRoute[] = [],
+  isDay: boolean | null = null,
+): EnginePayload {
   return buildSimulationPayload({
-    battleground: { bbox: BBOX, gridBuffer: grid() },
-    plan: { units, objectives: objectives as never },
+    battleground: { bbox: BBOX, gridBuffer: grid(), isDay },
+    plan: { units, objectives: objectives as never, routes },
   })
 }
 
@@ -145,5 +151,153 @@ describe('encoding', () => {
     expect(encoded[0]).toBe(0x1f)
     expect(encoded[1]).toBe(0x8b)
     expect(JSON.parse(gunzipSync(encoded).toString('utf8'))).toEqual(payload)
+  })
+})
+
+describe('the drawn plan reaching the engine', () => {
+  const route: PlacedRoute = {
+    id: 'route-1',
+    side: 'blue',
+    startUnitId: 'unit-1',
+    points: [
+      { longitude: 0.001, latitude: 0.001 },
+      { longitude: 0.009, latitude: 0.009 },
+    ],
+    endRef: null,
+    movementType: 'prowl',
+    loadout: { bodyMassKg: 80, loadMassKg: 25, preset: 'fighting' },
+  }
+
+  test("a marker's route is carried by every soldier expanded from it", () => {
+    // The arrow was drawn for the establishment, so all 21 men follow it. A
+    // route on only the first soldier would send one man forward alone.
+    const payload = build([unit({ strength: 21 })], [], [route])
+
+    expect(payload.units).toHaveLength(21)
+    for (const soldier of payload.units) {
+      expect(soldier.route).toEqual(route.points)
+      expect(soldier.movementType).toBe('prowl')
+    }
+  })
+
+  test('a unit with no route drawn sends no route field at all', () => {
+    // Absent rather than empty: the engine treats a missing route as "no axis
+    // given" and falls back to the objective, which an empty list would not.
+    const payload = build([unit({ id: 'other-unit' })], [], [route])
+
+    expect(payload.units[0].route).toBeUndefined()
+    expect(payload.units[0].movementType).toBeUndefined()
+  })
+
+  test('a route with a single point is not an axis and is dropped', () => {
+    const payload = build(
+      [unit()],
+      [],
+      [{ ...route, points: [{ longitude: 0.001, latitude: 0.001 }] }],
+    )
+
+    expect(payload.units[0].route).toBeUndefined()
+  })
+
+  test("an objective's side reaches the engine so it knows who is taking it", () => {
+    const payload = build([unit()], [
+      {
+        id: 'obj-1',
+        name: 'OBJ BRAVO',
+        description: 'the crossroads',
+        position: { longitude: 0.005, latitude: 0.005 },
+        radiusMeters: 25,
+        side: 'blue',
+      },
+    ] as never)
+
+    expect(payload.objectives[0].side).toBe('blue')
+  })
+
+  test('an objective drawn before sides existed stays contested', () => {
+    const payload = build([unit()], [
+      {
+        id: 'obj-1',
+        name: 'OBJ ALPHA',
+        description: '',
+        position: { longitude: 0.005, latitude: 0.005 },
+        radiusMeters: 25,
+      },
+    ] as never)
+
+    expect('side' in payload.objectives[0]).toBe(false)
+  })
+})
+
+describe('ground the commander made rather than found', () => {
+  test('a trench marker becomes protective terrain, not just a man in a hole', () => {
+    // A fortification used to reach the engine as one soldier standing on
+    // whatever the classifier decided that cell was, so the works did nothing.
+    const payload = build([unit({ symbolKind: 'trench' })])
+
+    expect(payload.terrain.overrides?.length).toBeGreaterThan(0)
+    expect(payload.terrain.overrides?.every((o) => o.cls === 10)).toBe(true)
+    // The class grid itself is untouched: the numbering stays a straight
+    // contract with the terrain pipeline, which never emits a trench.
+    expect(payload.terrain.cells.cls).not.toContain(10)
+  })
+
+  test('a plan with no fortifications sends no overrides at all', () => {
+    expect(build([unit()]).terrain.overrides).toBeUndefined()
+  })
+
+  test("an establishment's vision range reaches every soldier expanded from it", () => {
+    const payload = build([unit({ strength: 4, visionRangeM: 500 })])
+
+    expect(payload.units).toHaveLength(4)
+    expect(payload.units.every((s) => s.visionRangeM === 500)).toBe(true)
+  })
+
+  test('a plan drawn over night ground says so', () => {
+    expect(build([unit()], [], [], false).isDay).toBe(false)
+    expect(build([unit()], [], [], true).isDay).toBe(true)
+    // Absent rather than defaulted: the engine treats a missing flag as daytime,
+    // and a battleground whose pipeline recorded no weather has no opinion.
+    expect('isDay' in build([unit()])).toBe(false)
+  })
+})
+
+describe('sections and who pays for them', () => {
+  test('a 21-man platoon becomes three sections, not one commander of twenty', () => {
+    // A rifle section is seven men under one commander and a platoon is three of
+    // them. Only commanders make a model call, so this is the difference between
+    // 21 calls a tick and 3.
+    const payload = build([unit({ strength: 21 })])
+    const commanders = payload.units.filter((s) => s.commander)
+
+    expect(payload.units).toHaveLength(21)
+    expect(commanders).toHaveLength(3)
+    expect(new Set(payload.units.map((s) => s.sectionId)).size).toBe(3)
+    expect(countAgents([unit({ strength: 21 })])).toBe(3)
+  })
+
+  test('every soldier belongs to exactly one section, and each has one commander', () => {
+    const payload = build([unit({ strength: 21 })])
+    const bySection = new Map<string, number>()
+    for (const soldier of payload.units.filter((s) => s.commander)) {
+      bySection.set(soldier.sectionId!, (bySection.get(soldier.sectionId!) ?? 0) + 1)
+    }
+
+    expect(payload.units.every((s) => s.sectionId)).toBe(true)
+    expect([...bySection.values()]).toEqual([1, 1, 1])
+  })
+
+  test('a lone marker commands itself', () => {
+    const payload = build([unit()])
+
+    expect(payload.units[0].commander).toBe(true)
+    expect(payload.units[0].sectionId).toBe('unit-1')
+    expect(countAgents([unit()])).toBe(1)
+  })
+
+  test('a part-strength section still gets a commander', () => {
+    // Four men is not a full section but still needs someone deciding.
+    expect(countAgents([unit({ strength: 4 })])).toBe(1)
+    expect(countAgents([unit({ strength: 8 })])).toBe(2)
   })
 })

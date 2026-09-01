@@ -36,7 +36,11 @@ from athena.hosted.config import HostedSettings
 from athena.hosted.database import BatchEvent, BatchRepository
 from athena.hosted.queue import SimulationQueue
 from athena.hosted.storage import BucketStorage
-from athena.loaders.terrain_payload import PayloadError, load_payload
+from athena.loaders.terrain_payload import (
+    PayloadError,
+    import_diagnostics,
+    load_payload,
+)
 
 
 @dataclass
@@ -52,6 +56,9 @@ class SubmitBatchResponse(BaseModel):
     batch_id: UUID = Field(alias="batchId")
     simulation_count: int = Field(alias="simulationCount")
     events_url: str = Field(alias="eventsUrl")
+    # Ground problems worth knowing before the batch runs, not after. Absent on
+    # the planId path, which never parses a payload here.
+    diagnostics: dict[str, int] | None = None
 
 
 def _copy_upload(upload: UploadFile, destination: Path) -> None:
@@ -60,7 +67,10 @@ def _copy_upload(upload: UploadFile, destination: Path) -> None:
         shutil.copyfileobj(upload.file, output)
 
 
-def _prepare_payload(upload_path: Path, validation_path: Path) -> bool:
+def _prepare_payload(
+    upload_path: Path,
+    validation_path: Path,
+) -> tuple[bool, dict[str, int]]:
     with upload_path.open("rb") as source:
         compressed = source.read(2) == b"\x1f\x8b"
     if compressed:
@@ -68,8 +78,7 @@ def _prepare_payload(upload_path: Path, validation_path: Path) -> bool:
             shutil.copyfileobj(source, output)
     else:
         shutil.copyfile(upload_path, validation_path)
-    load_payload(validation_path)
-    return compressed
+    return compressed, import_diagnostics(load_payload(validation_path))
 
 
 def _require_token(expected: str | None) -> Any:
@@ -241,7 +250,7 @@ def create_app(
                 upload_path = directory_path / "payload.upload"
                 validation_path = directory_path / "payload.json"
                 await asyncio.to_thread(_copy_upload, payload, upload_path)
-                compressed = await asyncio.to_thread(
+                compressed, diagnostics = await asyncio.to_thread(
                     _prepare_payload,
                     upload_path,
                     validation_path,
@@ -277,7 +286,116 @@ def create_app(
             batch_id=batch_id,
             simulation_count=simulation_count,
             events_url=f"/v1/simulation-batches/{batch_id}/events",
+            diagnostics=diagnostics,
         )
+
+    @app.post("/v1/payload-diagnostics", dependencies=authenticated)
+    async def payload_diagnostics(
+        payload: Annotated[UploadFile, File()],
+    ) -> dict[str, Any]:
+        """Check a scenario without queueing anything.
+
+        The same checks the submit path runs, available before committing to a
+        batch. An objective on the far side of a river with no crossing is not a
+        hard plan but an impossible one, and finding that out from an
+        "inconclusive" result after a full tick budget is the worst possible way
+        to learn it.
+        """
+        try:
+            with TemporaryDirectory(prefix="athena-check-") as directory:
+                directory_path = Path(directory)
+                upload_path = directory_path / "payload.upload"
+                validation_path = directory_path / "payload.json"
+                await asyncio.to_thread(_copy_upload, payload, upload_path)
+                _, diagnostics = await asyncio.to_thread(
+                    _prepare_payload, upload_path, validation_path
+                )
+        except (
+            PayloadError,
+            ValidationError,
+            ValueError,
+            json.JSONDecodeError,
+            gzip.BadGzipFile,
+            UnicodeDecodeError,
+        ) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        return diagnostics
+
+    @app.get("/v1/simulation-batches", dependencies=authenticated)
+    async def list_batches(
+        request: Request,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Recent batches, newest first.
+
+        The event stream is consumed once; this is how a batch is read back
+        afterwards. Everything here is a read over tables the queue already
+        maintains.
+        """
+        hosted: HostedRuntime = request.app.state.runtime
+        rows = await hosted.repository.list_batches(max(1, min(limit, 100)), max(0, offset))
+        return {
+            "batches": [
+                {
+                    "batchId": str(row["id"]),
+                    "simulationCount": row["simulation_count"],
+                    "ticks": row["ticks"],
+                    "model": row["model"],
+                    "planId": row["plan_id"],
+                    "status": row["status"],
+                    "completed": row["completed"],
+                    "failed": row["failed"],
+                    "createdAt": row["created_at"].isoformat(),
+                    "completedAt": (
+                        row["completed_at"].isoformat() if row["completed_at"] else None
+                    ),
+                }
+                for row in rows
+            ]
+        }
+
+    @app.get("/v1/simulation-batches/{batch_id}", dependencies=authenticated)
+    async def batch_detail(batch_id: UUID, request: Request) -> dict[str, Any]:
+        """One batch with every run's stored outcome and a fresh replay URL.
+
+        Replay URLs are presigned at read time rather than stored, because a
+        stored one expires while the batch it describes does not.
+        """
+        hosted: HostedRuntime = request.app.state.runtime
+        detail = await hosted.repository.batch_detail(batch_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="unknown simulation batch")
+
+        batch = detail["batch"]
+        return {
+            "batchId": str(batch["id"]),
+            "simulationCount": batch["simulation_count"],
+            "ticks": batch["ticks"],
+            "model": batch["model"],
+            "planId": batch["plan_id"],
+            "status": batch["status"],
+            "createdAt": batch["created_at"].isoformat(),
+            "completedAt": (
+                batch["completed_at"].isoformat() if batch["completed_at"] else None
+            ),
+            "runs": [
+                {
+                    "simulationId": str(run["id"]),
+                    "simulationIndex": run["simulation_index"],
+                    "status": run["status"],
+                    "outcome": run["outcome"],
+                    "error": run["error"],
+                    "replayUrl": (
+                        hosted.storage.presigned_get_url(run["replay_key"])
+                        if run["replay_key"]
+                        else None
+                    ),
+                }
+                for run in detail["runs"]
+            ],
+        }
 
     @app.get("/v1/simulation-batches/{batch_id}/events", dependencies=authenticated)
     async def batch_events(batch_id: UUID, request: Request) -> StreamingResponse:

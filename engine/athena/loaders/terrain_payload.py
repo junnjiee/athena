@@ -21,8 +21,11 @@ from athena.loaders.errors import PayloadError
 from athena.loaders.grid_wire import PackedGrid, decode_grid
 from athena.models import CommunicationGroup, Position, TerrainClass, Team
 from athena.params import (
+    DEFAULT_MOVE_BUDGET,
+    NIGHT_VISION_MULTIPLIER,
     DEFAULT_SOLDIER_VISION_RANGE,
     MAX_ELEVATION_CHANGE,
+    MOVE_BUDGET_BY_GAIT,
     TERRAIN_PROFILES,
 )
 from athena.terrain import TERRAIN_LABELS
@@ -66,6 +69,19 @@ class TerrainCells(_PayloadModel):
     terrain_classes: tuple[int, ...] = Field(alias="cls")
 
 
+class TerrainOverride(_PayloadModel):
+    """One cell whose class the plan replaces after the grid is loaded.
+
+    Field works are the case this exists for. A trench is drawn by a commander,
+    not read off imagery, so it cannot arrive in the exported class grid without
+    inventing a class the classifier never produces. It arrives here instead,
+    and the numbering contract with the export stays untouched.
+    """
+
+    index: int = Field(ge=0)
+    terrain_class: int = Field(alias="cls")
+
+
 class TerrainGrid(_PayloadModel):
     bbox: BoundingBox
     width: int = Field(gt=0)
@@ -73,6 +89,7 @@ class TerrainGrid(_PayloadModel):
     cell_meters: float = Field(gt=0)
     class_names: dict[int, str] = Field(default_factory=dict)
     cells: TerrainCells
+    overrides: tuple[TerrainOverride, ...] = ()
 
 
 class PayloadUnit(_PayloadModel):
@@ -80,6 +97,21 @@ class PayloadUnit(_PayloadModel):
     side: str
     name: str
     position: GeoPoint
+    # The drawn movement arrow this soldier was given, as the operator drew it.
+    # Projected to cells and handed to the agent as waypoints -- see
+    # athena.hosted.orders. Empty when the marker had no route.
+    route: tuple[GeoPoint, ...] = ()
+    # Gait the arrow was drawn with: "prowl", "patrol" or "charge". Biases what
+    # the agent chooses, not what the movement resolver permits.
+    movement_type: str | None = None
+    # Establishment vision range in metres. Cells are one metre, so it is also
+    # cells; if the loader is ever made to downsample, this needs converting.
+    vision_range_m: float | None = None
+    # The drawn marker this soldier was expanded from, and whether it is the one
+    # making decisions for it. A marker that sends no section keeps every
+    # soldier commanding, which is what a hand-authored scenario expects.
+    section_id: str | None = None
+    commander: bool = True
 
 
 class PayloadObjective(_PayloadModel):
@@ -88,12 +120,19 @@ class PayloadObjective(_PayloadModel):
     description: str = ""
     position: GeoPoint
     radius_meters: float = 0.0
+    # Which side is tasked with the objective. Absent means both are told about
+    # it, which is the pre-existing behaviour for plans drawn before objectives
+    # carried a side.
+    side: str | None = None
 
 
 class TerrainPayload(_PayloadModel):
     terrain: TerrainGrid
     units: tuple[PayloadUnit, ...] = ()
     objectives: tuple[PayloadObjective, ...] = ()
+    # Daylight over the ground at the plan's H-hour. None keeps the pre-existing
+    # behaviour of simulating every plan as though it were daytime.
+    is_day: bool | None = None
 
 
 def load_payload(path: str | Path) -> TerrainPayload:
@@ -304,6 +343,78 @@ def count_unclimbable_transitions(
     return blocked
 
 
+def import_diagnostics(payload: TerrainPayload) -> dict[str, int | bool]:
+    """What is wrong with this plan before a batch is spent on it.
+
+    Two checks, both written because the failure they predict is one operators
+    actually hit and could not diagnose from the result.
+
+    ``count_unclimbable_transitions`` counts steps the movement resolver refuses
+    after real elevation is rounded to whole metres.
+
+    Reachability is the more important one. A river, a lake or a cliff line can
+    sever the ground completely, and a plan whose objective is on the far side
+    is not a hard plan but an impossible one. Without this the batch runs, the
+    force walks to the bank, stands there for the whole tick budget, and the
+    result comes back "inconclusive" -- indistinguishable from a plan that was
+    merely too slow. Measured on real ground: a force spent 120 ticks failing to
+    cross a river that had no crossing.
+
+    Reported rather than rejected: it is the operator's call whether to run it
+    anyway, and a side with no objective drawn has nothing to be cut off from.
+    """
+    from athena.navigation import UNREACHABLE, Navigator
+
+    grid = payload.terrain
+    levels = _quantize_elevations(grid.cells.elevation)
+    diagnostics: dict[str, int | bool] = {
+        "cells": grid.width * grid.height,
+        "unclimbableSteps": count_unclimbable_transitions(
+            levels, grid.width, grid.height
+        ),
+    }
+
+    battlefield = build_battlefield_from_payload(payload)
+    navigator = Navigator()
+    for side in ("blue", "red"):
+        starts = [
+            soldier
+            for soldier, unit in zip(battlefield.soldiers, payload.units)
+            if unit.side.lower() == side
+        ]
+        if not starts:
+            continue
+        target = starts[0].objective
+        if target is None:
+            continue
+        reachable = any(
+            navigator.distance_to(battlefield, soldier.position, target)
+            != UNREACHABLE
+            for soldier in starts
+        )
+        diagnostics[f"{side}ObjectiveReachable"] = reachable
+
+    return diagnostics
+
+
+def _apply_overrides(grid: TerrainGrid) -> tuple[int, ...]:
+    """The class grid with the plan's per-cell replacements applied.
+
+    Out-of-range indices are ignored rather than raising: the override list is
+    derived from drawn footprints, and a marker on the edge of the ground can
+    produce a footprint cell just outside it.
+    """
+    if not grid.overrides:
+        return grid.cells.terrain_classes
+
+    classes = list(grid.cells.terrain_classes)
+    for override in grid.overrides:
+        if 0 <= override.index < len(classes):
+            classes[override.index] = override.terrain_class
+    _check_class_codes(classes)
+    return tuple(classes)
+
+
 _TEAMS_BY_SIDE = {"blue": Team.BLUE, "red": Team.RED}
 
 
@@ -374,7 +485,13 @@ def build_battlefield_from_payload(
     """
     grid = payload.terrain
     levels = _quantize_elevations(grid.cells.elevation)
-    classes = grid.cells.terrain_classes
+    classes = _apply_overrides(grid)
+    # Night halves what a soldier picks out. Weather beyond this is still not
+    # modelled: exported visibility runs to thousands of metres, far past any
+    # vision range, but a plan drawn for an 0300 approach used to simulate
+    # identically to a midday one, which made the mission window decorative.
+    if payload.is_day is False:
+        vision_range *= NIGHT_VISION_MULTIPLIER
 
     surface = {
         Position(x=x, y=y, z=levels[y * grid.width + x])
@@ -382,17 +499,59 @@ def build_battlefield_from_payload(
         for x in range(grid.width)
     }
 
+    # The objective a side is tasked with, as a cell. Carried on the soldier so a
+    # commander out of contact can march toward it without a model call deciding
+    # to; the prose version still goes into the prompt for the ones that think.
+    # Both sides get it, whoever owns it: taking an objective and denying one
+    # both mean being on that ground. Which of the two a soldier is doing is in
+    # the prose orders, and only matters once it arrives and there is something
+    # to decide.
+    objectives_by_side: dict[str, Position] = {}
+    for objective in payload.objectives:
+        ox, oy = project_cell(objective.position, grid.bbox, grid.width, grid.height)
+        cell = Position(x=ox, y=oy, z=levels[oy * grid.width + ox])
+        for side in ("blue", "red"):
+            objectives_by_side.setdefault(side, cell)
+
     taken: set[tuple[int, int]] = set()
     soldiers = []
     for unit in payload.units if include_units else ():
         team = _team_for(unit)
         x, y = _place(unit, grid, classes, taken)
+        waypoints = tuple(
+            Position(
+                x=wx,
+                y=wy,
+                z=levels[wy * grid.width + wx],
+            )
+            for wx, wy in (
+                project_cell(point, grid.bbox, grid.width, grid.height)
+                for point in unit.route
+            )
+        )
         soldiers.append(
             Soldier(
                 team=team,
                 position=Position(x=x, y=y, z=levels[y * grid.width + x]),
-                vision_range=vision_range,
+                # The establishment's own range when the plan carries one. A
+                # Recon Section is drawn at 500 m against a Rifle Section's
+                # 300 m, and both used to arrive as the flat default.
+                vision_range=(
+                    unit.vision_range_m * NIGHT_VISION_MULTIPLIER
+                    if unit.vision_range_m and payload.is_day is False
+                    else unit.vision_range_m or vision_range
+                ),
                 communication_group_ids={f"{team.value}-team"},
+                # The gait its route was drawn with decides how much ground it
+                # covers per tick. A marker with no route keeps the default.
+                move_budget=MOVE_BUDGET_BY_GAIT.get(
+                    (unit.movement_type or "").lower(),
+                    DEFAULT_MOVE_BUDGET,
+                ),
+                section_id=unit.section_id,
+                is_commander=unit.commander,
+                waypoints=waypoints,
+                objective=objectives_by_side.get(unit.side.lower()),
             )
         )
 

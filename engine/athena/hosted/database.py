@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS simulations (
     UNIQUE (batch_id, simulation_index)
 );
 
+-- Who won, and at what cost. Known when the run ends, so a caller asking only
+-- for a win rate never fetches a replay; also what makes a completed batch
+-- readable after its event stream has been consumed.
+ALTER TABLE simulations ADD COLUMN IF NOT EXISTS outcome jsonb;
+
 CREATE TABLE IF NOT EXISTS simulation_events (
     id bigserial PRIMARY KEY,
     batch_id uuid NOT NULL REFERENCES simulation_batches(id) ON DELETE CASCADE,
@@ -200,8 +205,14 @@ class BatchRepository:
         self,
         job: SimulationJob,
         replay_key: str,
+        outcome: dict[str, Any] | None = None,
     ) -> None:
-        await self._finish_simulation(job, replay_key=replay_key, error=None)
+        await self._finish_simulation(
+            job,
+            replay_key=replay_key,
+            error=None,
+            outcome=outcome,
+        )
 
     async def fail_simulation(self, job: SimulationJob, error: str) -> None:
         await self._finish_simulation(job, replay_key=None, error=error)
@@ -212,6 +223,7 @@ class BatchRepository:
         *,
         replay_key: str | None,
         error: str | None,
+        outcome: dict[str, Any] | None = None,
     ) -> None:
         status = "completed" if error is None else "failed"
         async with self.pool.acquire() as connection:
@@ -223,7 +235,7 @@ class BatchRepository:
                 update_result = await connection.execute(
                     """
                     UPDATE simulations
-                    SET status = $2, replay_key = $3, error = $4,
+                    SET status = $2, replay_key = $3, error = $4, outcome = $5,
                         completed_at = now()
                     WHERE id = $1 AND status = 'running'
                     """,
@@ -231,6 +243,7 @@ class BatchRepository:
                     status,
                     replay_key,
                     error,
+                    json.dumps(outcome) if outcome is not None else None,
                 )
                 if update_result != "UPDATE 1":
                     return
@@ -240,6 +253,8 @@ class BatchRepository:
                 }
                 if replay_key is not None:
                     data["replayKey"] = replay_key
+                if outcome is not None:
+                    data["outcome"] = outcome
                 if error is not None:
                     data["error"] = error
                 await self._insert_event(
@@ -282,6 +297,21 @@ class BatchRepository:
                         },
                     )
 
+    async def record_progress(
+        self,
+        batch_id: UUID,
+        data: dict[str, Any],
+    ) -> None:
+        """Append a progress event for a run in flight.
+
+        Ordinary event, same table and same cursor as the rest, so the existing
+        stream carries it and a client that does not know the type ignores it.
+        Callers throttle: a tick is fast and a batch is large, so writing one
+        row per tick per simulation would be most of what the database does.
+        """
+        async with self.pool.acquire() as connection:
+            await self._insert_event(connection, batch_id, "simulation.progress", data)
+
     async def events_after(
         self,
         batch_id: UUID,
@@ -310,6 +340,66 @@ class BatchRepository:
             )
             for row in rows
         ]
+
+    async def list_batches(self, limit: int, offset: int) -> list[dict[str, Any]]:
+        """Recent batches, newest first, with their per-status run counts.
+
+        Exists so a completed batch is still readable after its event stream has
+        been consumed -- without this the results live only in whichever browser
+        tab happened to be open while the batch ran.
+        """
+        rows = await self.pool.fetch(
+            """
+            SELECT b.id, b.simulation_count, b.ticks, b.model, b.plan_id,
+                   b.status, b.created_at, b.completed_at,
+                   count(s.*) FILTER (WHERE s.status = 'completed') AS completed,
+                   count(s.*) FILTER (WHERE s.status = 'failed') AS failed
+            FROM simulation_batches b
+            LEFT JOIN simulations s ON s.batch_id = b.id
+            GROUP BY b.id
+            ORDER BY b.created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+        return [dict(row) for row in rows]
+
+    async def batch_detail(self, batch_id: UUID) -> dict[str, Any] | None:
+        """One batch and every run in it, outcomes included."""
+        batch = await self.pool.fetchrow(
+            """
+            SELECT id, simulation_count, ticks, model, plan_id, status,
+                   created_at, completed_at
+            FROM simulation_batches WHERE id = $1
+            """,
+            batch_id,
+        )
+        if batch is None:
+            return None
+
+        runs = await self.pool.fetch(
+            """
+            SELECT id, simulation_index, status, replay_key, outcome, error,
+                   started_at, completed_at
+            FROM simulations WHERE batch_id = $1 ORDER BY simulation_index
+            """,
+            batch_id,
+        )
+        return {
+            "batch": dict(batch),
+            "runs": [
+                dict(row)
+                | {
+                    "outcome": (
+                        json.loads(row["outcome"])
+                        if isinstance(row["outcome"], str)
+                        else row["outcome"]
+                    )
+                }
+                for row in runs
+            ],
+        }
 
     async def batch_status(self, batch_id: UUID) -> str | None:
         return await self.pool.fetchval(

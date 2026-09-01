@@ -5,8 +5,10 @@ from pathlib import Path
 from athena.models import (
     BattlefieldSnapshot,
     ExecutionResult,
-    Position,
+    HoldAction,
+    MoveAction,
     ReplayBattlefield,
+    ReplayDecision,
     ReplayCommunicationGroup,
     ReplayLog,
     ReplayMessage,
@@ -16,13 +18,16 @@ from athena.models import (
 )
 
 
-def _sorted_positions(positions: frozenset[Position]) -> tuple[Position, ...]:
-    return tuple(
-        sorted(
-            positions,
-            key=lambda position: (position.y, position.x, position.z),
-        )
-    )
+def _describe_action(action: object) -> str:
+    """A decision as one readable phrase, for an operator rather than a parser."""
+    if isinstance(action, MoveAction):
+        return f"move {action.direction.value} {action.distance}"
+    if isinstance(action, HoldAction):
+        return "hold"
+    target = getattr(action, "target_position", None)
+    if target is not None:
+        return f"shoot ({target.x},{target.y})"
+    return "none"
 
 
 def _replay_soldiers(snapshot: BattlefieldSnapshot) -> tuple[ReplaySoldier, ...]:
@@ -44,7 +49,6 @@ class ReplayRecorder:
         self._battlefield = ReplayBattlefield(
             width=initial_snapshot.width,
             height=initial_snapshot.height,
-            surface=_sorted_positions(initial_snapshot.surface),
             terrain_classes=initial_snapshot.terrain_classes,
             communication_groups=tuple(
                 ReplayCommunicationGroup(
@@ -102,6 +106,15 @@ class ReplayRecorder:
                     content=message.content,
                 )
                 for message in result.team_messages
+            ),
+            decisions=tuple(
+                ReplayDecision(
+                    soldier_index=soldier_index,
+                    action=_describe_action(result.actions[soldier_index]),
+                    rationale=rationale,
+                )
+                for soldier_index, rationale in enumerate(result.rationales)
+                if rationale
             ),
         )
         self._steps.append(step)

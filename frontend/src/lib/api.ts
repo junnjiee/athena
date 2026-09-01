@@ -3,6 +3,7 @@ import type { BattlegroundMeta, BBoxDeg, GridData, OsmFeatures } from '../types/
 import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 import type { PlanSummary, SavedPlan } from '../types/plan'
 import type { Forecast } from '../types/forecast'
+import type { ReplayLog, RunResult } from '../types/replay'
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -134,6 +135,96 @@ export interface SimulationBatch {
    *  marker is 21 of these, which is what the run actually costs */
   soldiers: number
   eventsUrl: string
+  /** Ground problems the engine found while validating the payload, or null
+   *  from an engine that does not report them. */
+  diagnostics: ImportDiagnostics | null
+}
+
+/** What the engine noticed about the ground and the plan before running. */
+export interface ImportDiagnostics {
+  cells: number
+  /** Adjacent cell pairs a soldier cannot step between, after real elevation is
+   *  rounded to integer metres. A high count on steep ground shows up as agents
+   *  that will not advance, so it is reported before the batch is spent. */
+  unclimbableSteps: number
+  /** Whether a side can physically reach its objective. Absent when that side
+   *  drew none. False means the ground is severed between the force and the
+   *  objective — a river with no crossing, a cliff line — so the plan is not
+   *  slow, it is impossible, and running it wastes the whole batch. */
+  blueObjectiveReachable?: boolean
+  redObjectiveReachable?: boolean
+}
+
+/** Checks a plan against its ground without queueing a batch. Called when the
+ *  run dialog opens, so an impossible plan is refused before it costs money. */
+export async function fetchPlanDiagnostics(planId: string): Promise<ImportDiagnostics> {
+  const res = await fetch(`/api/plans/${planId}/diagnostics`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as ImportDiagnostics
+}
+
+export interface BatchSummary {
+  batchId: string
+  planId: string
+  planName: string
+  battlegroundId: string
+  simulationCount: number
+  ticks: number
+  model: string | null
+  soldiers: number
+  createdAt: string
+  status: string
+  completed: number
+  failed: number
+  completedAt: string | null
+}
+
+export interface BatchRun {
+  simulationId: string
+  simulationIndex: number
+  status: string
+  summary: RunResult | null
+  error: string | null
+  replayPath: string | null
+}
+
+export interface BatchDetail {
+  batchId: string
+  planId: string | null
+  planName: string | null
+  battlegroundId: string | null
+  soldiers: number | null
+  simulationCount: number
+  ticks: number
+  model: string | null
+  status: string
+  createdAt: string
+  completedAt: string | null
+  runs: BatchRun[]
+}
+
+/** Every batch this service has submitted, newest first, with the engine's
+ *  stored results attached. This is what makes a completed batch readable after
+ *  the browser tab that watched it has gone. */
+export async function listSimulationBatches(): Promise<BatchSummary[]> {
+  const res = await fetch('/api/simulations')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()) as { batches: BatchSummary[] }).batches
+}
+
+/** One full replay, through the service rather than straight from the bucket:
+ *  a presigned URL signs the Host header, so one signed for the bucket's
+ *  internal hostname is unusable from a browser. */
+export async function fetchReplay(replayPath: string): Promise<ReplayLog> {
+  const res = await fetch(replayPath)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as ReplayLog
+}
+
+export async function fetchSimulationBatch(batchId: string): Promise<BatchDetail> {
+  const res = await fetch(`/api/simulations/${batchId}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as BatchDetail
 }
 
 /** Queues a Monte Carlo batch over a saved plan. Returns as soon as the engine

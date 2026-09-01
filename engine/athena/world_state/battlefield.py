@@ -182,6 +182,7 @@ class Battlefield:
                     position=soldier.position,
                     survival_status=soldier.survival_status,
                     vision_range=soldier.vision_range,
+                    suppressed=soldier.suppressed,
                     communication_group_ids=soldier.communication_group_ids,
                 )
                 for index, soldier in enumerate(self.soldiers)

@@ -4,9 +4,11 @@ from langchain_core.exceptions import OutputParserException
 from langchain_openrouter import ChatOpenRouter
 from pydantic import ValidationError
 
+from dataclasses import dataclass
 from functools import lru_cache
 
 from athena.params import (
+    MAX_MOVE_DISTANCE,
     AGENT_MAX_OUTPUT_TOKENS,
     AGENT_REASONING_EFFORT,
     AGENT_REQUEST_TIMEOUT_MS,
@@ -31,6 +33,16 @@ from athena.models import (
     ShootAction,
     SurvivalState,
 )
+
+
+@dataclass(frozen=True)
+class BatchRequest:
+    """One commander's slot in a whole-tick decision."""
+
+    index: int
+    soldier: Soldier
+    agent_context: AgentContext
+    team_objectives: str | None
 
 
 # Default OpenRouter instructions. Runtime overrides are rendered in choose_action.
@@ -124,14 +136,17 @@ async def _resolve_action(
             isinstance(action, MoveAction)
             and observed_soldier.survival_status == SurvivalState.ALIVE
         ):
-            destination = movement_resolver.resolve_move_position(
+            # The cell it tried to set off into, not where it would have ended
+            # up: a rejected move never resolves a destination, and the reason
+            # is about that first cell either way.
+            first_step = movement_resolver.first_step_position(
                 battlefield, soldier, action
             )
-            destination_is_visible = destination is not None and any(
-                terrain.position == destination
+            first_step_is_visible = first_step is not None and any(
+                terrain.position == first_step
                 for terrain in observed_soldier.available_terrain
             )
-            if not destination_is_visible:
+            if not first_step_is_visible:
                 rejection_reason = (
                     f"Moving {action.direction.value} was rejected by the movement "
                     "rules."
@@ -176,6 +191,8 @@ async def choose_action(
                         movement_resolver.max_elevation_change,
                         communication_history_limit,
                         team_objectives=team_objectives,
+                        move_budget=soldier.move_budget,
+                        max_move_distance=MAX_MOVE_DISTANCE,
                     ),
                 ),
                 ("human", human_message),

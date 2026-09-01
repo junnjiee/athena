@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium'
 
-export const MAX_SELECTION_EXTENT_METERS = 400
+export const MAX_SELECTION_EXTENT_METERS = 1000
 
 function metersPerDegree(latitudeRadians: number) {
   return {
@@ -12,7 +12,7 @@ function metersPerDegree(latitudeRadians: number) {
 /** Clamp `current` so its distance from the fixed `start` corner never exceeds
  *  MAX_SELECTION_EXTENT_METERS along either axis, independent of drag direction.
  *  Flat-earth approximation -- cheap enough to run on every mousemove; accurate to
- *  well under 0.1% at this <=400m scale. */
+ *  well under 0.1% at this <=1 km scale. */
 export function clampCorner(start: Cesium.Cartographic, current: Cesium.Cartographic): Cesium.Cartographic {
   const { metersPerDegreeLat, metersPerDegreeLon } = metersPerDegree(start.latitude)
   const dNorthMeters = Cesium.Math.toDegrees(current.latitude - start.latitude) * metersPerDegreeLat

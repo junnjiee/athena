@@ -95,6 +95,7 @@ interface PlanState {
   addRoute: (input: NewRouteInput) => string
   moveUnit: (id: string, position: LonLat) => void
   moveObjective: (id: string, position: LonLat) => void
+  setObjectiveSide: (id: string, side: ForceSide) => void
   rotateUnit: (id: string, rotationRadians: number) => void
   /** Removes a unit and every route that started at or ended on it. */
   deleteUnit: (id: string) => void
@@ -143,6 +144,11 @@ export const usePlan = create<PlanState>((set, get) => ({
             description: 'Capture & Hold',
             position,
             radiusMeters: DEFAULT_OBJECTIVE_RADIUS_M,
+            // The operator plans the blue force -- the headline number is
+            // blue's win rate -- so a drawn objective is blue's to take and
+            // red's to deny. Red-owned objectives need a picker in the roster
+            // panel; the field is on the wire either way.
+            side: 'blue',
           },
         ],
       }))
@@ -190,6 +196,12 @@ export const usePlan = create<PlanState>((set, get) => ({
 
   moveObjective: (id, position) =>
     set((s) => ({ objectives: s.objectives.map((o) => (o.id === id ? { ...o, position } : o)) })),
+
+  // Who is tasked with the objective. The engine orders the owner to take and
+  // hold it and the other side to deny it, so this is not cosmetic: it decides
+  // which force attacks and which defends.
+  setObjectiveSide: (id, side) =>
+    set((s) => ({ objectives: s.objectives.map((o) => (o.id === id ? { ...o, side } : o)) })),
 
   rotateUnit: (id, rotationRadians) =>
     set((s) => ({ units: s.units.map((u) => (u.id === id ? { ...u, rotationRadians } : u)) })),

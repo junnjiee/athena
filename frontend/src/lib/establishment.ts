@@ -24,6 +24,23 @@ export function countSoldiers(units: readonly PlacedUnit[]): number {
   return units.reduce((total, unit) => total + soldiersFor(unit), 0)
 }
 
+/** Soldiers per section, mirroring `SECTION_SIZE` on the server. */
+const SECTION_SIZE = 7
+
+/**
+ * Soldiers whose decisions cost a model call.
+ *
+ * A rifle section is seven men under one commander; only the commander runs an
+ * agent, and the rest follow the engine's section policy. This — not the soldier
+ * count — is what prices a batch.
+ */
+export function countAgents(units: readonly PlacedUnit[]): number {
+  return units.reduce(
+    (total, unit) => total + Math.ceil(soldiersFor(unit) / SECTION_SIZE),
+    0,
+  )
+}
+
 /** Soldiers per side, for the "who is fighting whom" line in the run dialog. */
 export function soldiersBySide(units: readonly PlacedUnit[]): { blue: number; red: number } {
   return units.reduce(

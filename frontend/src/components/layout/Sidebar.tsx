@@ -1,15 +1,14 @@
 import { Triangle, Map, ClipboardList, Activity, Radar, Users, Settings } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-/** Everything but Simulations has a real page. Simulations stays a
- *  non-interactive stub (no `path`) because a batch is run and watched from the
- *  bottom bar, and a page listing *past* batches needs the engine to expose a
- *  batch list -- it only streams the one batch you hold an id for. See
- *  ENGINE_CHANGES.md. */
+/** Every item has a real page. Simulations was a stub for as long as the engine
+ *  only streamed the one batch you held an id for; it now stores each run's
+ *  outcome and lists batches, so past results outlive the tab that watched
+ *  them. */
 const NAV_ITEMS = [
   { label: 'Battleground', icon: Map, path: '/' },
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
-  { label: 'Simulations', icon: Activity, path: null },
+  { label: 'Simulations', icon: Activity, path: '/simulations' },
   { label: 'Intel', icon: Radar, path: '/intel' },
   { label: 'Units', icon: Users, path: '/units' },
   { label: 'Settings', icon: Settings, path: '/settings' },

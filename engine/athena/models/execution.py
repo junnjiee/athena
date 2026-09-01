@@ -23,6 +23,7 @@ class SoldierSnapshot(BaseModel):
     position: Position
     survival_status: SurvivalState
     vision_range: float
+    suppressed: bool = False
     communication_group_ids: frozenset[str]
 
 
@@ -58,6 +59,8 @@ class ExecutionResult(BaseModel):
     model_config = IMMUTABLE_MODEL_CONFIG
 
     actions: tuple[Action | None, ...]
+    # One per soldier, empty for a follower or a soldier that chose nothing.
+    rationales: tuple[str, ...] = ()
     shot_outcomes: tuple[ShotOutcome, ...]
     observations: tuple[VisibilityObservation, ...]
     before: BattlefieldSnapshot

@@ -21,6 +21,11 @@ class TerrainClass(IntEnum):
     STRUCTURE = 7
     ROAD = 8
     BARREN_ROCK = 9
+    # Engine-side only: the frontend classifier never emits this, because a
+    # trench is drawn by a commander rather than read off satellite imagery. It
+    # arrives as a per-cell override on the payload, so it is never part of the
+    # exported class grid and the numbering contract with the export is intact.
+    TRENCH = 10
 
 
 TERRAIN_LABELS: dict[TerrainClass, str] = {
@@ -34,6 +39,7 @@ TERRAIN_LABELS: dict[TerrainClass, str] = {
     TerrainClass.STRUCTURE: "Structure",
     TerrainClass.ROAD: "Road",
     TerrainClass.BARREN_ROCK: "Barren / Rock",
+    TerrainClass.TRENCH: "Trench",
 }
 """Human-readable names, matching the export's ``classNames`` strings."""
 
@@ -49,6 +55,7 @@ TERRAIN_GLYPHS: dict[TerrainClass, str] = {
     TerrainClass.STRUCTURE: "#",
     TerrainClass.ROAD: "=",
     TerrainClass.BARREN_ROCK: "%",
+    TerrainClass.TRENCH: "T",
 }
 """One character per class, for rendering terrain as a picture.
 

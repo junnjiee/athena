@@ -1,7 +1,9 @@
 """Railway worker entry point for queued Athena simulations."""
 
+import asyncio
 import gzip
 import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -10,7 +12,7 @@ from uuid import UUID
 from arq.connections import RedisSettings
 
 from athena.hosted.config import HostedSettings
-from athena.hosted.database import BatchRepository
+from athena.hosted.database import BatchRepository, SimulationJob
 from athena.hosted.runner import run_payload_simulation, run_plan_simulation
 from athena.hosted.storage import BucketStorage
 
@@ -26,12 +28,52 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     await ctx["repository"].close()
 
 
+PROGRESS_INTERVAL_SECONDS = 1.0
+"""How often a run in flight reports where it has got to.
+
+Every tick would be one database write per tick per simulation, which for a
+large batch is most of what the database does. One a second is well under what
+an operator perceives as live, and the first and last tick are always sent so a
+run visibly starts and visibly finishes.
+"""
+
+
+def _progress_reporter(
+    repository: BatchRepository,
+    job: SimulationJob,
+    loop: asyncio.AbstractEventLoop,
+) -> Any:
+    """Throttled progress writes, callable from the run without awaiting."""
+    last = 0.0
+
+    def report(data: dict[str, Any]) -> None:
+        nonlocal last
+        now = time.monotonic()
+        final = data.get("tick") == data.get("ticks")
+        if not final and now - last < PROGRESS_INTERVAL_SECONDS:
+            return
+        last = now
+        payload = {
+            "simulationId": str(job.simulation_id),
+            "simulationIndex": job.simulation_index,
+            **data,
+        }
+        # Fire and forget: a run must never wait on its own telemetry, and a
+        # failed progress write is not a failed simulation.
+        task = loop.create_task(repository.record_progress(job.batch_id, payload))
+        task.add_done_callback(lambda done: done.exception())
+
+    return report
+
+
 async def run_simulation(ctx: dict[str, Any], simulation_id: str) -> None:
     repository: BatchRepository = ctx["repository"]
     storage: BucketStorage = ctx["storage"]
     job = await repository.claim_simulation(UUID(simulation_id))
     if job is None:
         return
+
+    on_progress = _progress_reporter(repository, job, asyncio.get_running_loop())
 
     try:
         if job.plan_id is not None:
@@ -42,14 +84,16 @@ async def run_simulation(ctx: dict[str, Any], simulation_id: str) -> None:
                 raise RuntimeError(
                     "batch names a plan id but TERRAIN_SERVICE_URL is not set"
                 )
-            replay = await run_plan_simulation(
+            replay, outcome = await run_plan_simulation(
                 terrain_service_url,
                 job.plan_id,
                 ticks=job.ticks,
                 model=job.model,
+                seed=_seed_for(job),
+                on_progress=on_progress,
             )
         else:
-            replay = await _run_uploaded_payload(storage, job)
+            replay, outcome = await _run_uploaded_payload(storage, job, on_progress)
 
         replay_bytes = gzip.compress(f"{replay.model_dump_json()}\n".encode("utf-8"))
         replay_key = (
@@ -62,13 +106,23 @@ async def run_simulation(ctx: dict[str, Any], simulation_id: str) -> None:
             content_type="application/json",
             content_encoding="gzip",
         )
-        await repository.complete_simulation(job, replay_key)
+        await repository.complete_simulation(job, replay_key, outcome.as_event_data())
     except Exception as exc:
         await repository.fail_simulation(job, str(exc))
         raise
 
 
-async def _run_uploaded_payload(storage: Any, job: Any) -> Any:
+def _seed_for(job: Any) -> int:
+    """A stable, distinct seed per simulation in a batch.
+
+    Derived from the batch id and the simulation's index rather than randomly
+    chosen, so re-running the same batch id reproduces the same set of runs while
+    the runs within it still differ from one another.
+    """
+    return (job.batch_id.int + job.simulation_index) % (2**31)
+
+
+async def _run_uploaded_payload(storage: Any, job: Any, on_progress: Any = None) -> Any:
     """Run a batch whose scenario was uploaded as a payload file."""
     with TemporaryDirectory(prefix="athena-simulation-") as directory:
         directory_path = Path(directory)
@@ -88,6 +142,8 @@ async def _run_uploaded_payload(storage: Any, job: Any) -> Any:
             payload_path,
             ticks=job.ticks,
             model=job.model,
+            seed=_seed_for(job),
+            on_progress=on_progress,
         )
 
 

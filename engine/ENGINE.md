@@ -86,7 +86,10 @@ custom collection of ground `Position` values are scenario inputs.
 ### Terrain classes
 
 - Every in-bounds cell has exactly one terrain class, drawn from a fixed set of
-  ten.
+  eleven. Ten are classifications of real ground and share their numbering with
+  the frontend terrain export. The eleventh, Trench, is ground a commander made
+  rather than ground the classifier found: the export never emits it, and it
+  reaches a battlefield only as a per-cell override (see Imported terrain).
 - Terrain class is a scenario input. Cells left unspecified are open ground.
 - Terrain does not change during a simulation. The engine models no fire, no
   demolition, and no weather effect on ground.
@@ -110,13 +113,21 @@ those combinations, which is why it was replaced.
 | Structure     |  `#`  |    no    |       4.0 |      1.00 |        0.00 |       0.90 |
 | Road          |  `=`  |   yes    |       0.8 |      0.00 |        0.00 |       0.00 |
 | Barren / Rock |  `%`  |   yes    |       1.4 |      0.08 |        0.20 |       0.30 |
+| Trench        |  `T`  |   yes    |       1.8 |      0.02 |        0.55 |       0.75 |
 
 These are tunable simulation assumptions rather than measured values. Opacity is
 calibrated against one-metre cells so that dense forest blocks sight at roughly
 twenty metres while a structure blocks immediately.
 
-Move cost is recorded but has no effect today. Every legal move costs the same
-regardless of the terrain entered. The property states an intended model that the engine does not yet honour.
+Move cost is what a soldier spends to enter a cell, drawn against a per-tick
+movement allowance (see Movement). It is the reason a soldier covers more road
+than wetland in the same tick.
+
+Trench is a field work rather than a landform. Its protection sits above urban
+and below a structure: a dug-in soldier is hard to hit but is not behind a wall.
+Its concealment models a defender lying low rather than foliage, and its move
+cost is the price of getting into and out of the works rather than of the metre
+itself.
 
 ### Initial occupancy
 
@@ -136,12 +147,32 @@ carries its own modeling assumptions:
 - Rounding real ground to whole metres can create steps steeper than a soldier may
   climb, stranding soldiers behind terrain that is gentle in reality. The engine
   reports how many such steps a given import contains rather than smoothing them.
-- Weather is not modeled. Exported visibility runs to thousands of metres, far
-  beyond any vision range the engine uses, and no day or night penalty is applied.
+- Weather beyond daylight is not modeled. Exported visibility runs to thousands
+  of metres, far beyond any vision range the engine uses. Daylight is modeled: a
+  payload may state whether its H-hour falls in daylight, and a night plan
+  multiplies every soldier's vision range by the night multiplier. A payload that
+  states nothing is simulated as daytime, as every payload was before.
 - Imported units are placed on the nearest free passable cell to their real
   position. Two imported units never share a cell, unlike hand-authored scenarios.
-- Exported objectives are described in grid coordinates but are not given to any
-  agent. Which team receives an objective is a scenario decision.
+- A payload may carry **per-cell terrain overrides**, applied over the imported
+  class grid after it loads. This is how field works reach a battlefield: a
+  trench is drawn by a commander rather than read off imagery, so it cannot
+  arrive inside a class grid whose numbering is a contract with the classifier.
+  An override naming a cell outside the grid is ignored, because footprints are
+  derived from drawn markers and a marker near the edge can produce one.
+- An imported unit may name a **section** and whether it commands it. The
+  frontend splits an establishment into sections of seven, so a 21-man platoon
+  marker arrives as three sections with three commanders and eighteen followers.
+- An imported unit may carry its establishment's **vision range** and the **gait**
+  of the route drawn from it. The first becomes that soldier's vision range, the
+  second its movement allowance. Absent, both fall back to the engine defaults.
+- **Exported objectives and routes are given to agents** as per-soldier orders.
+  An objective names the side tasked with it: that side is ordered to take and
+  hold it, and the other to stop them. An objective with no side is treated as
+  contested and both sides are ordered to take it. A drawn route becomes an axis
+  of advance in grid coordinates, thinned to at most six waypoints. A side with
+  no objective drawn keeps the engine's default compass orders. See Hosted batch
+  execution.
 
 ## Soldier model
 
@@ -172,6 +203,103 @@ Communication group membership is a scenario input supplied per soldier. Battlef
 construction validates that every referenced group exists and belongs to the same
 Blue or Red team as the soldier.
 
+### Sections and command
+
+A soldier may belong to a **section** and may be its **commander**. Both come
+from the scenario; a soldier built without them commands itself, which is what
+hand-authored scenarios and the demos get.
+
+### When a commander actually decides
+
+A commander is executing an order until something changes, so it does not get a
+model call every tick. Each tick it is described by a coarse **situation
+signature**: which distance band the nearest visible enemy falls in (none,
+beyond effective range, within effective range, within close-contact distance),
+whether it is suppressed, how many of its section are still alive, whether it has
+an axis left to follow, and **whether its standing order has stopped making
+progress**.
+
+That last one matters more than the rest. A commander whose standing order is
+getting nowhere is a commander whose situation the deterministic layer has
+failed to handle -- ground it cannot route round, or an enemy it cannot get
+past -- and that is exactly when the decision belongs to an agent. Without it the
+design did the opposite: nothing changed, so nothing was asked, and the
+scaffolding quietly decided the battle. Progress is measured as the distance
+field's own distance to the target, and a commander that has not closed it in
+`STALL_TICKS` is asked afresh.
+
+A model call is spent when that signature changes, when the commander has never
+been asked, or when the heartbeat elapses. Otherwise it carries on:
+
+- **Out of contact** it advances along its drawn axis. It specifically does not
+  repeat a previous hold — holding is a decision about an enemy, and repeating
+  one with nothing in sight strands the section for the rest of the run.
+- **In contact** it repeats its last decision while that stays legal. A shot at
+  a target that has since moved or died is not, so it falls through rather than
+  firing at empty ground.
+
+The bands are deliberately coarse. What is worth rethinking is the enemy
+appearing, coming into weapon range, or closing to grenade distance — not being
+a metre nearer than last tick, which is what made "in contact" cost a call every
+tick.
+
+Measured on a 28-soldier plan with the forces 135 m apart over 120 ticks: 3,360
+calls under one-per-soldier-per-tick, 105 actually made.
+
+### Routing
+
+Deterministic movement routes with a **distance field**: one breadth-first
+sweep out from a target across every cell a soldier may legally enter, giving
+the true remaining distance from everywhere. It is computed once per target and
+read by every soldier on every tick, which is what makes real routing
+affordable; a search per soldier per tick is not. Steps are tested exactly as
+the movement resolver tests them, so a route the field promises is a route a
+soldier can walk.
+
+This replaced a greedy scheme -- take the bearing, and if it is blocked try a
+couple of neighbouring directions -- which could not get round an obstacle and
+walked into one instead. On real ground the failure was stark: a river across
+the axis stopped a whole force at the bank, where it stood and traded fire
+across the water for the rest of the run.
+
+The field also answers what greedy could not: whether a route exists at all. A
+target on the far side of severed ground reports as unreachable rather than as a
+direction to keep pushing in. See Hosted batch execution for how that is
+surfaced before a batch is spent on it.
+
+### The section policy
+
+Only commanders make agent calls. Every other soldier in a section runs
+`athena/policy.py`, a deterministic chooser that never contacts a provider:
+
+1. Shoot the nearest living enemy inside the rifle's effective range.
+2. Otherwise close on its section commander when it has drifted past the
+   cohesion distance, travelling as far as its movement allowance permits.
+3. Otherwise march the section's own axis. A follower that holds because it has
+   caught up blocks the commander behind it, which deadlocks the whole section.
+4. Otherwise hold.
+
+Deterministic movement picks the best of the direct bearing and progressively
+wider offsets, preferring a path that ends on free ground over one that reaches
+further but ends on somebody. A section all pushing one way otherwise jams
+itself: only the leading soldier has open ground ahead, every other path stops
+on an occupied cell, and conflict resolution then rejects them all.
+
+Every candidate action goes through the same movement and shooting validation an
+agent's would, so the policy can never put an illegal action into a tick.
+
+This is a cost model as much as a behaviour model. One model call per soldier per
+tick meant a batch cost `soldiers x ticks x runs` requests, so a seven-man
+section spent seven calls to make one decision. Sections of seven divide that by
+seven, and the soldier that keeps its agent is the commander — the judgement the
+simulation is actually testing.
+
+**A section whose commander is killed promotes its lowest-indexed living
+member**, before it is asked to decide anything, so it never follows a dead man.
+Promotion is checked once per tick and is stable across ticks. A section with no
+living members promotes nobody. The number of soldiers acting as agents therefore
+rises during a costly run, and the run's outcome reports what it ended at.
+
 ## Agent-local observations
 
 Before action selection, `LoopEngine` builds one `ObservedSoldier` value for every
@@ -191,6 +319,9 @@ soldier. It contains:
   terrain line-of-sight checks pass.
 - An enemy must be alive to appear in an observation.
 - Visible soldiers reveal exact team, XYZ position, and survival state.
+- Detection runs to the observer's full vision range and is **not** bounded by
+  the ground the agent is drawn. A soldier may therefore be told about, and
+  shoot at, an enemy standing on terrain its own map shows as blank.
 - Soldier visibility is currently computed by checking every observer-target pair,
   making this part of observation construction quadratic in soldier count.
 
@@ -212,9 +343,11 @@ soldier. It contains:
 - Casualties and dead soldiers still receive terrain observations because terrain
   observation construction does not filter by survival state.
 
-The terrain scan is limited to a square window derived from the lower of the
-soldier's vision range and the global vision cap. Every candidate still goes through
-the full 3D range and terrain line-of-sight checks.
+The terrain scan is limited to a square window derived from the lowest of the
+soldier's vision range, the global vision cap, and the rendered terrain radius.
+Every candidate still goes through the full 3D range and terrain line-of-sight
+checks. The rendered radius is what bounds this cost, and it does not grow when a
+scenario gives a soldier a long vision range.
 
 ## How terrain reaches an agent
 
@@ -244,20 +377,37 @@ context, and only currently visible terrain informs a decision.
 
 ### Tunable vision parameters
 
-| Parameter            |   Current default | Runtime owner       |
-| -------------------- | ----------------: | ------------------- |
-| Soldier vision range |            `10.0` | `Soldier`           |
-| Maximum vision range |           `100.0` | `VisionResolver`    |
-| Soldier eye height   |             `1.0` | `VisionResolver`    |
-| Terrain opacity      |         per class | `TERRAIN_PROFILES`  |
-| Terrain concealment  |         per class | `TERRAIN_PROFILES`  |
-| Detection randomness | unseeded `Random()` | `VisionResolver`   |
+| Parameter                |     Current default | Runtime owner      |
+| ------------------------ | ------------------: | ------------------ |
+| Soldier vision range     |              `10.0` | `Soldier`          |
+| Maximum vision range     |             `600.0` | `VisionResolver`   |
+| Rendered terrain radius  |                `12` | `LoopEngine`       |
+| Night vision multiplier  |               `0.5` | scenario input     |
+| Soldier eye height       |               `1.0` | `VisionResolver`   |
+| Terrain opacity          |           per class | `TERRAIN_PROFILES` |
+| Terrain concealment      |           per class | `TERRAIN_PROFILES` |
+| Detection randomness     | unseeded `Random()` | `VisionResolver`   |
 
 All defaults come from `athena/params.py`. Soldier vision range remains a
 per-soldier scenario input; range cap, eye height, and the random generator can be
 overridden when constructing a `VisionResolver`. Opacity and concealment are
 properties of the ground rather than of the observer, so they vary by cell and
 cannot be set per run.
+
+**Detection range and rendered ground are deliberately different numbers.** The
+maximum vision range is set high enough that an establishment's real range
+survives it — a Recon Section is drawn at 500 m against a Rifle Section's
+300 m — because detection is a pairwise check and a long range is nearly free.
+Rendering is not: the terrain scan is quadratic in radius with a sightline walk
+per cell, and every visible cell becomes characters in the agent's prompt on
+every call of every tick. At radius 10 that is roughly 313 cells and 1,360 input
+tokens; at radius 100 the window is 201x201, which is on the order of 20,000
+tokens per soldier per tick.
+
+So the *map* an agent reads is bounded while its *detection* is not. A soldier is
+told about every enemy it can see, with exact coordinates, however far away; what
+makes a long shot a bad idea is the shooting model's range factor, not a limit on
+what may be reported.
 
 ### Range
 
@@ -282,6 +432,11 @@ $$
 The boundary is inclusive. Elevation difference contributes distance, so high ground
 does not extend nominal vision range. Its current advantage comes from clearing
 intervening terrain.
+
+A scenario drawn for a night H-hour multiplies every soldier's vision range by
+the night multiplier at load. This is a balance decision rather than a
+measurement. Weather beyond daylight is still not modelled: exported visibility
+runs to thousands of metres, far past any vision range the engine uses.
 
 The code assumes non-negative vision ranges and caps. It does not currently validate
 that assumption.
@@ -352,13 +507,18 @@ The concealment resolver accepts an injectable random generator.
 
 ### Tunable movement parameters
 
-| Parameter                |     Current default | Runtime owner      |
-| ------------------------ | ------------------: | ------------------ |
-| Maximum elevation change |                 `1` | `MovementResolver` |
-| Conflict randomness      | unseeded `Random()` | `MovementResolver` |
+| Parameter                 |     Current default | Runtime owner      |
+| ------------------------- | ------------------: | ------------------ |
+| Maximum elevation change  |                 `1` | `MovementResolver` |
+| Maximum move distance     |                `10` | `MoveAction`       |
+| Default movement allowance |              `5.0` | `Soldier`          |
+| March movement allowance  |               `18.0` | `MovementResolver` |
+| Allowance by gait         | prowl `2.0`, patrol `5.0`, charge `8.0` | scenario input |
+| Conflict randomness       | unseeded `Random()` | `MovementResolver` |
 
-The elevation default comes from `athena/params.py`. Both values can be injected
-today, although there is no central run-level random seed.
+The defaults come from `athena/params.py`. The elevation limit and the random
+generator can be injected; the movement allowance is a per-soldier scenario
+input. There is no central run-level random seed.
 
 ### Individual move legality
 
@@ -375,33 +535,69 @@ A move selects one of eight directions:
 | West      |  `(-1, 0)` |
 | Northwest | `(-1, -1)` |
 
-A proposed move is individually legal when all of the following hold:
+A move also names a distance, from one cell to the maximum move distance. A tick
+is therefore a bound on how far a soldier travels rather than a fixed metre. It
+had to be: cells are one metre and selections run to eight hundred metres a side,
+so a sixty-tick run covered sixty metres and two forces drawn three hundred
+metres apart never met. Batches reported "both sides alive" as though that were a
+result rather than the clock running out.
 
-1. The soldier is alive.
-2. The destination is in bounds.
-3. The destination is the exact surface position for its XY coordinate.
-4. The destination is exactly one horizontal Chebyshev step away.
-5. Absolute elevation change does not exceed the configured limit.
-6. The destination's terrain class is passable. With current profiles that
-   excludes Water and Structure. A soldier told why its move failed is told which
-   class blocked it.
+The move is **walked one cell at a time** along the chosen direction. A step is
+taken when all of the following hold:
+
+1. The next cell is in bounds and is the exact surface position for its XY.
+2. Its elevation differs from the *previous cell in the path* by no more than the
+   configured limit. The limit applies to each step, not to the whole move.
+3. Its terrain class is passable. With current profiles that excludes Water and
+   Structure.
+4. Its move cost does not exceed the soldier's remaining allowance for the tick.
+
+Walking stops at the first cell failing any of those, and also stops after
+entering a cell occupied by another soldier in the pre-tick snapshot, so a
+soldier never passes through a body. The soldier ends on the last cell reached.
+
+**A move that cannot go the whole way is shortened, not rejected.** Only a move
+whose very first cell fails is illegal. This is an information-model decision:
+an agent picks a distance off a drawn map that is blank where it cannot see, so
+requiring it to predict its exact stopping point would spend a retry — and
+another model call — on ground it was never shown. Its next observation reports
+where it actually ended up.
+
+A soldier must be alive to move.
 
 The destination `z` is always read from the battlefield surface. Uphill and downhill
 use the same elevation limit.
 
-Diagonal moves check only the destination. For a move from `(1,1)` to `(2,0)`, cells
-`(1,0)` and `(2,1)` are ignored, allowing corner-cutting.
+Diagonal moves check only each cell entered. For a step from `(1,1)` to `(2,0)`,
+cells `(1,0)` and `(2,1)` are ignored, allowing corner-cutting.
 
-Movement distance, direction set, diagonal cost, corner-cutting, and cover
-impassability are hardcoded rules.
+The direction set, diagonal cost, corner-cutting, and cover impassability are
+hardcoded rules.
 
-Terrain does not slow movement. A soldier crosses wetland and road at the same
-rate, and the profile's move cost has no effect on the simulation today.
+**A soldier out of contact marches.** Its allowance becomes the march allowance
+when no living enemy is within its vision range and it is not suppressed;
+otherwise it moves at the pace its gait was drawn with. Contact is judged on
+range alone rather than line of sight, which is the conservative half of the
+test: a soldier slows for an enemy it cannot yet see past a rise, but never
+marches into one it can.
+
+This is what makes a kilometre-wide plan simulable. At a fighting pace the
+approach alone outran any sensible tick budget, so forces drawn far apart could
+not reach each other however long the run — and every tick of that approach was
+a decision nobody needed to make.
+
+**Terrain slows movement.** Entering a cell spends that cell's move cost against
+the allowance, so on an allowance of 5.0 a soldier covers six cells of road, five
+of open ground, two of dense forest, or two of wetland. The allowance itself
+comes from the gait its route was drawn with, which is what gives prowl, patrol
+and charge a mechanical difference rather than a descriptive one. A soldier can
+now cross more ground in a tick than it can see, which is the cost of charging.
 
 ### Simultaneous movement conflicts
 
-Individual validation does not check destination occupancy. `LoopEngine` resolves
-occupancy across the complete action batch using the pre-execution snapshot:
+Individual validation stops a path *on* an occupied cell but does not decide
+whether that cell may be taken. `LoopEngine` resolves occupancy across the
+complete action batch using the pre-execution snapshot, on final destinations:
 
 - When multiple soldiers propose the same destination, one contender is selected
   uniformly at random and every other contender is rejected.
@@ -415,6 +611,8 @@ occupancy across the complete action batch using the pre-execution snapshot:
 - Two-soldier swaps and fully moving cycles are valid.
 - Friendly and opposing soldiers use the same conflict rules.
 - Crossing paths, including crossing diagonal paths, do not collide in transit.
+- Conflicts are resolved on final destinations only. Two soldiers whose
+  multi-cell paths cross without ending on the same cell do not contend.
 
 The random-winner policy, swap behavior, and absence of transit collision are
 hardcoded rules.
@@ -433,12 +631,17 @@ soldier casualty transition.
 | Elevation modifier per level |              `0.02` | `ShootingResolver` |
 | Minimum hit probability      |              `0.50` | `ShootingResolver` |
 | Maximum hit probability      |              `0.99` | `ShootingResolver` |
+| Magazine rounds              |                `30` | `Soldier`          |
+| Suppression hit multiplier   |              `0.35` | `ShootingResolver` |
+| Rifle effective range        |            `50.0 m` | `ShootingResolver` |
+| Rifle maximum range          |           `400.0 m` | `ShootingResolver` |
+| Long-range hit floor         |              `0.05` | `ShootingResolver` |
 | Terrain protection           |           per class | `TERRAIN_PROFILES` |
 | Hit randomness               | unseeded `Random()` | `ShootingResolver` |
 
-The four probability defaults come from `athena/params.py` and can be overridden
-when constructing a `ShootingResolver`. Terrain protection is a property of the
-target's ground and cannot be overridden per run.
+The probability and range defaults come from `athena/params.py` and can be
+overridden when constructing a `ShootingResolver`. Terrain protection is a
+property of the target's ground and cannot be overridden per run.
 
 ### Shoot-action legality
 
@@ -473,6 +676,29 @@ from the shared snapshot without repeating range or line-of-sight checks.
 
 These are consequences of snapshot-based simultaneous execution.
 
+### Range
+
+A shot's chance is scaled by the distance between shooter and target:
+
+$$
+f_{\text{range}} =
+\begin{cases}
+1 & d \le R_{\text{effective}} \\
+1 - \dfrac{d - R_{\text{effective}}}{R_{\text{maximum}} - R_{\text{effective}}}\left(1 - f_{\text{floor}}\right) & R_{\text{effective}} < d < R_{\text{maximum}} \\
+f_{\text{floor}} & d \ge R_{\text{maximum}}
+\end{cases}
+$$
+
+Distance is the same full 3D Euclidean measure vision uses.
+
+There was no range term at all before. A soldier hit with the base probability at
+any distance it could see, which was harmless while every soldier saw ten metres
+and wrong once vision reached an establishment's real range. The floor is not
+zero: a lucky round at long range is possible, it is simply not a plan.
+
+The curve shape, the two ranges, and the floor are tunable simulation
+assumptions rather than measured ballistics.
+
 ### Hit probability and effect
 
 For an accepted rifle shot:
@@ -485,6 +711,8 @@ p_{\min},
 p_{\max}
 \right)
 \times
+f_{\text{range}}
+\times
 \left(1 - \operatorname{clamp}(c_{\text{protection}}, 0, 1)\right).
 $$
 
@@ -492,11 +720,39 @@ High ground increases probability by two percentage points per level with curren
 defaults, while low ground decreases it by the same amount. A uniformly distributed
 random roll in `[0, 1)` produces a hit when `roll < P(hit)`.
 
-Terrain protection is applied **after** the marksmanship clamp, so an accepted
-shot can fall below `p_min`. The floor and ceiling describe how well a soldier can
-shoot, not how sheltered the target is. A target in a structure at protection
-`0.90` is hit with probability `0.09` against the `0.90` base, well under the
-`0.50` floor.
+Range and terrain protection are applied **after** the marksmanship clamp, so an
+accepted shot can fall below `p_min`. The floor and ceiling describe how well a
+soldier can shoot, not how far away the target is or how sheltered it is. A
+target in a structure at protection `0.90` is hit with probability `0.09` against
+the `0.90` base, well under the `0.50` floor, and a target at 200 m in the open
+is hit with probability `0.53`.
+
+### Suppression and ammunition
+
+Two things stop a firefight resolving in two ticks of near-certain hits.
+
+**Suppression.** A soldier with rounds landing within the incoming-fire radius
+during the previous tick shoots at the suppression multiplier of its normal
+chance. It lasts exactly one tick and is recomputed from scratch, so a soldier
+stops being suppressed the moment the fire stops. It uses the same radius as the
+incoming-fire alerts an agent is shown, which keeps what a soldier is told and
+what it suffers from in step. Suppression affects shooting only: a suppressed
+soldier sees and moves normally.
+
+**Ammunition.** A soldier carries one magazine. Each resolved shot spends a
+round; emptying the magazine costs the following tick, during which a shoot
+action is rejected with a reason the agent is told. Reloading is automatic and
+takes exactly one tick — there is no reload action and no ammunition resupply,
+so a run is bounded by how long the magazine lasts only in the sense that firing
+constantly costs a tick in thirty-one.
+
+Together these are what let position, cover and manoeuvre decide a firefight
+rather than who shot first. Measured on the same 28-soldier scenario, adding
+them took a run from 68 shots and 66 hits over five ticks, with one side
+annihilated and the other reduced to two, to 95 shots and 45 hits over nine
+ticks with a decided winner and survivors.
+
+Both are balance decisions rather than measurements.
 
 ### Incoming-fire awareness
 
@@ -535,31 +791,73 @@ and can be overridden when constructing `LoopEngine`.
 
 | Parameter                  |              Current default | Runtime owner                      |
 | -------------------------- | ---------------------------: | ---------------------------------- |
-| Maximum action attempts    |                          `3` | `LoopEngine` and agent functions   |
-| Visibility history limit   |                         `10` | `LoopEngine`                       |
-| Communication history limit |                        `10` | `LoopEngine`                       |
+| Maximum action attempts    |                          `2` | `LoopEngine` and agent functions   |
+| Visibility history limit   |                          `4` | `LoopEngine`                       |
+| Communication history limit |                         `4` | `LoopEngine`                       |
 | Incoming-fire radius       |                     `10.0 m` | `LoopEngine`                       |
 | Incoming-fire near band    |                      `<= 5 m` | `LoopEngine`                       |
 | Incoming-fire medium band  |                     `<= 10 m` | `LoopEngine`                       |
-| Incoming-fire history      |                   `10 ticks` | `LoopEngine`                       |
+| Incoming-fire history      |                    `5 ticks` | `LoopEngine`                       |
 | Team message length         |           `280` characters | communication models               |
 | OpenRouter prompt template |             tunable template | `params.py`                        |
 | Hosted model               |   `openai/gpt-oss-120b:nitro` | `agent.py`                         |
+| Reasoning effort           |                       `low` | `params.py`                        |
+| Maximum output tokens      |                       `900` | `params.py`                        |
+| Request timeout            |                `20 seconds` | `params.py`                        |
+| Provider transport retries |                         `1` | `params.py`                        |
 | Ollama host                |     `http://localhost:11434` | `ollama_agent.py` or `OLLAMA_HOST` |
 | Ollama discovery timeout   |                 `10` seconds | `ollama_agent.py`                  |
 | Ollama action timeout      |                `120` seconds | `ollama_agent.py`                  |
 
-The action-attempt, incoming-fire, and history defaults come from `athena/params.py`.
-The OpenRouter prompt is rendered from the effective history limit and movement
-resolver, so constructor overrides remain aligned with the behavior described to
-the model.
+The action-attempt, incoming-fire, history, and provider defaults come from
+`athena/params.py`. The OpenRouter prompt is rendered from the effective history
+limit, movement resolver, and the soldier's own movement allowance, so
+constructor overrides and per-soldier scenario inputs remain aligned with the
+behavior described to the model.
+
+**The history windows are latency dials.** Everything an agent remembers is
+prompt it reads and reasons over on every call, and measured latency tracks
+prompt size closely rather than transport. Over a twelve-tick run with ten-tick
+windows, the prompt grew from 5.4k to 7.2k characters and per-call latency
+climbed from 1.6 s to 7 s, with a malformed reply costing 13 s. At four ticks the
+prompt grows 5.0k to 5.9k, latency stays flat at a 2.2 s median and a 4.1 s
+worst, and the same run took 36 s.
+
+**Decisions in a tick go out concurrently, not batched.** That was measured, not
+assumed: putting a whole tick's decisions in one request took a 120-tick run
+from 290 s to over 600 s. Concurrent requests overlap on the provider side, so a
+tick costs about its slowest single decision; one batched request instead
+serialises every decision inside a single generation, and generation time is set
+by output tokens. Batching saves input tokens and costs far more wall clock than
+it saves. Transport is not the constraint either — the client is pooled, and a
+call measures 1.0-1.8 s from host and container alike.
+
+The provider settings are not cosmetic. With no maximum output token count,
+OpenRouter reserves credit against the model's full budget, and an account
+holding less than that is refused outright on every call while the request itself
+needs a couple of hundred tokens. `gpt-oss-120b` reasons by default and
+unconstrained spends more tokens thinking than answering; at low effort that
+falls to roughly a third. The request timeout bounds a stalled call, which would
+otherwise hold a tick for minutes underneath the chooser's own attempt loop. The
+structured client is cached per model, because constructing one builds an HTTP
+client eagerly and a per-call construction meant a fresh connection pool for
+every decision any soldier ever made.
 The OpenRouter prompt template is tunable in `params.py`; Ollama retains its separate
 movement-only prompt in `ollama_agent.py`. Provider model, host, and timeout defaults
 remain in their provider modules.
 
 ### Action schema and retries
 
-- The physical-action schema supports hold, move, and shoot.
+- The physical-action schema supports hold, move, and shoot. A move carries a
+  direction and a distance from one to the maximum move distance; the distance
+  field defaults to one, so any scenario written before distances existed still
+  means what it did.
+- Every agent turn also carries a **rationale**: one short sentence, capped, on
+  why it chose what it chose. It is recorded in the replay so an operator reading
+  a result sees stated intent rather than inferring it from a track of positions.
+  Both `distance` and `rationale` are marked required in the schema shown to the
+  model, because a field with a default is optional there and a model shown an
+  optional field omits it.
 - `HoldAction` has no parameters. It is accepted without a resolver and produces no
   movement, shot, or battlefield-state mutation. A valid broadcast attached to the
   same turn is still delivered.
@@ -574,7 +872,11 @@ remain in their provider modules.
   next OpenRouter request also receives the rejected action and a short reason from
   the movement or shooting resolver. Detailed movement reasons are included only
   when the determining terrain is present in the current observation; otherwise the
-  retry receives a generic movement-rule rejection.
+  retry receives a generic movement-rule rejection. For a move, the determining
+  cell is the first cell of the path, since that is the only cell that can make a
+  move illegal rather than merely shorter.
+- A move that cannot travel its full distance is not a retry case at all: it is
+  shortened and accepted. Only a first cell that cannot be entered is illegal.
 - Exhausting retries returns `None`, causing no action during execution.
 - Each retry is another model request.
 - The action schema is binding rather than advisory. A model that returns
@@ -594,8 +896,14 @@ The prompts currently embed scenario and engine rules directly:
 
 - The default OpenRouter objectives and the Ollama objectives say Blue advances east
   and Red advances west. An OpenRouter caller may replace the complete team-objective
-  section for a scenario or team without changing the structural engine rules.
-- Movement is one cell.
+  section for a scenario or team without changing the structural engine rules, and
+  the hosted path does exactly that, per soldier, from the drawn plan.
+- OpenRouter movement names a direction and a distance, and the prompt states the
+  maximum distance, the soldier's own movement allowance, and the cost of
+  representative terrain. It also states that overshooting shortens a move rather
+  than failing it, because an agent told otherwise would spend a retry — another
+  model call — trying to guess its stopping point on ground it cannot see.
+- Ollama movement is still one cell. That backend is not carried forward.
 - Maximum elevation change is rendered from the active movement resolver.
 - Impassable classes are named from the profile table rather than written out.
 - Occupied stationary cells are unavailable.
@@ -631,10 +939,13 @@ receives no communication or incoming-fire context.
   and dead soldiers receive `None` without invoking the chooser.
 - All alive-soldier chooser calls run concurrently through `asyncio.gather`.
 - Result order remains aligned with soldier order.
-- If any chooser raises, action collection raises and execution does not commit a
-  state change for that tick.
-- OpenRouter has no explicit request timeout in Athena's code.
-- There is no retry policy for transport failures distinct from invalid actions.
+- A chooser that raises no longer fails the whole tick. That soldier submits
+  nothing, which execution already models, and the tick commits. Failing fast
+  discarded every other soldier's decision for the tick — decisions already paid
+  for — because one provider call went wrong.
+- OpenRouter requests carry an explicit deadline, and the provider SDK is allowed
+  one transport retry beneath the chooser's own attempt loop. That retry is
+  distinct from a retry after an individually illegal action.
 
 ### Visibility history
 
@@ -642,8 +953,9 @@ receives no communication or incoming-fire context.
 - The current observation is sent separately from history.
 - Each completed tick appends the exact pre-action visibility and own position that
   informed that tick's decision, together with the action submitted for resolution.
-- A historical submitted action is a hold, a move with its direction, a shot with
-  its exact target coordinates, or `None` when no action was submitted.
+- A historical submitted action is a hold, a move with its direction and distance,
+  a shot with its exact target coordinates, or `None` when no action was
+  submitted.
 - The submitted action does not report its resolved outcome. In particular, history
   does not say whether a move was accepted or rejected or whether a shot hit or
   missed.
@@ -701,10 +1013,17 @@ receives no communication or incoming-fire context.
 
 ### Replay representation
 
-- Replay schema version is **3**. Version 3 replaces the `cover` and
-  `concealment` position tuples with `terrain_classes`, a row-major class grid
-  holding one entry per width x height cell. A client written against version 2
-  cannot read a version 3 log.
+- Every replay step records the **decisions** taken during it: the soldier index,
+  its action as a readable phrase, and its stated rationale. Only agents appear;
+  a follower running the section policy has no intent to report.
+- Replay schema version is **4**. Version 4 drops the battlefield `surface`, the
+  per-cell elevation grid: it was ~92% of a replay on an 800 m ground and
+  byte-identical in every run of a batch, elevation is already in the terrain
+  grid a client holds, and every soldier and shot in a replay carries its own
+  `z`. Version 3 replaced the `cover` and `concealment` position tuples with
+  `terrain_classes`, a row-major class grid holding one entry per width x height
+  cell, which version 4 keeps. A client written against version 3 reads a
+  version 4 log only if it never touched `surface`.
 - Replay records communication groups once as static battlefield
   data, including each group's ID, display name, team, and soldier member indices.
 - Every completed replay step records each accepted team message once, in
@@ -777,18 +1096,69 @@ loop. It does not change combat resolution.
 - `POST /v1/simulation-batches` accepts a multipart `payload` file, a positive
   `simulationCount`, a positive tick limit, and an optional OpenRouter model ID.
   The payload may be JSON or gzip-compressed JSON and is validated through the
-  existing imported-terrain payload model before any jobs are queued.
+  existing imported-terrain payload model before any jobs are queued. The
+  response reports import diagnostics alongside the batch id: the cell count and
+  the number of adjacent cell pairs a soldier cannot step between after real
+  elevation is rounded to whole metres, and **whether each side can physically
+  reach its objective**. Steep ground is reported rather than rejected, because a
+  steep import is still runnable and how much blocked ground is too much is the
+  operator's judgement.
+- `POST /v1/payload-diagnostics` runs those same checks and queues nothing, so a
+  plan can be checked before committing to a batch. The check that matters is
+  reachability: a river, a lake or a cliff line can sever the ground completely,
+  and an objective on the far side makes a plan not hard but impossible. Without
+  it the batch runs, the force walks to the bank, stands there for the whole tick
+  budget, and the result comes back "inconclusive" -- indistinguishable from a
+  plan that was merely too slow. Measured on real ground: a force spent 120 ticks
+  failing to cross a river that had no crossing anywhere.
 - One independent job is created per requested simulation. Every job constructs
-  its own battlefield and loop state from the payload. Hosted runs use the units
+  its own battlefield and loop state from the payload, and is **seeded** from the
+  batch id and its own index. Every random draw a run makes — movement conflicts,
+  detection, hit rolls — comes from that seed, so a batch reproduces itself while
+  its runs still differ from one another, and a surprising run can be re-examined
+  rather than only re-rolled. The seed is reported with the outcome. Hosted runs use the units
   supplied by the frontend export; they do not use the demo's hardcoded deployment
   or its rule that pins Red movement.
+- **Each soldier receives orders built from the drawn plan** rather than the
+  engine's default compass objectives: the objectives its side owns or must deny,
+  its own identity, and the axis of advance and gait of the route drawn from its
+  marker. A payload with no objectives and no routes produces exactly the prompt
+  it did before orders existed. The order text is assembled in
+  `athena/hosted/orders.py` and passed per soldier through the existing
+  `team_objectives` parameter of the action chooser.
 - Each run stops at its tick limit or when either Blue or Red has no living
-  soldiers. The resulting replay uses schema version 3.
+  soldiers. The resulting replay uses schema version 4, which drops the per-cell
+  battlefield surface: it was 16 MB of a 17 MB replay on an 800x800 ground and
+  byte-identical in every run of a batch. Elevation is in the terrain grid a
+  client already holds, and every soldier and shot carries its own `z`.
+- A run also returns an **outcome**: which side holds the field, completed ticks,
+  living and lost soldiers per side, shots fired and hits, the model calls it
+  actually made and the decisions served from a standing order instead, and how
+  many of its soldiers were agents rather than followers — so what a batch cost is visible
+  next to what it concluded. It is computed
+  where the run ends and stored with the simulation, so a caller that only wants
+  a win rate never reads a replay back. A replay repeats the whole battlefield
+  surface — about 17 MB on an 800x800 ground — so scoring a hundred-run batch by
+  fetching replays moved well over a gigabyte to produce one number.
+- A run in flight reports its progress about once a second, plus its first and
+  last tick, as an ordinary `simulation.progress` event on the same stream: the
+  tick reached, living soldiers per side, shots fired, whether anyone is
+  shooting, how long the tick took, and **which commanders were asked to decide
+  it** — by section and side — against how many soldiers executed a standing
+  order instead. A run takes minutes and used to say nothing until
+  it finished, so an operator watching a progress bar could not tell a slow run
+  from a hung one. Throttled rather than per-tick, because one write per tick
+  per simulation would be most of what the database does on a large batch.
 - Redis is the job queue. The worker's `WORKER_CONCURRENCY` setting bounds the
   number of simulations in flight in one worker service. Within each simulation,
   living-soldier chooser calls retain the loop's existing concurrent scheduling.
-- Postgres stores batch, simulation, and ordered completion-event state. The API
-  creates the required tables and index on startup.
+- Postgres stores batch, simulation, outcome, and ordered completion-event state.
+  The API creates the required tables and index on startup.
+- `GET /v1/simulation-batches` lists batches newest first with their per-status
+  run counts, and `GET /v1/simulation-batches/{batch_id}` returns one batch with
+  every run's stored outcome and a freshly presigned replay URL. Both are reads
+  over the tables the queue already maintains, and they are what lets a completed
+  batch be read after its event stream has been consumed.
 - Submitted payloads and gzip-compressed replay logs are private bucket objects.
   `GET /v1/simulation-batches/{batch_id}/events` is a reconnectable server-sent
   event stream. A completed-simulation event receives a newly generated presigned

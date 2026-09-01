@@ -5,6 +5,7 @@ from typing import Awaitable, Callable
 
 from athena.agent import choose_action
 from athena.params import (
+    MAX_RENDERED_TERRAIN_RADIUS,
     COMMUNICATION_HISTORY_LIMIT,
     INCOMING_FIRE_HISTORY_LIMIT,
     INCOMING_FIRE_MEDIUM_DISTANCE,
@@ -52,6 +53,7 @@ class LoopEngine:
         vision_resolver: VisionResolver,
         movement_resolver: MovementResolver,
         action_chooser: ActionChooser = choose_action,
+        turn_planner: Callable[..., Awaitable[dict[int, ChosenTurn | None]]] | None = None,
         shooting_resolver: ShootingResolver | None = None,
         visibility_history_limit: int = VISIBILITY_HISTORY_LIMIT,
         communication_history_limit: int = COMMUNICATION_HISTORY_LIMIT,
@@ -64,6 +66,9 @@ class LoopEngine:
         self.vision_resolver = vision_resolver
         self.movement_resolver = movement_resolver
         self.action_chooser = action_chooser
+        # Optional whole-tick planner. When set it replaces per-soldier chooser
+        # calls entirely, so a caller can batch a tick's decisions.
+        self.turn_planner = turn_planner
         self.shooting_resolver = shooting_resolver or ShootingResolver()
         self.visibility_history_limit = visibility_history_limit
         self.communication_history_limit = communication_history_limit
@@ -88,6 +93,11 @@ class LoopEngine:
         """
         This array shows other soldiers that are visible to the
         current soldier. Index is mapped to battlefield.soldiers.
+
+        Detection runs to the observer's full vision range, which an
+        establishment sets and which reaches hundreds of metres. It is not
+        bounded by the ground the agent is shown: what limits a long shot is the
+        shooting resolver's range factor, not a cap on what may be reported.
 
         NOTE: might be slow at scale, this is a O(n^2) operation
         """
@@ -123,7 +133,13 @@ class LoopEngine:
         """
         terrain_by_soldier: list[list[TerrainCell]] = []
 
-        cap = self.vision_resolver.max_vision_range
+        # Bounded by the drawn map rather than by vision: the scan is quadratic
+        # in radius with a sightline walk per cell, and every cell it returns is
+        # prompt tokens on every call of every tick.
+        cap = min(
+            self.vision_resolver.max_vision_range,
+            float(MAX_RENDERED_TERRAIN_RADIUS),
+        )
         for observer in self.battlefield.soldiers:
             radius = max(1, ceil(min(observer.vision_range, cap)))
             origin_x = observer.position.x
@@ -182,6 +198,36 @@ class LoopEngine:
         """
         if observed_soldiers is None:
             observed_soldiers = self.observed_soldiers_map()
+
+        def context_for(soldier_index: int, observed_soldier: ObservedSoldier):
+            return AgentContext(
+                current_observation=observed_soldier,
+                visibility_history=tuple(self.visibility_history[soldier_index]),
+                incoming_fire_history=tuple(self.incoming_fire_history[soldier_index]),
+                communication_groups=self.battlefield.communication_groups_for(
+                    self.battlefield.soldiers[soldier_index]
+                ),
+                communication_history=tuple(self.communication_history[soldier_index]),
+            )
+
+        # A planner decides for every living soldier at once, rather than each
+        # being asked independently. That is what lets a caller put the several
+        # decisions a tick needs into one provider request instead of racing
+        # them, and it is the only way to see a whole tick before committing to
+        # any of it.
+        if self.turn_planner is not None:
+            requests = [
+                (index, context_for(index, observed), self.battlefield.soldiers[index])
+                for index, observed in enumerate(observed_soldiers)
+                if self.battlefield.soldiers[index].survival_status
+                == SurvivalState.ALIVE
+            ]
+            planned = await self.turn_planner(
+                requests, self.battlefield, self.movement_resolver
+            )
+            return [
+                planned.get(index) for index in range(len(self.battlefield.soldiers))
+            ]
 
         async def collect_soldier_action(
             soldier_index: int,
@@ -268,6 +314,7 @@ class LoopEngine:
             [turn.action if turn is not None else None for turn in turns],
             observed_soldiers=observed_soldiers,
             broadcasts=[turn.broadcast if turn is not None else None for turn in turns],
+            rationales=[turn.rationale if turn is not None else "" for turn in turns],
         )
 
     def execute_actions(
@@ -275,6 +322,7 @@ class LoopEngine:
         actions: list[Action | None],
         observed_soldiers: list[ObservedSoldier] | None = None,
         broadcasts: list[BroadcastDraft | None] | None = None,
+        rationales: list[str] | None = None,
     ) -> ExecutionResult:
         """
         Resolve every action from the same before snapshot, then commit all effects.
@@ -313,11 +361,21 @@ class LoopEngine:
         for target_index in casualty_targets:
             self.battlefield.soldiers[target_index].become_casualty()
 
+        # A soldier that spent this tick reloading is ready for the next one.
+        # Done before rounds are spent, so a magazine emptied *this* tick starts
+        # a reload that costs the following tick rather than none at all.
+        for soldier in self.battlefield.soldiers:
+            if soldier.reloading:
+                soldier.finish_reload()
+        for outcome in shot_outcomes:
+            self.battlefield.soldiers[outcome.shooter_index].fire()
+
         # Retain the exact local information that informed this execution. Taking
         # another observation after resolution could reroll probabilistic visibility
         # and give history that differs from what the agent actually acted on.
         self.tick_number += 1
         self._record_incoming_fire_alerts(shot_outcomes, before)
+        self._apply_suppression(shot_outcomes, before)
         team_messages = self._resolve_team_messages(
             broadcasts,
             before,
@@ -342,12 +400,39 @@ class LoopEngine:
 
         return ExecutionResult(
             actions=tuple(actions),
+            rationales=tuple(rationales or ["" for _ in actions]),
             shot_outcomes=shot_outcomes,
             observations=observations,
             team_messages=team_messages,
             before=before,
             after=self.battlefield.snapshot(),
         )
+
+    def _apply_suppression(
+        self,
+        shot_outcomes: tuple[ShotOutcome, ...],
+        before: BattlefieldSnapshot,
+    ) -> None:
+        """Mark every soldier that had rounds land near it this tick.
+
+        Suppression lasts exactly one tick and is recomputed from scratch, so a
+        soldier stops being suppressed the moment the fire stops. It uses the
+        same radius as the incoming-fire alerts an agent is shown, which keeps
+        what a soldier is told and what it suffers from in step.
+        """
+        radius_squared = self.incoming_fire_radius * self.incoming_fire_radius
+        suppressed: set[int] = set()
+
+        for outcome in shot_outcomes:
+            target = before.soldiers[outcome.target_index]
+            for listener in before.soldiers:
+                if listener.soldier_index == outcome.shooter_index:
+                    continue
+                if squared_distance(listener.position, target.position) <= radius_squared:
+                    suppressed.add(listener.soldier_index)
+
+        for index, soldier in enumerate(self.battlefield.soldiers):
+            soldier.suppressed = index in suppressed
 
     def _record_incoming_fire_alerts(
         self,

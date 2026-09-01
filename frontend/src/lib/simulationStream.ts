@@ -27,6 +27,34 @@ export interface SimulationCompleted {
   replayPath: string
 }
 
+/** Where a run in flight has got to. Emitted about once a second per run, plus
+ *  its first and last tick, so a wait that lasts minutes is legible instead of
+ *  indistinguishable from a hang. */
+export interface SimulationProgress {
+  simulationId: string
+  simulationIndex: number
+  tick: number
+  ticks: number
+  blueAlive: number
+  redAlive: number
+  modelCalls: number
+  shotsFired: number
+  /** Someone is shooting this tick. */
+  inContact: boolean
+  /** Commanders that spent a model call this tick. */
+  decisions: number
+  /** Which commanders are being asked, so the operator sees the simulation
+   *  rather than a status light. */
+  deciding: Array<{ soldier: number; section: string; side: 'blue' | 'red' }>
+  /** Soldiers executing a standing order this tick instead of deciding. */
+  standingOrders: number
+  agents: number
+  followers: number
+  /** Wall time the last tick took, which is where a run's minutes go. */
+  tickMs: number
+  totalCalls: number
+}
+
 export interface SimulationFailed {
   simulationId: string
   simulationIndex: number
@@ -42,6 +70,7 @@ export interface BatchCompleted {
 export interface SimulationStreamHandlers {
   /** One finished, scored run. */
   onResult: (result: RunResult, event: SimulationCompleted) => void
+  onProgress: (event: SimulationProgress) => void
   onFailed: (event: SimulationFailed) => void
   onDone: (event: BatchCompleted) => void
   /** Transport trouble, or a run that finished but could not be scored. */
@@ -75,6 +104,11 @@ export function subscribeSimulation(
       return
     }
     handlers.onResult(data.summary, data)
+  })
+
+  source.addEventListener('simulation.progress', (event) => {
+    const data = parse<SimulationProgress>((event as MessageEvent<string>).data)
+    if (data && !cancelled) handlers.onProgress(data)
   })
 
   source.addEventListener('simulation.failed', (event) => {

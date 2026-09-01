@@ -119,15 +119,15 @@ def render_observation(observed: ObservedSoldier) -> str:
     else:
         sighted = "none"
 
-    return "\n\n".join(
-        [
-            f"You are {observed.team.value}, at "
-            f"({observed.position.x},{observed.position.y}), elevation "
-            f"{observed.position.z} m, {observed.survival_status.value}.",
-            f"Visible soldiers: {sighted}.",
-            render_terrain(observed.available_terrain, observed.position),
-        ]
-    )
+    sections = [
+        f"You are {observed.team.value}, at "
+        f"({observed.position.x},{observed.position.y}), elevation "
+        f"{observed.position.z} m, {observed.survival_status.value}.",
+        f"Visible soldiers: {sighted}.",
+    ]
+
+    sections.append(render_terrain(observed.available_terrain, observed.position))
+    return "\n\n".join(sections)
 
 
 def _render_history(history: Sequence[VisibilityObservation]) -> str:

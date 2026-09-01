@@ -75,14 +75,14 @@ which loads world imagery/terrain noticeably slower.
 
 ```
 Cesium globe (world terrain + satellite)
-  └─ drag-select ground (≤800 m)  →  Generate Battlefield
+  └─ drag-select ground (≤1 km)  →  Generate Battlefield
        └─ POST /api/battleground             Fastify (Node/tsx)
             ├─ DEM: AWS Terrain Tiles (terrarium PNG), mosaic + bilinear sample
             ├─ Features: Overpass API (roads/buildings/landcover/water), 4 mirrors
             ├─ Weather: Open-Meteo (current conditions)
             ├─ Classifier: RBush + point-in-polygon + slope → 10 terrain classes
             ├─ Military grid: cover, concealment, move cost, exposure,
-            │                 vehicle mobility, ambush potential (≤800×800 cells)
+            │                 vehicle mobility, ambush potential (≤1000×1000 cells)
             └─ progress streamed over Socket.IO ("Athena is reasoning…" panel)
        └─ GET meta (JSON) + grid (binary Float32/Uint8, ~800 KB)
   └─ battlefield reveal: roads draw → water fills → buildings extrude
@@ -93,8 +93,8 @@ Cesium globe (world terrain + satellite)
        exposed stretches, slow going + ETA / exposure / confidence in bottom bar
 ```
 
-Selections are capped at 800 m a side (`config.maxExtentMeters`) and cells are
-fixed at 1 m regardless of extent, so a full-size battleground is 800×800 cells.
+Selections are capped at 1 km a side (`config.maxExtentMeters`) and cells are
+fixed at 1 m regardless of extent, so a full-size battleground is 1000×1000 cells.
 
 ### Plan → simulation
 
@@ -106,20 +106,31 @@ Run Simulation (bottom bar, needs a saved plan)
        ├─ projects the packed grid into the engine's payload, gzips it
        └─ POST {ENGINE_URL}/v1/simulation-batches   (bearer token, never the browser's)
   └─ GET /api/simulations/:batchId/events
-       └─ relays the engine's SSE stream, Last-Event-ID and all, scoring
-          each run on the way past
+       └─ relays the engine's SSE stream, Last-Event-ID and all, carrying
+          each run's outcome as it lands
             ├─ simulation.completed → { summary, replayPath }
             ├─ simulation.failed
             └─ batch.completed
+            ├─ simulation.progress → per-tick state of a run in flight:
+            │                        who is deciding, tick latency, standing
+            │                        orders, alive counts, shots
   └─ summaries aggregated live into a win rate, converging as runs land
 ```
 
-Runs are scored server-side. A replay repeats the whole battlefield surface as
-one JSON object per cell — about 17 MB on an 800×800 ground — so letting the
-browser fetch all of them moved well over a gigabyte to produce a single win
-rate. The service fetches and reduces each replay instead, one at a time, which
-also bounds its own memory to a single decoded replay. `replayPath` is kept for
-a replay viewer to fetch on demand. See `server/src/services/replaySummary.ts`.
+Runs are scored by the engine, at the point the run ends, and the result rides
+out on the completion event. Nothing fetches a replay to compute a win rate;
+`server/src/services/replaySummary.ts` remains as a fallback for a batch queued
+by an engine that does not report outcomes.
+
+Replays themselves got an order of magnitude smaller. Schema 4 drops the
+per-cell battlefield surface, which was ~16 MB of a 17 MB replay on an 800×800
+ground and byte-identical in every run of a batch; elevation is already in the
+terrain grid, and every soldier and shot carries its own. `replayPath` fetches
+one on demand for the replay viewer.
+
+Completed batches outlive the tab that watched them: the engine stores each run's
+outcome and lists batches, and the service keeps the batch → plan mapping the
+engine cannot know. The **Simulations** page joins the two.
 
 The scenario is **uploaded** rather than named by plan id. The engine accepts
 both, but the pull path can only carry what `GET /api/plans/:id` returns — one
@@ -136,10 +147,35 @@ which is exactly what happens under docker-compose. Going through the service
 also spares the bucket a CORS policy naming the frontend. Only URLs on
 `ENGINE_REPLAY_ORIGIN` are ever fetched.
 
-Every soldier is one model call per tick, so a batch costs
-`soldiers × ticks × simulationCount` requests. The server refuses a plan over
-`config.maxSoldiersPerSimulation` (80), and the run dialog prices a batch before
-you commit to it.
+A batch is priced by **decisions, not soldiers**, and three things keep that
+number small:
+
+1. **Only section commanders are agents.** A rifle section is seven men under one
+   commander; the other six run the engine's section policy and never contact a
+   provider. Sevenfold.
+2. **A commander only decides when something changes.** Each tick it is described
+   by a coarse situation signature — nearest enemy's distance band, whether it is
+   under fire, its section's strength. Unchanged means it carries on: advancing
+   along its drawn axis out of contact, repeating its last decision in contact.
+3. **A soldier out of contact marches.** Crossing empty ground at a fighting pace
+   burned ticks — and therefore decisions — on an approach nobody needed to think
+   about.
+
+Measured on a 28-soldier plan with the forces 135 m apart over 120 ticks: **3,360
+model calls under one-per-soldier-per-tick, 105 actually made — 32× fewer**, and
+the cost grows sub-linearly with the tick budget, so a long approach is now
+affordable. The run reports both numbers so the saving is visible.
+
+**On wall clock**, ticks are serial and a tick in contact costs one decision
+round trip, so a single run is bounded by its own ticks — not by how many calls
+it makes. What moved that number was cutting what each call has to read: the
+agent history windows went from ten ticks to four, which took per-call latency
+from a rising 1.6→7 s to a flat 2.2 s median. Batching a tick's decisions into
+one request was tried and measured *slower* (290 s → 600 s+), because concurrent
+requests overlap where one generation does not. For a *batch* of runs the lever
+is `WORKER_CONCURRENCY` and `WORKER_REPLICAS`, which scale almost linearly. The server
+caps sections (`config.maxAgentsPerSimulation`) and soldiers separately, and the
+run dialog prices a batch before you commit to it.
 
 ### Plan → engine bridge
 
@@ -233,11 +269,49 @@ users; the controls here are damage limitation, not authentication:
 Real per-user authorisation needs accounts, which is a product decision rather
 than a missing guard.
 
-## Known gaps
+## What the engine simulates of a drawn plan
 
-The plan a commander draws is richer than what the engine currently simulates:
-routes, per-unit vision range, objectives, fortification works and H-hour are all
-drawn, stored and served, but dropped on the engine side. Unit **strength** is
-plumbed through as of the payload bridge. See
-[`ENGINE_CHANGES.md`](ENGINE_CHANGES.md) for the full list and what each would
-cost.
+Everything a commander draws now reaches the simulation:
+
+- **Objectives** carry a side. The owner is ordered to take and hold it, the other
+  side to stop them; an objective with no side is contested.
+- **Routes** become an axis of advance in grid coordinates, and the **gait**
+  (`prowl` / `patrol` / `charge`) sets how much ground a soldier covers per tick.
+- **Unit strength** expands one marker into one agent per soldier, and an
+  establishment's **vision range** reaches the soldiers it fields.
+- **Fortifications** become protective ground rather than a man standing in a
+  hole — a trench raises the protection of the cells it covers.
+- **H-hour** decides daylight; a night plan halves what a soldier can pick out.
+
+A tick is a bound on how far a soldier travels rather than a fixed metre: entering
+a cell spends its move cost against a per-tick allowance, so a soldier covers more
+road than wetland, and forces drawn tens of metres apart reach each other inside a
+normal tick budget.
+
+Movement routes with a distance field, so a force goes **round** a river rather
+than into it, and a plan whose objective is on the far side of severed ground is
+refused before it costs a batch rather than after it produces an
+"inconclusive". A soldier detects at its establishment's range and may engage
+anything it sees;
+what makes a long shot a bad idea is the rifle's range falloff, not a cap on
+reporting. Completed runs are watchable **on the battleground itself**. The conclusion page
+hands you back to the globe with the plan still drawn and the run playing over
+the real ground: soldiers as figures clamped to the terrain, tracers between
+them, casualties left where they fell, and each section commander's stated
+reasoning floating above it as the tick advances. Underneath is the aggregate
+across every run in the batch — where this plan *tends* to take people, and
+where it tends to get them killed — draped on the ground as a probability layer.
+The plan stays editable while you watch, which is the point: you correct it
+against what actually happened, on the ground it happened on.
+
+A firefight is decided by position and cover rather than by who shot first: a
+soldier under fire shoots at a third of its normal accuracy, a magazine is thirty
+rounds with a one-tick reload, and a section whose commander is killed promotes a
+survivor. Every run is seeded, so a batch reproduces itself and its win rate
+carries a 95% confidence interval. Every agent states why it did what it did, and
+the **conclusion page** shows that reasoning alongside the verdict and a ranked
+list of what to change about the plan.
+
+Still open: weather beyond daylight, re-submitting a chosen seed from the UI, a
+user model, and component/E2E tests. See
+[`ENGINE_CHANGES.md`](ENGINE_CHANGES.md).
