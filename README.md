@@ -19,6 +19,37 @@ simulation's behaviour and modelling assumptions, and
 [`ENGINE_CHANGES.md`](ENGINE_CHANGES.md) for what the engine still needs before
 a drawn plan is simulated in full.
 
+## God's Eye pivot (in progress)
+
+Athena is being re-aimed from battle-plan simulation to an **open-source
+live-open-data operations console for Singapore**, built on
+[God's Eye View](https://github.com/bilawalsidhu/gods-eye-view) with the
+simulation engine removed. The full specification is in [`PRD.md`](PRD.md);
+what already runs:
+
+```bash
+# 1. Singapore data plane (port 8787) — no database needed
+cd server && bun install && bun run sg
+
+# 2. The console (port 4173) — proxies /api/sg to the above
+cd app && npm install && npm run dev
+```
+
+Open http://localhost:4173, then enable **SG Weather**, **SG Taxis** or
+**SG Hazards** in the DATA LAYERS panel. No API keys are required for any of
+it: the globe falls back to the keyless OSM + Re:Earth stack, and every
+Singapore feed used here is keyless. A Google Maps key upgrades the globe to
+photorealistic 3D tiles; an `LTA_ACCOUNT_KEY` (free, instant, from
+datamall.lta.gov.sg) adds the live road picture.
+
+`GET /api/sg/feeds` lists what this deployment can serve. Each feed answers with
+its data plus a provenance envelope — source, attribution, licence, age, cadence
+and state (`live` / `cached` / `stale` / `degraded` / `unavailable`) — so a feed
+that is thinned or missing a key says so rather than looking normal.
+
+See [`app/ATHENA.md`](app/ATHENA.md) for what was changed in the vendored fork
+and how to merge upstream.
+
 ## Quick start
 
 ### Everything at once, with Docker

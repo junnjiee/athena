@@ -961,5 +961,44 @@ Three design rules fell out of building it, and they are now enforced by tests:
 3. **A parse failure is a failed fetch**, never a poisoned cache. The previous
    good value survives and is served as `stale`.
 
-**Not yet started:** the M0 strip (see §12 — the working tree still carries
-uncommitted simulation work), GEV vendoring, and every browser-side layer module.
+### 21.1 GEV integration — shipped and running
+
+GEV is vendored at `app/` (upstream `d8f1742`, `docs/media` excluded) and the
+Singapore layers run inside it. Per §11, the upstream footprint is exactly the
+predicted two registration edits plus one proxy line:
+
+| File | Change |
+|---|---|
+| `app/src/data/sg/{sgClient,sgWeather,sgMobility,sgHazard}.js` | New — layers in GEV's module shape, incl. `getAnalystRecords()` |
+| `app/src/main.js` | 3 imports, 3 `register()` calls (append-only) |
+| `app/src/data/layerState.js` | 3 `LAYER_STATE_REGISTRY` entries, tokens `h`/`y`/`z` |
+| `app/vite.config.js` | `server.proxy` for `/api/sg` |
+| `app/ATHENA.md` | What we changed and how to re-merge upstream |
+
+**Verified in the browser over Kallang** (screenshots in the PR): 88 NEA rain
+gauges, ~2,800 LTA taxis rendered across the island, hazards live-with-zero-events,
+each panel row carrying its agency attribution and a live age. Layer state
+survives a reload, which proves the `layerState.js` registration round-trips.
+
+Four things running it taught us that no unit test would have:
+
+1. **GEV already boots keyless.** The planned patch was unnecessary — upstream
+   handles a missing `GOOGLE_MAPS_API_KEY` and falls back to the OSM + Re:Earth
+   stack on its own. One less divergence from upstream.
+2. **`lastUpdate` must be epoch milliseconds.** GEV's panel does arithmetic on
+   it; an ISO string renders as "NaNh ago". Fixed in `sgClient.js`.
+3. **The render governor and hidden-tab suspension are real.** In a headless
+   pane `document.hidden` is permanently true, so `requestAnimationFrame` never
+   fires, Cesium never sizes its canvas, and the toggle panel parks its repaints.
+   All three are deliberate upstream optimisations working correctly — but any
+   future automated capture has to drive `viewer.render()` by hand.
+4. **Static geometry is not optional.** 88 ground ellipses and ~3,000 taxi
+   points are exactly the scale at which GEV's measured 23× per-frame penalty
+   would have bitten. Taxis use a `PointPrimitiveCollection`, not entities.
+
+### 21.2 Not yet started
+
+The M0 strip (see §12). The pre-existing uncommitted simulation work is now
+preserved as its own commit on `perf/engine-agent-calls`, so deleting `engine/`
+is safe whenever the call is made — but it has not been made yet, and nothing
+in Wave 1 depends on it.
