@@ -10,7 +10,8 @@
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "agent:sync": "tsx scripts/sync-agent.ts"
+    "agent:sync": "tsx scripts/sync-agent.ts",
+    "sg": "tsx src/sg-server.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
