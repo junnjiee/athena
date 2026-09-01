@@ -130,4 +130,35 @@ export const config = {
    *  README. Other routes read from Postgres or memory and are left alone. */
   battlegroundRateLimit: Number(process.env.BATTLEGROUND_RATE_LIMIT ?? 20),
   battlegroundRateWindowMs: 60_000,
+
+  /** LTA DataMall account key — free and instant from datamall.lta.gov.sg.
+   *  Unlocks the live road picture (speed bands, incidents, VMS) and station
+   *  crowd density. Server-side only; the browser never sees it. Without it
+   *  those feeds report `unavailable` with the sign-up hint rather than
+   *  failing, so the console still runs keyless. */
+  ltaAccountKey: process.env.LTA_ACCOUNT_KEY ?? '',
+
+  /** data.gov.sg throttles to 6 requests per 10 s without a key, 12 with a dev
+   *  key and 30 with a production key — verified by hitting it, not read off a
+   *  doc page. A dozen Singapore feeds whose TTLs drift into phase would burst
+   *  straight through the keyless ceiling, so every upstream fetch passes a
+   *  shared budget that queues rather than fails. Raise this only to a figure
+   *  the deployed key actually carries; over-stating it converts a short queue
+   *  into upstream 429s. */
+  sgRequestLimit: Number(process.env.SG_REQUEST_LIMIT ?? 6),
+  sgRequestWindowMs: Number(process.env.SG_REQUEST_WINDOW_MS ?? 10_000),
+
+  /** Keep serving a feed's last good value this long past its TTL while refresh
+   *  is failing. Beyond it the feed reports `unavailable` rather than handing an
+   *  operator half-hour-old weather with a quiet age chip. */
+  sgMaxStaleMs: 30 * 60_000,
+
+  /** The traffic-image feed documents ~90 cameras and served 90 as recently as
+   *  mid-June 2026; since early July it has returned 8 checkpoint cameras with
+   *  `api_info.status` still reading "healthy". Upstream self-reporting is
+   *  therefore not a usable health signal, and roster size against the
+   *  documented count is. Below this fraction the layer is marked degraded and
+   *  says so on the map. */
+  sgCameraRoster: 90,
+  sgCameraDegradedRatio: 0.5,
 } as const

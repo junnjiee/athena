@@ -7,6 +7,7 @@ import { registerRoutes } from './routes'
 import { registerSplatRoutes } from './routes/splats'
 import { registerPlanRoutes } from './routes/plans'
 import { registerAssistantRoutes } from './routes/assistant'
+import { registerSgRoutes } from './routes/sg'
 import { registerSimulationRoutes } from './routes/simulations'
 import { getJob } from './services/pipeline'
 import type { ProgressEvent } from './types'
@@ -57,6 +58,7 @@ registerRoutes(app, emitProgress)
 await registerSplatRoutes(app)
 registerPlanRoutes(app)
 registerAssistantRoutes(app)
+registerSgRoutes(app)
 registerSimulationRoutes(app)
 
 try {
