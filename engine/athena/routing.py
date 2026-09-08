@@ -64,6 +64,7 @@ def _search(
     start: int,
     goal: int,
     penalties: dict[str, float],
+    excluded: frozenset[str] = frozenset(),
 ) -> Route | None:
     """Dijkstra over travel time, with per-edge penalties folded into the cost.
 
@@ -91,6 +92,8 @@ def _search(
             break
 
         for neighbour, edge, reverse in links[current]:
+            if edge.id in excluded:
+                continue
             seconds = edge_travel_seconds(edge, nodes, reverse=reverse)
             if seconds is None:
                 continue
@@ -128,9 +131,14 @@ def _search(
     )
 
 
-def shortest_route(graph: RoadGraph, start: int, goal: int) -> Route | None:
+def shortest_route(
+    graph: RoadGraph,
+    start: int,
+    goal: int,
+    excluded: frozenset[str] = frozenset(),
+) -> Route | None:
     """The quickest way through, ignoring diversity."""
-    return _search(graph, start, goal, {})
+    return _search(graph, start, goal, {}, excluded)
 
 
 def shared_fraction(route: Route, other: Route) -> float:
@@ -151,6 +159,7 @@ def find_diverse_routes(
     max_sharing: float = MAX_SHARING,
     penalty_factor: float = PENALTY_FACTOR,
     max_iterations: int = MAX_SEARCH_ITERATIONS,
+    excluded: frozenset[str] = frozenset(),
 ) -> list[Route]:
     """Up to ``k`` genuinely different approaches, fastest first.
 
@@ -162,7 +171,7 @@ def find_diverse_routes(
     That pair of bounds is the guarantee the S2 product rests on, and it is
     deliberately narrow: complete within these limits, silent outside them.
     """
-    fastest = _search(graph, start, goal, {})
+    fastest = _search(graph, start, goal, {}, excluded)
     if fastest is None:
         return []
 
@@ -176,7 +185,7 @@ def find_diverse_routes(
         for edge in accepted[-1].edges:
             penalties[edge.id] = penalties.get(edge.id, 1.0) * penalty_factor
 
-        candidate = _search(graph, start, goal, penalties)
+        candidate = _search(graph, start, goal, penalties, excluded)
         if candidate is None:
             break
         if candidate.seconds > limit:

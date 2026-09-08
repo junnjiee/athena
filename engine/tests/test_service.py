@@ -82,3 +82,21 @@ def test_an_unfetchable_area_is_a_bad_gateway_not_an_empty_study() -> None:
     )
 
     assert response.status_code == 502
+
+
+def test_an_operator_override_removes_ground_from_the_study() -> None:
+    """The only road is marked impassable, so there is no longer a way in."""
+    response = client.post(
+        "/v1/route-study",
+        json={
+            "graph": GRAPH,
+            "reserves": [RESERVE],
+            "objectives": [OBJECTIVE],
+            "excluded_edge_ids": ["1:0"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["corridors"] == []
+    assert len(body["unreachable"]) == 1
