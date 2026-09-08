@@ -256,7 +256,7 @@ Fits existing patterns rather than building a parallel app.
 
 | Need                         | Existing pattern to follow                                          |
 | ---------------------------- | ------------------------------------------------------------------- |
-| Area selection at 10-50 km   | `RectangleSelectionController` (currently ≤3 km)                     |
+| Area selection at 10-50 km   | `RectangleSelectionController` (currently ≤800 m)                    |
 | Mark placement               | `usePlacementTool` / `PlacementController`                          |
 | Route and corridor rendering | `entitySync` polylines, coloured per corridor, choke point emphasised |
 | Entity volume                | `simplify`, `frameGovernor`                                         |
