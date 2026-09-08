@@ -33,6 +33,7 @@ interface RouteStudyState {
   renameCorridor: (corridorId: string, name: string) => Promise<void>
   categoriseCorridor: (corridorId: string, category: string) => Promise<void>
   toggleChoke: (corridor: Corridor) => Promise<void>
+  dismissError: () => void
   reset: () => void
 }
 
@@ -91,9 +92,12 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
 
   run: async (areaId, name) => {
     const marks = get().draftMarks
+    const existing = get().study
     set({ phase: 'running', error: null })
     try {
-      const study = await createRouteStudy({ areaId, name, marks })
+      const study = existing?.areaId === areaId
+        ? await updateRouteStudy(existing.id, { name, marks })
+        : await createRouteStudy({ areaId, name, marks })
       set({ phase: 'ready', study, draftMarks: study.marks })
     } catch (error: unknown) {
       set({ phase: 'error', error: message(error) })
@@ -157,6 +161,8 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       set({ phase: 'ready', error: message(error) })
     }
   },
+
+  dismissError: () => set({ error: null }),
 
   reset: () =>
     set({

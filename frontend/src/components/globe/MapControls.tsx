@@ -1,24 +1,32 @@
 import { Compass, Plus, Minus, MousePointer2 } from 'lucide-react'
-import type { ToolMode } from '../../types/entities'
-
-interface Props {
+interface Props<M extends string> {
   is3D: boolean
   onResetNorth: () => void
   onToggleSceneMode: () => void
   onZoomIn: () => void
   onZoomOut: () => void
-  toolMode: ToolMode
-  onSetToolMode: (mode: ToolMode) => void
+  toolMode: M
+  onSetToolMode: (mode: M) => void
+  navigateMode?: M
 }
 
-export function MapControls({ is3D, onResetNorth, onToggleSceneMode, onZoomIn, onZoomOut, toolMode, onSetToolMode }: Props) {
+export function MapControls<M extends string>({
+  is3D,
+  onResetNorth,
+  onToggleSceneMode,
+  onZoomIn,
+  onZoomOut,
+  toolMode,
+  onSetToolMode,
+  navigateMode = 'navigate' as M,
+}: Props<M>) {
   return (
     <div className="flex items-end gap-2">
       <ToolButton
         title="Pointer"
-        active={toolMode === 'navigate'}
+        active={toolMode === navigateMode}
         disabled={false}
-        onClick={() => onSetToolMode('navigate')}
+        onClick={() => onSetToolMode(navigateMode)}
       >
         <MousePointer2 className="h-4 w-4" strokeWidth={1.75} />
       </ToolButton>

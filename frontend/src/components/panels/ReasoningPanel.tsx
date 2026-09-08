@@ -3,15 +3,28 @@ import { AlertTriangle, Check, Loader2, Sparkles } from 'lucide-react'
 import { useBattleground } from '../../state/battleground'
 import type { ReasoningStep } from '../../types/terrain'
 
-/** Center-screen "Athena is reasoning…" checklist shown while the terrain
- *  pipeline runs. Steps animate in as the backend streams progress. */
-export function ReasoningPanel() {
-  const phase = useBattleground((s) => s.phase)
-  const steps = useBattleground((s) => s.steps)
-  const error = useBattleground((s) => s.error)
-  const dismissError = useBattleground((s) => s.dismissError)
+interface Props {
+  visible?: boolean
+  steps?: ReasoningStep[]
+  error?: string | null
+  title?: string
+  errorTitle?: string
+  onDismissError?: () => void
+}
 
-  const visible = phase === 'generating'
+/** Center-screen streamed-progress checklist. With no props it remains the
+ *  tactical terrain panel; the operational-area page supplies its roads / DEM /
+ *  graph steps so both pipelines share one interaction and animation pattern. */
+export function ReasoningPanel(props: Props = {}) {
+  const battlefieldPhase = useBattleground((s) => s.phase)
+  const battlefieldSteps = useBattleground((s) => s.steps)
+  const battlefieldError = useBattleground((s) => s.error)
+  const dismissBattlefieldError = useBattleground((s) => s.dismissError)
+
+  const visible = props.visible ?? battlefieldPhase === 'generating'
+  const steps = props.steps ?? battlefieldSteps
+  const error = props.error === undefined ? battlefieldError : props.error
+  const dismissError = props.onDismissError ?? dismissBattlefieldError
 
   return (
     <AnimatePresence>
@@ -26,7 +39,7 @@ export function ReasoningPanel() {
           <div className="mb-3 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-(--accent)" strokeWidth={1.75} />
             <span className="text-sm font-medium tracking-wide text-(--text-h)">
-              ATHENA IS REASONING
+              {props.title ?? 'ATHENA IS REASONING'}
             </span>
           </div>
 
@@ -44,7 +57,7 @@ export function ReasoningPanel() {
             >
               <div className="mb-1.5 flex items-center gap-1.5 text-(--hostile)">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Terrain generation failed
+                {props.errorTitle ?? 'Terrain generation failed'}
               </div>
               <div className="text-(--text)">{error}</div>
               <button

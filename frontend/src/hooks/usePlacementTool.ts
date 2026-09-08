@@ -4,14 +4,19 @@ import { pickGroundPosition } from '../lib/pickTerrain'
 import { findNearestUnit, findNearestObjective } from '../lib/nearestMarker3D'
 import type { LonLat, PlaceableMode, PlacedObjective, PlacedUnit, ToolMode } from '../types/entities'
 
-interface Args {
+interface Args<M extends string> {
   viewer: Cesium.Viewer | undefined
-  mode: ToolMode
-  units: PlacedUnit[]
-  objectives: PlacedObjective[]
-  onSelectUnit: (id: string | null) => void
-  onSetToolMode: (mode: ToolMode) => void
-  onPlace: (mode: PlaceableMode, position: LonLat) => void
+  mode: M
+  units?: PlacedUnit[]
+  objectives?: PlacedObjective[]
+  onSelectUnit?: (id: string | null) => void
+  onSetToolMode?: (mode: M) => void
+  onPlace: (mode: M, position: LonLat) => void
+  /** Operational studies use the same ground-accurate placement behavior with
+   *  their own tool-mode union. Tactical callers can omit this predicate. */
+  isPlaceableMode?: (mode: M) => boolean
+  /** Point-only overlays have no selectable tactical entities beneath them. */
+  prioritizeExisting?: boolean
 }
 
 function isPlaceableMode(mode: ToolMode): mode is PlaceableMode {
@@ -28,7 +33,17 @@ function isPlaceableMode(mode: ToolMode): mode is PlaceableMode {
  *  priority over placement -- except for trenches, which are dug *inside* a
  *  section/platoon's position on purpose, so overlapping a unit there must
  *  still place rather than select it. */
-export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit, onSetToolMode, onPlace }: Args) {
+export function usePlacementTool<M extends string>({
+  viewer,
+  mode,
+  units = [],
+  objectives = [],
+  onSelectUnit,
+  onSetToolMode,
+  onPlace,
+  isPlaceableMode: acceptsMode,
+  prioritizeExisting = true,
+}: Args<M>) {
   const unitsRef = useRef(units)
   const objectivesRef = useRef(objectives)
   const onSelectUnitRef = useRef(onSelectUnit)
@@ -53,22 +68,23 @@ export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit
 
   useEffect(() => {
     if (!viewer) return
-    if (!isPlaceableMode(mode)) return
+    const active = acceptsMode ? acceptsMode(mode) : isPlaceableMode(mode as unknown as ToolMode)
+    if (!active) return
 
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
     const isTrench = mode === 'place-trench' || mode === 'place-prepared-trench'
 
     handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-      if (!isTrench) {
+      if (prioritizeExisting && !isTrench) {
         const nearestUnit = findNearestUnit(viewer, click.position, unitsRef.current)
         if (nearestUnit) {
-          onSetToolModeRef.current('navigate')
-          onSelectUnitRef.current(nearestUnit.id)
+          onSetToolModeRef.current?.('navigate' as M)
+          onSelectUnitRef.current?.(nearestUnit.id)
           return
         }
         const nearestObjective = findNearestObjective(viewer, click.position, objectivesRef.current)
         if (nearestObjective) {
-          onSetToolModeRef.current('navigate')
+          onSetToolModeRef.current?.('navigate' as M)
           return
         }
       }
@@ -85,5 +101,5 @@ export function usePlacementTool({ viewer, mode, units, objectives, onSelectUnit
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
     return () => handler.destroy()
-  }, [viewer, mode])
+  }, [viewer, mode, acceptsMode, prioritizeExisting])
 }

@@ -19,6 +19,15 @@ export function routeArrowIcon(colorHex: string): string {
   </svg>`)
 }
 
+/** Red diamond with a central echelon bar: visually distinct from tactical
+ *  unit footprints and legible at the operational zoom level. */
+export function reserveMarkerIcon(colorHex: string): string {
+  return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 28 28">
+    <path d="M14 2.5 25.5 14 14 25.5 2.5 14Z" fill="rgba(10,13,18,.88)" stroke="${colorHex}" stroke-width="2"/>
+    <path d="M8 14h12" stroke="${colorHex}" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`)
+}
+
 function starPolygonPoints(cx: number, cy: number, spikes: number, outerR: number, innerR: number): string {
   const pts: string[] = []
   const step = Math.PI / spikes

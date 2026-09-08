@@ -58,7 +58,17 @@ export function PlacementController({
   useUnitEntities({ viewer, units })
   useObjectiveEntities({ viewer, objectives })
   useRouteEntities({ viewer, routes })
-  usePlacementTool({ viewer, mode: toolMode, units, objectives, onSelectUnit, onSetToolMode, onPlace })
+  usePlacementTool({
+    viewer,
+    mode: toolMode,
+    units,
+    objectives,
+    onSelectUnit,
+    onSetToolMode,
+    onPlace: (mode, position) => {
+      if (mode !== 'navigate' && mode !== 'select-ground' && mode !== 'draw-route') onPlace(mode, position)
+    },
+  })
   useRouteDrawing({
     viewer,
     active: toolMode === 'draw-route',

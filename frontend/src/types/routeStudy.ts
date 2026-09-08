@@ -102,3 +102,6 @@ export type OperationalToolMode =
 
 export type StudyMarkKind = 'reserve' | 'objective'
 
+// Short aliases used by the route-study store and panels.
+export type Mark = StudyMark
+export type MarkKind = StudyMarkKind

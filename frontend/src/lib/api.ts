@@ -6,6 +6,7 @@ import type { Forecast } from '../types/forecast'
 import type {
   CorridorEdit,
   OperationalAreaMeta,
+  RoadGraph,
   RouteStudy,
   RouteStudySummary,
   StudyMarks,
@@ -181,6 +182,27 @@ export async function fetchOperationalArea(id: string): Promise<OperationalAreaM
   return body.meta
 }
 
+/** The graph endpoint serves the stored gzip bytes directly. A browser does
+ *  not unpack application/gzip automatically unless Content-Encoding is set,
+ *  so detect the gzip signature before parsing. */
+export async function fetchOperationalGraph(id: string): Promise<RoadGraph> {
+  const res = await fetch(`/api/operational-area/${id}/graph`)
+  if (!res.ok) throw new Error(await readError(res))
+  return decodeOperationalGraph(await res.arrayBuffer())
+}
+
+export async function decodeOperationalGraph(packed: ArrayBuffer): Promise<RoadGraph> {
+  const bytes = new Uint8Array(packed)
+  let json: string
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))
+    json = await new Response(stream).text()
+  } else {
+    json = new TextDecoder().decode(bytes)
+  }
+  return JSON.parse(json) as RoadGraph
+}
+
 /** Runs a study. The server calls the engine and stores the result, so this
  *  resolves with corridors already derived rather than a job to poll. */
 export async function createRouteStudy(payload: {
@@ -195,7 +217,15 @@ export async function createRouteStudy(payload: {
     body: JSON.stringify(payload),
   })
   if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()) as RouteStudy
+  // Create returns the engine result and identifiers; marks/overrides are the
+  // request payload the server just persisted, so keep them on the client-side
+  // study shape without an unnecessary follow-up GET.
+  const body = (await res.json()) as Omit<RouteStudy, 'marks' | 'edgeOverrides'>
+  return {
+    ...body,
+    marks: payload.marks,
+    edgeOverrides: payload.edgeOverrides ?? [],
+  }
 }
 
 export async function listRouteStudies(): Promise<RouteStudySummary[]> {

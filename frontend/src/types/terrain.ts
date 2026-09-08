@@ -119,6 +119,8 @@ export interface CellSample {
 
 export type ProgressStepId =
   | 'elevation'
+  | 'roads'
+  | 'graph'
   | 'features'
   | 'landcover'
   | 'weather'
