@@ -4,14 +4,12 @@ import { PlansPage } from './pages/PlansPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { UnitsPage } from './pages/UnitsPage'
 import { IntelPage } from './pages/IntelPage'
-import { SimulationsPage } from './pages/SimulationsPage'
 
 function App() {
   return (
     <Routes>
       <Route path="/" element={<BattlegroundSelectorPage />} />
       <Route path="/plans" element={<PlansPage />} />
-      <Route path="/simulations" element={<SimulationsPage />} />
       <Route path="/units" element={<UnitsPage />} />
       <Route path="/intel" element={<IntelPage />} />
       <Route path="/settings" element={<SettingsPage />} />

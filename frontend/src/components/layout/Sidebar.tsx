@@ -1,18 +1,12 @@
-import { Triangle, Map, ClipboardList, Activity, Radar, Users, Settings } from 'lucide-react'
+import { Triangle, Map, ClipboardList, Radar, Users, Settings } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-/** Battleground/Plans/Simulations/Settings have real pages -- the rest stay
+/** Battleground/Plans/Settings have real pages -- the rest stay
  *  non-interactive stubs (no `path`) rather than wiring up routes that don't
- *  exist yet. Tracked in issues #54-#58.
- *
- *  Simulations lists saved *replays* (imported or watched-and-kept runs), not
- *  live batches -- a batch in progress is still run and watched from the
- *  bottom bar, since the engine only streams the one batch you hold an id
- *  for and exposes no list of past ones. See ENGINE_CHANGES.md. */
+ *  exist yet. Tracked in issues #54-#58. */
 const NAV_ITEMS = [
   { label: 'Battleground', icon: Map, path: '/' },
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
-  { label: 'Simulations', icon: Activity, path: '/simulations' },
   { label: 'Intel', icon: Radar, path: '/intel' },
   { label: 'Units', icon: Users, path: '/units' },
   { label: 'Settings', icon: Settings, path: '/settings' },

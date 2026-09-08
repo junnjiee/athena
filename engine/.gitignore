@@ -1,9 +1,0 @@
-.venv/
-__pycache__/
-*.py[cod]
-.env
-.pytest_cache
-
-# local-only Ollama model bench (not part of the engine)
-compare_ollama.py
-

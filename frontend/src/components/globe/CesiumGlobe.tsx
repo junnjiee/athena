@@ -6,7 +6,6 @@ import { ViewerBridge } from './ViewerBridge'
 import { PlacementController } from './PlacementController'
 import { PhotoModeController } from './PhotoModeController'
 import { BattlefieldController } from '../battlefield/BattlefieldController'
-import { ReplayController } from '../battlefield/ReplayController'
 import type { ViewMode } from './ViewModeToggle'
 import type { SelectionResult } from '../../types/selection'
 import type {
@@ -117,7 +116,6 @@ export function CesiumGlobe({
       />
       <BattlefieldController suppressed={viewMode === 'photo'} />
       <PhotoModeController active={viewMode === 'photo'} />
-      <ReplayController />
     </Viewer>
   )
 }

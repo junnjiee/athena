@@ -14,22 +14,17 @@ import { PlacementHint } from '../components/panels/PlacementHint'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { TerrainInfoPanel } from '../components/panels/TerrainInfoPanel'
 import { DataQualityWarning } from '../components/panels/DataQualityWarning'
-import { SimulationModal } from '../components/panels/SimulationModal'
-import { ImportReplayModal } from '../components/panels/ImportReplayModal'
 import { HeatmapsPanel } from '../components/panels/HeatmapsPanel'
 import { WeatherPanel } from '../components/panels/WeatherPanel'
 import { MissionTimePanel } from '../components/panels/MissionTimePanel'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader, type HeaderTab } from '../components/layout/TopHeader'
 import { BottomBar } from '../components/layout/BottomBar'
-import { ReplayControlBar } from '../components/layout/ReplayControlBar'
-import { ReplayCommsPanel } from '../components/panels/ReplayCommsPanel'
 import { AssistantDock } from '../components/assistant/AssistantDock'
 import { useMapControls } from '../hooks/useMapControls'
 import { useBattleground, waitForBattlefield } from '../state/battleground'
 import { usePlan } from '../state/plan'
 import { useMission } from '../state/mission'
-import { useReplay } from '../state/replay'
 import { registerAssistantHost } from '../assistant/bridge'
 import { defaultLoadout, useSettings } from '../state/settings'
 import { analyzePlan } from '../lib/validate'
@@ -78,8 +73,6 @@ export function BattlegroundSelectorPage() {
   const [loadout, setLoadout] = useState<MovementLoadout>(() => defaultLoadout())
   const [viewMode, setViewMode] = useState<ViewMode>('globe')
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
-  const [showSimulation, setShowSimulation] = useState(false)
-  const [showImportReplay, setShowImportReplay] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const phase = useBattleground((s) => s.phase)
@@ -91,9 +84,6 @@ export function BattlegroundSelectorPage() {
   const clearBattleground = useBattleground((s) => s.clear)
   const setPlanAnalysis = useBattleground((s) => s.setPlanAnalysis)
 
-  const replayRun = useReplay((s) => s.run)
-  const replayCurrentStep = useReplay((s) => s.currentStep)
-  const clearReplay = useReplay((s) => s.clear)
 
   const battlegroundName = usePlan((s) => s.planName)
   const setBattlegroundName = usePlan((s) => s.setPlanName)
@@ -404,7 +394,7 @@ export function BattlegroundSelectorPage() {
           }}
           onViewerReady={(viewer) => {
             handleViewerReady(viewer)
-            // A loaded plan/replay's `selection` is already populated by mount
+            // A loaded plan's `selection` is already populated by mount
             // time (see its useState initializer above) -- since that never goes
             // through onSelectionFinalize below, apply the same clipping/zoom-cap
             // here once the viewer exists. No-op for a fresh live-drag session,
@@ -489,7 +479,7 @@ export function BattlegroundSelectorPage() {
       <div className="pointer-events-none absolute inset-0 z-20">
             <div className="pointer-events-none absolute top-24 right-4 left-60 flex items-start justify-between gap-3">
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
-                {canPlan && !replayRun && (
+                {canPlan && (
                   <PlanRosterPanel
                     units={units}
                     objectives={objectives}
@@ -512,10 +502,7 @@ export function BattlegroundSelectorPage() {
                 />
               </div>
               <div className="pointer-events-auto flex flex-col gap-3">
-                {/* Placement tools are meaningless while watching a replay --
-                    the drawing they'd edit belongs to the plan that ground
-                    the run, not to this playback session. */}
-                {activeTab === 'layers' && !replayRun && (
+                {activeTab === 'layers' && (
                   <>
                     <DrawPlanToolbar
                       toolMode={toolMode}
@@ -542,9 +529,7 @@ export function BattlegroundSelectorPage() {
 
             <div className="pointer-events-none absolute right-4 bottom-30 left-60 flex items-end justify-between">
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
-                {replayRun ? (
-                  <ReplayCommsPanel replay={replayRun.replay} currentStep={replayCurrentStep} />
-                ) : phase === 'ready' ? (
+                {phase === 'ready' ? (
                   <>
                     <DataQualityWarning />
                     <TerrainInfoPanel />
@@ -594,23 +579,15 @@ export function BattlegroundSelectorPage() {
       )}
 
       <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
-        {replayRun ? (
-          <ReplayControlBar onExit={clearReplay} />
-        ) : (
-          <BottomBar
-            canRunSimulation={phase === 'ready'}
-            planName={battlegroundName}
-            onRunSimulation={() => setShowSimulation(true)}
-            onSavePlan={() => void handleSavePlan(false)}
-            onSaveAsNew={() => void handleSavePlan(true)}
-            saveState={saveState}
-            onImportReplay={() => setShowImportReplay(true)}
-          />
-        )}
+        <BottomBar
+          planReady={phase === 'ready'}
+          planName={battlegroundName}
+          onSavePlan={() => void handleSavePlan(false)}
+          onSaveAsNew={() => void handleSavePlan(true)}
+          saveState={saveState}
+        />
       </div>
 
-      <SimulationModal open={showSimulation} onClose={() => setShowSimulation(false)} />
-      <ImportReplayModal open={showImportReplay} onClose={() => setShowImportReplay(false)} />
     </div>
   )
 }
