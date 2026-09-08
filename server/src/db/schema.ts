@@ -1,6 +1,7 @@
 import { pgTable, text, integer, real, jsonb, timestamp, customType } from 'drizzle-orm/pg-core'
 import type { BBox, Weather, OsmFeatures, SegmentationInfo } from '../types'
 import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
+import type { CorridorEdit, StudyMarks, StudyResult } from './studyTypes'
 
 const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -63,4 +64,26 @@ export const operationalAreas = pgTable('operational_areas', {
   /** gzipped JSON — see services/graphWire.ts for why not a binary layout. */
   graphBuffer: bytea('graph_buffer').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** One route study over an operational area: the ground the operator marked,
+ *  the corridors the engine derived from it, and the operator's own edits.
+ *  Mutable, unlike the area it stands on. */
+export const routeStudies = pgTable('route_studies', {
+  id: text('id').primaryKey(),
+  areaId: text('area_id')
+    .notNull()
+    .references(() => operationalAreas.id),
+  name: text('name').notNull(),
+  marks: jsonb('marks').$type<StudyMarks>().notNull(),
+  /** Edges the operator marked impassable — a dropped bridge is an edge, not a
+   *  corridor, so removing one never deletes ground other corridors share. */
+  edgeOverrides: jsonb('edge_overrides').$type<string[]>().notNull(),
+  /** Last engine result. Cached so re-reading a study costs nothing; replaced
+   *  wholesale whenever the ground or the marks change. */
+  result: jsonb('result').$type<StudyResult>().notNull(),
+  /** Operator renames and categories, keyed by corridor id. */
+  corridorEdits: jsonb('corridor_edits').$type<Record<string, CorridorEdit>>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

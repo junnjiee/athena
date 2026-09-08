@@ -36,6 +36,9 @@ class StudyRequest(BaseModel):
     max_stretch: float = Field(default=MAX_STRETCH, gt=1.0)
     max_sharing: float = Field(default=MAX_SHARING, gt=0.0, le=1.0)
     corridor_similarity: float = Field(default=CORRIDOR_SIMILARITY, ge=0.0, le=1.0)
+    excluded_edge_ids: list[str] = Field(default_factory=list)
+    """Edges the operator has marked impassable -- a dropped bridge, a flooded
+    ford. Terrain the engine has no way of knowing about on its own."""
 
 
 @app.get("/health")
@@ -73,4 +76,5 @@ async def route_study(request: StudyRequest) -> StudyResult:
         max_stretch=request.max_stretch,
         max_sharing=request.max_sharing,
         similarity=request.corridor_similarity,
+        excluded_edge_ids=frozenset(request.excluded_edge_ids),
     )

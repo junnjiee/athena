@@ -62,6 +62,7 @@ def run_study(
     max_stretch: float = MAX_STRETCH,
     max_sharing: float = MAX_SHARING,
     similarity: float = CORRIDOR_SIMILARITY,
+    excluded_edge_ids: frozenset[str] = frozenset(),
 ) -> StudyResult:
     """Routes every reserve to every objective, then groups the lot.
 
@@ -94,6 +95,7 @@ def run_study(
                 k=k,
                 max_stretch=max_stretch,
                 max_sharing=max_sharing,
+                excluded=excluded_edge_ids,
             )
             if not found:
                 unreachable.append(

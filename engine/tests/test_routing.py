@@ -160,3 +160,32 @@ def test_an_unreachable_objective_yields_nothing() -> None:
     )
 
     assert find_diverse_routes(split, 1, 4, k=4) == []
+
+
+# Operator overrides
+
+
+def test_an_excluded_edge_is_not_used(ladder: RoadGraph) -> None:
+    """A dropped bridge is an edge the operator marked, not a rule the engine knows."""
+    route = shortest_route(ladder, 1, 4, excluded=frozenset({"1:1"}))
+
+    assert route is not None
+    assert "1:1" not in ids(route)
+
+
+def test_excluding_the_only_way_through_leaves_no_route() -> None:
+    line = RoadGraph(
+        nodes=(node(1, 0), node(2, 1), node(3, 2)),
+        edges=(edge("1:0", 1, 2, 100), edge("1:1", 2, 3, 100)),
+    )
+
+    assert shortest_route(line, 1, 3, excluded=frozenset({"1:1"})) is None
+
+
+def test_diverse_search_respects_exclusions(corridor_pair: RoadGraph) -> None:
+    routes = find_diverse_routes(
+        corridor_pair, 1, 9, k=8, max_stretch=10.0, excluded=frozenset({"10:0"})
+    )
+
+    assert routes
+    assert all("10:0" not in ids(route) for route in routes)

@@ -60,6 +60,14 @@ export const config = {
    *  road segment does not need metre accuracy, and a finer tile would
    *  multiply fetches across a 50 km box for no routing benefit. */
   operationalDemResolutionMeters: 30,
+
+  /** Athena planning engine. It is stateless and holds no user data, so it is
+   *  never exposed to the browser: this service is its only caller. Without
+   *  this, areas still ingest and the study endpoints report it is unset. */
+  engineUrl: (process.env.ENGINE_URL ?? '').replace(/\/+$/, ''),
+  /** A study is a graph search over tens of thousands of edges, not a model
+   *  call, so this bounds a slow network rather than slow thinking. */
+  engineTimeoutMs: 60_000,
   /** Public Overpass instances throttle/block requests without an identifying UA. */
   userAgent: 'athena-terrain-service/0.1 (dev)',
 
