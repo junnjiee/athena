@@ -164,3 +164,54 @@ export interface BattlegroundJob {
   gridBuffer: Buffer | null
   features: OsmFeatures | null
 }
+
+/** Road classes a vehicle can use, kept at OSM's own granularity because the
+ *  routing speed table needs a motorway and a residential street to differ.
+ *  Distinct from `RoadClass`, which coarsens roads for tactical display. */
+export type MountedRoadClass =
+  | 'motorway'
+  | 'trunk'
+  | 'primary'
+  | 'secondary'
+  | 'tertiary'
+  | 'residential'
+  | 'unclassified'
+  | 'service'
+  | 'living_street'
+  | 'track'
+
+/** An Overpass way carrying node refs alongside geometry. The tactical query
+ *  asks for `out tags geom`, which omits node ids and leaves junctions
+ *  inferable only by matching floats; routing needs the ids. */
+export interface OverpassWay {
+  id: number
+  nodes: number[]
+  geometry: { lon: number; lat: number }[]
+  tags?: Record<string, string>
+}
+
+/** A junction, or the free end of a road. Interior shape points are not nodes. */
+export interface GraphNode {
+  id: number
+  lon: number
+  lat: number
+}
+
+export interface GraphEdge {
+  /** `wayId:startIndex` — derived, so a rebuild of unchanged ground reproduces it. */
+  id: string
+  wayId: number
+  from: number
+  to: number
+  roadClass: MountedRoadClass
+  /** every node id from `from` to `to` inclusive, interior shape points included */
+  nodes: number[]
+  points: [number, number][]
+  lengthMeters: number
+}
+
+/** Nodes and edges are both sorted, so an unchanged area rebuilds identically. */
+export interface RoadGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}

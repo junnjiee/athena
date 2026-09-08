@@ -4,15 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-Athena lets a commander sketch a plan on real ground and instantly see the odds it works, via Monte Carlo simulation of AI-driven soldiers on auto-generated real terrain. See the root README.md for the full product description and the three-process architecture.
+Athena lets a commander sketch a plan on real ground and see whether it works. See the root README.md for the full product description and the two-process architecture.
 
 Area selection on the globe triggers `../server` (Fastify + Socket.IO, port 8787, proxied via Vite) which ingests DEM/OSM/weather, classifies terrain into a military grid, and streams progress; this app renders the battlefield (buildings/roads/water/trees + heatmap drapes) inside the same Cesium scene and validates drawn routes against the grid.
 
-Simulation is live too. Run Simulation in the bottom bar posts to `/api/plans/:id/simulate` (the server builds the scenario and brokers the engine's bearer token), then reads results over SSE from `/api/simulations/:batchId/events`. See `src/state/simulation.ts`, `src/lib/simulationStream.ts` and `src/types/replay.ts` — the latter is aggregate batch scoring (`RunResult`/`BatchOutcome`), not a full replay; the browser never downloads one just to compute a win rate. A run needs a *saved* plan: the engine is handed the stored plan and its stored terrain, never the drawing on screen.
-
-A completed run's full replay can still be watched on demand ("View Replay" in `SimulationModal`, or importing one on the Simulations page) — that path is playback only, no live triggering. `src/types/replayLog.ts` is the actual wire contract with `../engine`, mirroring `engine/athena/models/replay.py`'s schema v3 verbatim; keep it in step with that file. `src/state/replay.ts` drives playback (`ReplayController`, `useSoldierEntities`) over whatever battleground is already on screen.
-
-Not everything a commander can draw is simulated yet — routes, per-unit vision range, objectives and H-hour are dropped engine-side. `../ENGINE_CHANGES.md` is the list.
+Athena previously ran a force-on-force simulation of LLM-driven soldiers over this terrain, and this app carried the surfaces for it — a run dialog, batch scoring over SSE, and replay playback. That engine has been removed; the replacement is a planning aid for enemy reinforcement routes and block forces, specified in `../docs/superpowers/specs/2026-09-08-route-substrate-design.md`. Nothing in `src/` talks to an engine today.
 
 ## Commands
 
