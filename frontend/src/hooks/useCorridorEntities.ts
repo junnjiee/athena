@@ -6,7 +6,6 @@ import type { CorridorLine } from '../lib/routeStudy'
 interface StyledCorridorLine extends CorridorLine {
   selected: boolean
 }
-
 export function useCorridorEntities({
   viewer,
   lines,

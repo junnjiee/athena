@@ -9,7 +9,6 @@ interface DisplayMark extends StudyMark {
   id: string
   kind: 'reserve' | 'objective'
 }
-
 export function useStudyMarkEntities({
   viewer,
   marks,

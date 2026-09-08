@@ -22,7 +22,6 @@ interface Props {
   onViewerReady: (viewer: Cesium.Viewer) => void
   onPlace: (mode: 'place-reserve' | 'place-study-objective', position: LonLat) => void
 }
-
 const hiddenCredits = document.createElement('div')
 
 function OperationalOverlayController({

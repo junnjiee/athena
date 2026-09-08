@@ -9,7 +9,6 @@ export interface CorridorLine {
   color: string
   kind: 'route' | 'choke'
 }
-
 function appendPoints(target: [number, number][], points: [number, number][]): void {
   for (const point of points) {
     const previous = target[target.length - 1]
