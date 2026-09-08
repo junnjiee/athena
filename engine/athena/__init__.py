@@ -1,1 +1,0 @@
-"""Athena simulation engine."""
