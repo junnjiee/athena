@@ -95,4 +95,3 @@ export function corridorDistance(corridor: Corridor): number {
 export function findEdge(graph: RoadGraph, id: string): GraphEdge | undefined {
   return graph.edges.find((edge) => edge.id === id)
 }
-
