@@ -1,0 +1,30 @@
+[project]
+name = "athena-engine"
+version = "0.1.0"
+description = "Athena planning engine: reinforcement routes and block forces"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "pydantic>=2.9",
+    "uvicorn>=0.32",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["athena"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# .pytest_cache is permission-locked on the Windows dev box; the cache buys
+# nothing for a suite this size.
+addopts = "-p no:cacheprovider"
