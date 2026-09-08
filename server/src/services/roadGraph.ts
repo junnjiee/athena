@@ -109,6 +109,7 @@ export function buildRoadGraph(ways: OverpassWay[]): RoadGraph {
             id: nodeId,
             lon: way.geometry[index].lon,
             lat: way.geometry[index].lat,
+            elevation: 0,
           })
         }
       }
@@ -123,4 +124,37 @@ export function buildRoadGraph(ways: OverpassWay[]): RoadGraph {
       (a, b) => a.wayId - b.wayId || Number(a.id.split(':')[1]) - Number(b.id.split(':')[1]),
     ),
   }
+}
+
+/** Samples ground elevation at every node.
+ *
+ *  Kept separate from `buildRoadGraph` so graph construction stays pure and
+ *  testable: the DEM is a network round trip, the topology is not. */
+export function attachElevations(
+  graph: RoadGraph,
+  sample: (lon: number, lat: number) => number,
+): RoadGraph {
+  return {
+    nodes: graph.nodes.map((node) => ({ ...node, elevation: sample(node.lon, node.lat) })),
+    edges: graph.edges,
+  }
+}
+
+/** Rise over run along an edge, signed so uphill is positive.
+ *
+ *  Taken between the edge's endpoints rather than its steepest interior
+ *  segment: at operational scale the DEM is far coarser than the shape points,
+ *  so a per-segment slope would mostly measure sampling noise. A short edge
+ *  over a real cliff is therefore understated -- see ENGINE.md's known limits.
+ *
+ *  `reversed` gives the same slope for travel the other way, since edges are
+ *  bidirectional and only the direction of travel changes the sign. */
+export function edgeGradient(graph: RoadGraph, edge: GraphEdge, reversed = false): number {
+  if (edge.lengthMeters <= 0) return 0
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  const from = byId.get(edge.from)
+  const to = byId.get(edge.to)
+  if (!from || !to) return 0
+  const rise = to.elevation - from.elevation
+  return (reversed ? -rise : rise) / edge.lengthMeters
 }

@@ -147,6 +147,8 @@ export type ProgressStepId =
   | 'classify'
   | 'military'
   | 'grid'
+  | 'roads'
+  | 'graph'
 
 export interface ProgressEvent {
   step: ProgressStepId
@@ -190,11 +192,16 @@ export interface OverpassWay {
   tags?: Record<string, string>
 }
 
-/** A junction, or the free end of a road. Interior shape points are not nodes. */
+/** A junction, or the free end of a road. Interior shape points are not nodes.
+ *
+ *  Elevation lives here rather than on the edge so an edge's gradient is
+ *  derived and signed, which keeps uphill and downhill distinguishable without
+ *  storing the same slope twice. Zero until `attachElevations` has run. */
 export interface GraphNode {
   id: number
   lon: number
   lat: number
+  elevation: number
 }
 
 export interface GraphEdge {
@@ -214,4 +221,27 @@ export interface GraphEdge {
 export interface RoadGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
+}
+
+/** An ingested operational area: the ground reinforcement routing runs over.
+ *  Immutable once written, like a battleground — studies against the same
+ *  ground never re-hit Overpass. */
+export interface OperationalAreaMeta {
+  id: string
+  name: string
+  bbox: BBox
+  generatedAt: string
+  nodeCount: number
+  edgeCount: number
+  /** Ground resolution of the DEM the node elevations were sampled from. */
+  demResolutionMeters: number
+}
+
+export interface OperationalAreaJob {
+  id: string
+  status: 'running' | 'ready' | 'error'
+  error?: string
+  progress: ProgressEvent[]
+  meta: OperationalAreaMeta | null
+  graph: RoadGraph | null
 }

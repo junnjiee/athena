@@ -132,3 +132,25 @@ export async function buildHeightGrid(
   }
   return heights
 }
+
+/** Builds a point sampler over the bbox at the given ground resolution.
+ *
+ *  `buildHeightGrid` answers "elevation of every cell"; road-graph nodes are
+ *  scattered points, so this returns the lookup instead of a grid. The mosaic
+ *  is fetched once and closed over, which is what makes sampling tens of
+ *  thousands of junctions affordable.
+ *
+ *  Resolution is the DEM's own, not the road network's: at operational scale a
+ *  coarse tile is all that gradient needs, and a finer one would multiply tile
+ *  fetches for no routing benefit. */
+export async function buildElevationSampler(
+  bbox: BBox,
+  resolutionMeters: number,
+): Promise<(lon: number, lat: number) => number> {
+  const midLat = (bbox.south + bbox.north) / 2
+  const zoom = zoomForResolution(resolutionMeters, midLat, config.demMinZoom, config.demMaxZoom)
+  const mosaic = await buildMosaic(bbox, zoom)
+
+  return (lon: number, lat: number) =>
+    sampleBilinear(mosaic, lonToPixelX(lon, zoom), latToPixelY(lat, zoom))
+}
