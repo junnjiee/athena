@@ -7,10 +7,17 @@ interface Args {
   viewer: Cesium.Viewer | undefined
   armed: boolean
   resetToken: number
+  maxExtentMeters?: number
   onSelectionFinalize: (result: SelectionResult) => void
 }
 
-export function useRectangleSelection({ viewer, armed, resetToken, onSelectionFinalize }: Args) {
+export function useRectangleSelection({
+  viewer,
+  armed,
+  resetToken,
+  maxExtentMeters,
+  onSelectionFinalize,
+}: Args) {
   const rectangleRef = useRef<Cesium.Rectangle | null>(null)
   const startCartographicRef = useRef<Cesium.Cartographic | null>(null)
   const isDraggingRef = useRef(false)
@@ -80,7 +87,7 @@ export function useRectangleSelection({ viewer, armed, resetToken, onSelectionFi
       if (!isDraggingRef.current || !startCartographicRef.current) return
       const carto = pickCartographic(viewer, movement.endPosition)
       if (!carto) return
-      const clamped = clampCorner(startCartographicRef.current, carto)
+      const clamped = clampCorner(startCartographicRef.current, carto, maxExtentMeters)
       rectangleRef.current = Cesium.Rectangle.fromCartographicArray([startCartographicRef.current, clamped])
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 
@@ -109,7 +116,7 @@ export function useRectangleSelection({ viewer, armed, resetToken, onSelectionFi
         cleanupController.enableTranslate = true
       }
     }
-  }, [viewer, armed])
+  }, [viewer, armed, maxExtentMeters])
 
   useEffect(() => {
     if (!viewer || resetToken === 0) return

@@ -246,7 +246,7 @@ export function BattlegroundSelectorPage() {
       },
 
       selectArea(longitude, latitude, sizeMeters) {
-        const half = Math.min(Math.max(sizeMeters, 50), MAX_SELECTION_EXTENT_METERS * 2) / 2
+        const half = Math.min(Math.max(sizeMeters, 50), MAX_SELECTION_EXTENT_METERS) / 2
         const metersPerDegreeLat = 111_320
         const metersPerDegreeLon = metersPerDegreeLat * Math.cos((latitude * Math.PI) / 180)
         const rectangle = Cesium.Rectangle.fromDegrees(

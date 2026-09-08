@@ -1,12 +1,13 @@
-import { Triangle, Map, ClipboardList, Radar, Users, Settings } from 'lucide-react'
+import { Triangle, Map, ClipboardList, Radar, Route, Users, Settings } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-/** Battleground/Plans/Settings have real pages -- the rest stay
+/** Battleground/Plans/Routes/Settings have real pages -- the rest stay
  *  non-interactive stubs (no `path`) rather than wiring up routes that don't
  *  exist yet. Tracked in issues #54-#58. */
 const NAV_ITEMS = [
   { label: 'Battleground', icon: Map, path: '/' },
   { label: 'Plans', icon: ClipboardList, path: '/plans' },
+  { label: 'Routes', icon: Route, path: '/route-studies' },
   { label: 'Intel', icon: Radar, path: '/intel' },
   { label: 'Units', icon: Users, path: '/units' },
   { label: 'Settings', icon: Settings, path: '/settings' },

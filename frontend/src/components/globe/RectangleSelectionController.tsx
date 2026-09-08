@@ -5,11 +5,12 @@ import type { SelectionResult } from '../../types/selection'
 interface Props {
   armed: boolean
   resetToken: number
+  maxExtentMeters?: number
   onSelectionFinalize: (result: SelectionResult) => void
 }
 
-export function RectangleSelectionController({ armed, resetToken, onSelectionFinalize }: Props) {
+export function RectangleSelectionController({ armed, resetToken, maxExtentMeters, onSelectionFinalize }: Props) {
   const { viewer } = useCesium()
-  useRectangleSelection({ viewer, armed, resetToken, onSelectionFinalize })
+  useRectangleSelection({ viewer, armed, resetToken, maxExtentMeters, onSelectionFinalize })
   return null
 }

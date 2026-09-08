@@ -1,6 +1,10 @@
 import * as Cesium from 'cesium'
 
-export const MAX_SELECTION_EXTENT_METERS = 400
+/** Maximum side length of the tactical battleground selector. */
+export const MAX_SELECTION_EXTENT_METERS = 800
+
+/** Maximum side length of an operational road-graph ingest. */
+export const OPERATIONAL_MAX_SELECTION_EXTENT_METERS = 50_000
 
 function metersPerDegree(latitudeRadians: number) {
   return {
@@ -10,16 +14,20 @@ function metersPerDegree(latitudeRadians: number) {
 }
 
 /** Clamp `current` so its distance from the fixed `start` corner never exceeds
- *  MAX_SELECTION_EXTENT_METERS along either axis, independent of drag direction.
- *  Flat-earth approximation -- cheap enough to run on every mousemove; accurate to
- *  well under 0.1% at this <=400m scale. */
-export function clampCorner(start: Cesium.Cartographic, current: Cesium.Cartographic): Cesium.Cartographic {
+ *  `maxExtentMeters` along either axis, independent of drag direction. The local
+ *  tangent approximation remains comfortably accurate for the largest supported
+ *  operational selection (50 km) and is cheap enough to run on every mousemove. */
+export function clampCorner(
+  start: Cesium.Cartographic,
+  current: Cesium.Cartographic,
+  maxExtentMeters = MAX_SELECTION_EXTENT_METERS,
+): Cesium.Cartographic {
   const { metersPerDegreeLat, metersPerDegreeLon } = metersPerDegree(start.latitude)
   const dNorthMeters = Cesium.Math.toDegrees(current.latitude - start.latitude) * metersPerDegreeLat
   const dEastMeters = Cesium.Math.toDegrees(current.longitude - start.longitude) * metersPerDegreeLon
 
-  const clampedNorth = Cesium.Math.clamp(dNorthMeters, -MAX_SELECTION_EXTENT_METERS, MAX_SELECTION_EXTENT_METERS)
-  const clampedEast = Cesium.Math.clamp(dEastMeters, -MAX_SELECTION_EXTENT_METERS, MAX_SELECTION_EXTENT_METERS)
+  const clampedNorth = Cesium.Math.clamp(dNorthMeters, -maxExtentMeters, maxExtentMeters)
+  const clampedEast = Cesium.Math.clamp(dEastMeters, -maxExtentMeters, maxExtentMeters)
 
   return Cesium.Cartographic.fromDegrees(
     Cesium.Math.toDegrees(start.longitude) + clampedEast / metersPerDegreeLon,

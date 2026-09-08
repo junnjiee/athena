@@ -3,6 +3,13 @@ import type { BattlegroundMeta, BBoxDeg, GridData, OsmFeatures } from '../types/
 import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 import type { PlanSummary, SavedPlan } from '../types/plan'
 import type { Forecast } from '../types/forecast'
+import type {
+  CorridorEdit,
+  OperationalAreaMeta,
+  RouteStudy,
+  RouteStudySummary,
+  StudyMarks,
+} from '../types/routeStudy'
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -142,4 +149,88 @@ export async function fetchPlan(id: string): Promise<SavedPlan> {
     features: body.battleground.features,
     grid,
   }
+}
+
+// --- Operational areas and route studies -------------------------------------
+//
+// The S2 side: wide ground, its road network, and the corridors an enemy
+// reserve could reinforce along. Distinct from a battleground, which is the
+// tactical 800 m grid a plan is drawn on.
+
+export async function createOperationalArea(bbox: BBoxDeg, name: string): Promise<string> {
+  const res = await fetch('/api/operational-area', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...bbox, name }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { id: string }
+  return body.id
+}
+
+export async function listOperationalAreas(): Promise<OperationalAreaMeta[]> {
+  const res = await fetch('/api/operational-area')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as OperationalAreaMeta[]
+}
+
+export async function fetchOperationalArea(id: string): Promise<OperationalAreaMeta> {
+  const res = await fetch(`/api/operational-area/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { meta: OperationalAreaMeta }
+  return body.meta
+}
+
+/** Runs a study. The server calls the engine and stores the result, so this
+ *  resolves with corridors already derived rather than a job to poll. */
+export async function createRouteStudy(payload: {
+  areaId: string
+  name: string
+  marks: StudyMarks
+  edgeOverrides?: string[]
+}): Promise<RouteStudy> {
+  const res = await fetch('/api/route-study', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as RouteStudy
+}
+
+export async function listRouteStudies(): Promise<RouteStudySummary[]> {
+  const res = await fetch('/api/route-study')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as RouteStudySummary[]
+}
+
+export async function fetchRouteStudy(id: string): Promise<RouteStudy> {
+  const res = await fetch(`/api/route-study/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as RouteStudy
+}
+
+/** Saves edits. The server re-runs the search only when the ground or the
+ *  marks changed; a rename returns the same corridors it was given. */
+export async function updateRouteStudy(
+  id: string,
+  patch: {
+    name?: string
+    marks?: StudyMarks
+    edgeOverrides?: string[]
+    corridorEdits?: Record<string, CorridorEdit>
+  },
+): Promise<RouteStudy> {
+  const res = await fetch(`/api/route-study/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as RouteStudy
+}
+
+export async function deleteRouteStudy(id: string): Promise<void> {
+  const res = await fetch(`/api/route-study/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
 }
