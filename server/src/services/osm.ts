@@ -38,8 +38,13 @@ out tags geom;`
 const OVERPASS_PASSES = 2
 const OVERPASS_RETRY_DELAY_MS = 1500
 
-async function fetchOverpass(bbox: BBox): Promise<OverpassElement[]> {
-  const query = buildQuery(bbox)
+/** Runs a query against the mirror list, throwing only once every mirror has
+ *  failed twice. Callers decide what a failure means: the terrain pipeline
+ *  degrades to "limited data", the operational road fetch refuses to continue. */
+export async function runOverpassQuery(
+  query: string,
+  timeoutMs: number = config.overpassTimeoutMs,
+): Promise<OverpassElement[]> {
   let lastError: unknown = null
   for (let pass = 0; pass < OVERPASS_PASSES; pass++) {
     if (pass > 0) await new Promise((resolve) => setTimeout(resolve, OVERPASS_RETRY_DELAY_MS))
@@ -52,7 +57,7 @@ async function fetchOverpass(bbox: BBox): Promise<OverpassElement[]> {
             'User-Agent': config.userAgent,
           },
           body: `data=${encodeURIComponent(query)}`,
-          signal: AbortSignal.timeout(config.overpassTimeoutMs),
+          signal: AbortSignal.timeout(timeoutMs),
         })
         if (!res.ok) throw new Error(`Overpass HTTP ${res.status} at ${endpoint}`)
         const body = (await res.json()) as { elements?: OverpassElement[] }
@@ -66,6 +71,10 @@ async function fetchOverpass(bbox: BBox): Promise<OverpassElement[]> {
   throw new Error(
     `All Overpass endpoints failed after ${OVERPASS_PASSES} passes: ${lastError instanceof Error ? lastError.message : lastError}`,
   )
+}
+
+async function fetchOverpass(bbox: BBox): Promise<OverpassElement[]> {
+  return runOverpassQuery(buildQuery(bbox))
 }
 
 function toRing(geometry: OverpassGeomPoint[]): [number, number][] {
