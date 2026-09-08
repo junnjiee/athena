@@ -180,7 +180,15 @@ export function RouteStudiesPage() {
     if (viewer) flyToSelectionPreview(viewer, rectangle)
   }
 
+  function cancelAreaGeneration() {
+    areaGenerationRef.current++
+    areaUnsubscribeRef.current?.()
+    areaUnsubscribeRef.current = null
+    setAreaPhase('idle')
+  }
+
   async function openArea(nextArea: OperationalAreaMeta, keepStudy = false) {
+    cancelAreaGeneration()
     setBusyId(nextArea.id)
     setWorkspaceError(null)
     try {
@@ -202,6 +210,7 @@ export function RouteStudiesPage() {
   }
 
   async function openStudy(summary: RouteStudySummary) {
+    cancelAreaGeneration()
     setBusyId(summary.id)
     setWorkspaceError(null)
     try {
@@ -229,9 +238,7 @@ export function RouteStudiesPage() {
   }
 
   function beginNewArea() {
-    areaGenerationRef.current++
-    areaUnsubscribeRef.current?.()
-    areaUnsubscribeRef.current = null
+    cancelAreaGeneration()
     resetStudy()
     setArea(null)
     setGraph(null)
@@ -248,6 +255,7 @@ export function RouteStudiesPage() {
   }
 
   function handleSelectionFinalize(result: SelectionResult) {
+    cancelAreaGeneration()
     resetStudy()
     setArea(null)
     setGraph(null)
@@ -267,14 +275,17 @@ export function RouteStudiesPage() {
         if (generation !== areaGenerationRef.current) return
         setArea(meta)
         setGraph(nextGraph)
-        setSelection({ rectangle: rectangleFor(meta), stats: computeRectangleStats(rectangleFor(meta)) })
+        const rectangle = rectangleFor(meta)
+        setSelection({ rectangle, stats: computeRectangleStats(rectangle) })
         setAreaName(meta.name)
         setStudyName(`${meta.name} Route Study`)
         setAreaSteps((steps) => steps.map((step) => ({ ...step, status: 'done' })))
         setAreaPhase('idle')
         areaUnsubscribeRef.current?.()
         areaUnsubscribeRef.current = null
-        await refreshLibrary()
+        void refreshLibrary().catch((error: unknown) => {
+          setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh operational library')
+        })
         frameArea(meta)
         return
       } catch (error: unknown) {
@@ -323,6 +334,8 @@ export function RouteStudiesPage() {
       await waitForOperationalArea(jobId, generation)
     } catch (error: unknown) {
       if (generation !== areaGenerationRef.current) return
+      areaUnsubscribeRef.current?.()
+      areaUnsubscribeRef.current = null
       setAreaError(error instanceof Error ? error.message : 'operational area ingest failed')
       setAreaPhase('idle')
     }
@@ -354,7 +367,13 @@ export function RouteStudiesPage() {
     }
     setWorkspaceError(null)
     await runStudy(area.id, studyName.trim() || `${area.name} Route Study`)
-    if (useRouteStudy.getState().phase === 'ready') await refreshLibrary()
+    if (useRouteStudy.getState().phase === 'ready') {
+      try {
+        await refreshLibrary()
+      } catch (error: unknown) {
+        setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh operational library')
+      }
+    }
   }
 
   async function handleDeleteStudy(summary: RouteStudySummary) {
@@ -413,6 +432,7 @@ export function RouteStudiesPage() {
           <ToolButton
             title="Select a 10–50 km operational area"
             active={toolMode === 'select-area'}
+            disabled={areaPhase === 'generating'}
             onClick={() => setToolMode('select-area')}
           >
             <Crosshair className="h-4 w-4" /> Select area

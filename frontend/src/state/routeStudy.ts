@@ -105,7 +105,7 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
   },
 
   load: async (id) => {
-    set({ phase: 'running', error: null })
+    set({ phase: 'running', error: null, study: null, selectedCorridorId: null })
     try {
       const study = await fetchRouteStudy(id)
       set({ phase: 'ready', study, draftMarks: study.marks })
