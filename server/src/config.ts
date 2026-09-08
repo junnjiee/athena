@@ -56,6 +56,10 @@ export const config = {
    *  so this is far beyond `maxExtentMeters`; the ceiling exists because a
    *  public Overpass mirror will not serve an unbounded road network. */
   operationalMaxExtentMeters: 50_000,
+  /** DEM ground resolution for operational node elevations. Gradient over a
+   *  road segment does not need metre accuracy, and a finer tile would
+   *  multiply fetches across a 50 km box for no routing benefit. */
+  operationalDemResolutionMeters: 30,
   /** Public Overpass instances throttle/block requests without an identifying UA. */
   userAgent: 'athena-terrain-service/0.1 (dev)',
 

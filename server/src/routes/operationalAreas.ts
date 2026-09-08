@@ -1,0 +1,95 @@
+import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { config } from '../config'
+import { bboxExtentMeters } from '../lib/geo'
+import {
+  getOperationalAreaJob,
+  startOperationalAreaIngest,
+  type ProgressListener,
+} from '../services/operationalArea'
+import {
+  listOperationalAreas,
+  loadOperationalArea,
+  loadOperationalGraphBuffer,
+} from '../services/operationalAreaStore'
+
+const areaBody = z
+  .object({
+    west: z.number().gte(-180).lte(180),
+    south: z.number().gte(-85).lte(85),
+    east: z.number().gte(-180).lte(180),
+    north: z.number().gte(-85).lte(85),
+    name: z.string().trim().min(1).max(80).default('Untitled Area'),
+  })
+  .refine((b) => b.west < b.east && b.south < b.north, {
+    message: 'bbox must have west < east and south < north',
+  })
+
+export function registerOperationalAreaRoutes(
+  app: FastifyInstance,
+  onProgress: ProgressListener,
+): void {
+  /** Starts an ingest. Returns immediately; progress arrives over Socket.IO on
+   *  the job id, exactly as battleground generation does. */
+  app.post(
+    '/api/operational-area',
+    {
+      config: {
+        rateLimit: {
+          max: config.battlegroundRateLimit,
+          timeWindow: config.battlegroundRateWindowMs,
+        },
+      },
+    },
+    async (req, reply) => {
+      const parsed = areaBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+      const { name, ...bbox } = parsed.data
+      const { widthM, heightM } = bboxExtentMeters(bbox)
+      if (Math.max(widthM, heightM) > config.operationalMaxExtentMeters) {
+        return reply.status(400).send({
+          error: `area exceeds ${config.operationalMaxExtentMeters / 1000} km limit`,
+        })
+      }
+      const job = startOperationalAreaIngest(bbox, name, onProgress)
+      return reply.status(202).send({ id: job.id, status: job.status })
+    },
+  )
+
+  app.get('/api/operational-area', async () => listOperationalAreas())
+
+  /** Live job first, falling back to the stored row, so an area survives the
+   *  process that built it. */
+  app.get<{ Params: { id: string } }>('/api/operational-area/:id', async (req, reply) => {
+    const job = getOperationalAreaJob(req.params.id)
+    if (job) {
+      if (job.status === 'error') return reply.status(500).send({ error: job.error })
+      if (job.status !== 'ready' || !job.meta) {
+        return reply.status(409).send({ error: 'not ready' })
+      }
+      return { meta: job.meta }
+    }
+
+    const stored = await loadOperationalArea(req.params.id)
+    if (!stored) return reply.status(404).send({ error: 'unknown operational area' })
+    return { meta: stored.meta }
+  })
+
+  /** The engine's input. Served as the stored gzip bytes rather than re-encoded
+   *  JSON: the engine pulls this on every study, and inflating a graph here
+   *  only to have it recompressed on the wire is pure waste. */
+  app.get<{ Params: { id: string } }>('/api/operational-area/:id/graph', async (req, reply) => {
+    const packed = await loadOperationalGraphBuffer(req.params.id)
+    if (packed) {
+      return reply.header('Content-Type', 'application/gzip').send(packed)
+    }
+
+    // Not yet persisted, but possibly still in the job that built it.
+    const job = getOperationalAreaJob(req.params.id)
+    if (!job) return reply.status(404).send({ error: 'unknown operational area' })
+    if (job.status === 'error') return reply.status(500).send({ error: job.error })
+    return reply.status(409).send({ error: 'not ready' })
+  })
+}

@@ -46,3 +46,21 @@ export const plans = pgTable('plans', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/** An ingested operational area: the drivable road network over wide ground,
+ *  stored as a gzipped graph. Immutable once written, like a battleground, so
+ *  route studies over the same ground never re-hit Overpass. */
+export const operationalAreas = pgTable('operational_areas', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  bbox: jsonb('bbox').$type<BBox>().notNull(),
+  generatedAt: text('generated_at').notNull(),
+  // Denormalized so the list page never inflates a graph to show its size --
+  // same rationale as battlegrounds.featureCounts.
+  nodeCount: integer('node_count').notNull(),
+  edgeCount: integer('edge_count').notNull(),
+  demResolutionMeters: real('dem_resolution_meters').notNull(),
+  /** gzipped JSON — see services/graphWire.ts for why not a binary layout. */
+  graphBuffer: bytea('graph_buffer').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})

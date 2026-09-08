@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { buildRoadGraph, mountedRoadClass } from '../src/services/roadGraph'
-import type { OverpassWay } from '../src/types'
+import {
+  attachElevations,
+  buildRoadGraph,
+  edgeGradient,
+  mountedRoadClass,
+} from '../src/services/roadGraph'
+import type { GraphEdge, OverpassWay } from '../src/types'
 
 /** Fixtures sit at the equator on a 0.001° lattice, so one step is 111.32 m in
  *  either axis and expected lengths are readable by inspection. */
@@ -250,5 +255,56 @@ describe('buildRoadGraph', () => {
       [2, 2],
       [2, 4],
     ])
+  })
+})
+
+describe('attachElevations', () => {
+  test('every node takes its elevation from the sampler', () => {
+    const graph = buildRoadGraph([eastWestRoad()])
+    // a west-to-east ramp: elevation follows longitude
+    const raised = attachElevations(graph, (lon) => lon * 100_000)
+
+    expect(raised.nodes.map((n) => Math.round(n.elevation))).toEqual([-100, 100])
+  })
+
+  test('edges are untouched', () => {
+    const graph = buildRoadGraph([eastWestRoad()])
+    const raised = attachElevations(graph, () => 42)
+
+    expect(raised.edges).toEqual(graph.edges)
+  })
+
+  test('sampling twice gives the same graph', () => {
+    const graph = buildRoadGraph([eastWestRoad()])
+    const sampler = (lon: number, lat: number) => lon + lat
+
+    expect(attachElevations(graph, sampler)).toEqual(attachElevations(graph, sampler))
+  })
+})
+
+describe('edgeGradient', () => {
+  const graph = buildRoadGraph([eastWestRoad()])
+
+  test('flat ground has no gradient', () => {
+    const flat = attachElevations(graph, () => 10)
+    expect(edgeGradient(flat, flat.edges[0])).toBe(0)
+  })
+
+  test('is signed, so direction of travel is recoverable', () => {
+    // node 1 at -STEP sits low, node 3 at +STEP sits high
+    const ramp = attachElevations(graph, (lon) => (lon < 0 ? 0 : 22.264))
+    const edge = ramp.edges[0]
+
+    // 22.264 m of rise over 222.64 m of road is exactly 10%
+    expect(edgeGradient(ramp, edge)).toBeCloseTo(0.1, 3)
+    // travelling the other way is the same slope downhill
+    expect(edgeGradient(ramp, edge, true)).toBeCloseTo(-0.1, 3)
+  })
+
+  test('a zero-length edge has no gradient rather than an infinite one', () => {
+    const loop: GraphEdge = { ...graph.edges[0], lengthMeters: 0 }
+    const raised = attachElevations(graph, () => 5)
+
+    expect(edgeGradient(raised, loop)).toBe(0)
   })
 })
