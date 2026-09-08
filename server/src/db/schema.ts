@@ -1,7 +1,7 @@
 import { pgTable, text, integer, real, jsonb, timestamp, customType } from 'drizzle-orm/pg-core'
 import type { BBox, Weather, OsmFeatures, SegmentationInfo } from '../types'
 import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
-import type { CorridorEdit, StudyMarks, StudyResult } from './studyTypes'
+import type { BlockPlan, CorridorEdit, Echelon, Orbat, StudyMarks, StudyResult } from './studyTypes'
 
 const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -84,6 +84,12 @@ export const routeStudies = pgTable('route_studies', {
   result: jsonb('result').$type<StudyResult>().notNull(),
   /** Operator renames and categories, keyed by corridor id. */
   corridorEdits: jsonb('corridor_edits').$type<Record<string, CorridorEdit>>().notNull(),
+  /** Force available for blocking, and the largest formation that may be
+   *  committed to any one corridor. Null until an S3 pass has been run. */
+  orbat: jsonb('orbat').$type<Orbat | null>(),
+  ceiling: text('ceiling').$type<Echelon | null>(),
+  /** Last block-force result, cached like the corridor result above. */
+  blockPlan: jsonb('block_plan').$type<BlockPlan | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

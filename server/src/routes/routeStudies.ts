@@ -4,8 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
 import { routeStudies } from '../db/schema'
-import type { CorridorEdit, StudyMarks } from '../db/studyTypes'
-import { EngineUnavailableError, runRouteStudy } from '../services/engineClient'
+import type { CorridorEdit, Orbat, StudyMarks } from '../db/studyTypes'
+import { EngineUnavailableError, runBlockForces, runRouteStudy } from '../services/engineClient'
 
 const markSchema = z.object({
   id: z.string().min(1),
@@ -31,6 +31,30 @@ const updateBody = z.object({
   marks: marksSchema.optional(),
   edgeOverrides: z.array(z.string()).optional(),
   corridorEdits: z.record(z.object({ name: z.string().max(80).optional(), category: z.string().max(40).optional() })).optional(),
+})
+
+
+const echelonSchema = z.enum(['company', 'platoon', 'section', 'group'])
+
+const orbatSchema = z.object({
+  units: z.array(
+    z.object({
+      unit_id: z.string().min(1),
+      name: z.string().trim().min(1).max(80),
+      echelon: echelonSchema,
+      parent_id: z.string().min(1).nullish(),
+      lon: z.number().gte(-180).lte(180),
+      lat: z.number().gte(-85).lte(85),
+      strength: z.number().int().positive(),
+      availability: z.enum(['uncommitted', 'committed', 'reserve']).default('uncommitted'),
+    }),
+  ),
+})
+
+export const blockForcesBody = z.object({
+  orbat: orbatSchema,
+  /** Largest formation the operator will commit to any one corridor. */
+  ceiling: echelonSchema,
 })
 
 /** Whether an edit changes what the engine would find.
@@ -162,6 +186,56 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       corridorEdits,
     }
   })
+
+
+  /** Runs the S3 pass over the corridors this study already found.
+   *
+   *  Kept off the study's own PUT because the ORBAT is a separate question from
+   *  the ground: changing which force is available must not re-run the route
+   *  search, and changing the ground must not silently invalidate an
+   *  allocation the commander is reading. */
+  app.post<{ Params: { id: string } }>(
+    '/api/route-study/:id/block-forces',
+    async (req, reply) => {
+      const parsed = blockForcesBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+
+      const rows = await db
+        .select()
+        .from(routeStudies)
+        .where(eq(routeStudies.id, req.params.id))
+        .limit(1)
+      const row = rows[0]
+      if (!row) return reply.status(404).send({ error: 'unknown route study' })
+
+      const orbat = parsed.data.orbat as Orbat
+      const { ceiling } = parsed.data
+
+      let blockPlan
+      try {
+        blockPlan = await runBlockForces({
+          areaId: row.areaId,
+          corridors: row.result.corridors,
+          orbat,
+          ceiling,
+        })
+      } catch (error: unknown) {
+        if (error instanceof EngineUnavailableError) {
+          return reply.status(503).send({ error: error.message })
+        }
+        throw error
+      }
+
+      await db
+        .update(routeStudies)
+        .set({ orbat, ceiling, blockPlan, updatedAt: new Date() })
+        .where(eq(routeStudies.id, req.params.id))
+
+      return { orbat, ceiling, blockPlan }
+    },
+  )
 
   app.delete<{ Params: { id: string } }>('/api/route-study/:id', async (req, reply) => {
     await db.delete(routeStudies).where(eq(routeStudies.id, req.params.id))

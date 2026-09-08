@@ -49,3 +49,60 @@ export interface CorridorEdit {
   name?: string
   category?: string
 }
+
+/** The force available for blocking, as the operator supplied it.
+ *
+ *  Not the formation's whole establishment: units get moved around by mission
+ *  requirement, so what can actually be committed today is given per study. */
+export interface OrbatUnit {
+  unit_id: string
+  name: string
+  echelon: 'company' | 'platoon' | 'section' | 'group'
+  parent_id?: string | null
+  lon: number
+  lat: number
+  strength: number
+  availability: 'uncommitted' | 'committed' | 'reserve'
+}
+
+export interface Orbat {
+  units: OrbatUnit[]
+}
+
+export type Echelon = OrbatUnit['echelon']
+
+export interface BlockCandidate {
+  unit_id: string
+  unit_name: string
+  echelon: Echelon
+  strength: number
+  /** Straight-line metres to the choke point — not road distance, not time. */
+  distance_meters: number
+}
+
+export interface CorridorBlock {
+  corridor_id: string
+  choke_edge_ids: string[]
+  candidates: BlockCandidate[]
+}
+
+export interface BlockAllocation {
+  corridor_id: string
+  unit_id: string
+  unit_name: string
+  distance_meters: number
+}
+
+/** A corridor nothing can be put on. Distinct from `uncovered`, which is a
+ *  corridor that could have been blocked had the force not run out. */
+export interface UnblockableCorridor {
+  corridor_id: string
+  reason: string
+}
+
+export interface BlockPlan {
+  corridors: CorridorBlock[]
+  allocation: BlockAllocation[]
+  unblockable: UnblockableCorridor[]
+  uncovered: { corridor_id: string }[]
+}

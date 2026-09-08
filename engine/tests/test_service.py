@@ -100,3 +100,81 @@ def test_an_operator_override_removes_ground_from_the_study() -> None:
     body = response.json()
     assert body["corridors"] == []
     assert len(body["unreachable"]) == 1
+
+
+ORBAT = {
+    "units": [
+        {
+            "unit_id": "sec1",
+            "name": "1 Section",
+            "echelon": "section",
+            "lon": 0.0,
+            "lat": 0.0,
+            "strength": 7,
+        }
+    ]
+}
+
+
+def block_request(**overrides: object) -> dict[str, object]:
+    body = {
+        "graph": GRAPH,
+        "corridors": [
+            {
+                "id": "cor_a",
+                "routes": [
+                    {
+                        "reserve_id": "res1",
+                        "objective_id": "obj1",
+                        "edge_ids": ["1:0"],
+                        "node_ids": [1, 2],
+                        "seconds": 600.0,
+                        "length_meters": 1000.0,
+                    }
+                ],
+                "choke_edge_ids": ["1:0"],
+                "fastest_seconds": 600.0,
+            }
+        ],
+        "orbat": ORBAT,
+        "ceiling": "section",
+    }
+    body.update(overrides)
+    return body
+
+
+def test_offers_a_block_force_against_a_corridor() -> None:
+    response = client.post("/v1/block-forces", json=block_request())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["allocation"][0]["unit_id"] == "sec1"
+    assert body["corridors"][0]["choke_edge_ids"] == ["1:0"]
+
+
+def test_block_forces_need_ground_to_answer_over() -> None:
+    request = block_request()
+    del request["graph"]
+
+    assert client.post("/v1/block-forces", json=request).status_code == 400
+
+
+def test_a_ceiling_below_the_force_leaves_the_corridor_unblockable() -> None:
+    company_only = {"units": [{**ORBAT["units"][0], "echelon": "company"}]}
+    response = client.post("/v1/block-forces", json=block_request(orbat=company_only))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["allocation"] == []
+    assert len(body["unblockable"]) == 1
+
+
+def test_an_invalid_orbat_tree_is_rejected() -> None:
+    broken = {
+        "units": [
+            {**ORBAT["units"][0], "unit_id": "a", "echelon": "section", "parent_id": "ghost"}
+        ]
+    }
+    response = client.post("/v1/block-forces", json=block_request(orbat=broken))
+
+    assert response.status_code == 422
