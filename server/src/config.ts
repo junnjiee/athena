@@ -48,6 +48,14 @@ export const config = {
     'https://overpass.kumi.systems/api/interpreter',
   ],
   overpassTimeoutMs: 25_000,
+  /** The operational road fetch covers a box up to two orders of magnitude
+   *  larger than a battleground, so it needs longer than the tactical query.
+   *  Filtering to drivable classes is what keeps even this achievable. */
+  overpassOperationalTimeoutMs: 90_000,
+  /** Largest operational area, metres a side. Reinforcement comes from depth,
+   *  so this is far beyond `maxExtentMeters`; the ceiling exists because a
+   *  public Overpass mirror will not serve an unbounded road network. */
+  operationalMaxExtentMeters: 50_000,
   /** Public Overpass instances throttle/block requests without an identifying UA. */
   userAgent: 'athena-terrain-service/0.1 (dev)',
 
