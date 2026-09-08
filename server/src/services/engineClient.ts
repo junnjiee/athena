@@ -1,5 +1,5 @@
 import { config } from '../config'
-import type { StudyMarks, StudyResult } from '../db/studyTypes'
+import type { BlockPlan, Echelon, Orbat, StudyMarks, StudyResult } from '../db/studyTypes'
 
 /**
  * Calls the planning engine.
@@ -43,4 +43,43 @@ export async function runRouteStudy(request: StudyRequest): Promise<StudyResult>
   }
 
   return (await response.json()) as StudyResult
+}
+
+export interface BlockForceRequest {
+  areaId: string
+  corridors: StudyResult['corridors']
+  orbat: Orbat
+  ceiling: Echelon
+}
+
+/** Asks the engine what could block each corridor.
+ *
+ *  Corridors are sent rather than named, so the engine answers against the
+ *  operator's current picture — including corridors they have already blocked
+ *  — instead of re-deriving a possibly different set. */
+export async function runBlockForces(request: BlockForceRequest): Promise<BlockPlan> {
+  if (!config.engineUrl) {
+    throw new EngineUnavailableError('ENGINE_URL is not set')
+  }
+
+  const response = await fetch(`${config.engineUrl}/v1/block-forces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      area_id: request.areaId,
+      corridors: request.corridors,
+      orbat: request.orbat,
+      ceiling: request.ceiling,
+    }),
+    signal: AbortSignal.timeout(config.engineTimeoutMs),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new EngineUnavailableError(
+      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
+    )
+  }
+
+  return (await response.json()) as BlockPlan
 }
