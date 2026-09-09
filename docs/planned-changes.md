@@ -433,11 +433,19 @@ surrounding context.
 
 Connections to the rest of the work:
 
+- ~~**Grounded reserve extraction contract.**~~ **Done** — the engine accepts up
+  to 20 named text documents, treats their bodies as untrusted evidence, and
+  returns reviewable reserve claims with source ids and excerpts. Claims citing
+  a document outside the request are rejected and surfaced. Repeated mentions
+  in one document count once; matching designation/locality claims from two
+  independent documents become *Confirmed*, otherwise they remain *Assessed*.
+  Upload storage, text conversion, place resolution, and operator acceptance
+  remain separate follow-on work.
 - Extracted location references need to resolve to coordinates — the same place
   lookup as A's AO auto-naming and C's IVO/locality field. One capability,
   three consumers.
 - Extraction output should populate C's reserve record directly.
-- **The two-source rule becomes computable.** If two independent documents
+- ~~**The two-source rule becomes computable.**~~ **Done** — if two independent documents
   report the same reserve position, that reserve is *Confirmed* rather than
   *Assessed*, exactly as p.56 defines it. Document count is the evidence.
 - Operator review before extraction becomes marks — extraction proposes, the

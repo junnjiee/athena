@@ -609,6 +609,21 @@ An S3 needs to tell *"there is nowhere to stand"* from *"we were one section
 short"*. Collapsing the two would hide the difference, and the second is a
 resourcing problem while the first is not.
 
+## Document intelligence
+
+`/v1/document-intelligence` is the model boundary for proposing reserve records
+from operator-supplied text. Each document has an immutable request-local id;
+the model must attach every extracted claim to exactly one of those ids and
+include a short evidence excerpt. A claim citing an id outside the request is
+rejected and returned, never accepted silently.
+
+Document bodies are delimited as **untrusted source material** and the system
+instruction explicitly forbids obeying commands found inside them. After the
+model call, deterministic code normalizes designation and locality, counts each
+source document once, and applies the two-source rule: two independent documents
+confirm a matching position; one document leaves it assessed. The response is a
+proposal for operator review, not a mutation of study marks.
+
 ## Platform catalogue and weapon matching
 
 The aggressor catalogue is fixed reference data from doctrine: 13 named
@@ -640,6 +655,10 @@ for suppression and ineffective for destruction.
 GET  /health            -> { ok }
 GET  /v1/platform-catalogue
                         -> [{ id, name, platform_type, hardness? }]
+
+POST /v1/document-intelligence
+                        { documents: [{ id, name, text }] }
+                        -> { proposals[], rejected[] }
 
 POST /v1/weapon-target-match
                         { weapon, target, effect }
