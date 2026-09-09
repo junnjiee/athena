@@ -250,7 +250,8 @@ doctrine defines.
 
 ### Fields to add
 
-- **Level**, on a fixed escalation ladder — the K-serials are levels of
+- ~~**Level**, on a fixed escalation ladder~~ **Done** — reserve marks now carry
+  an optional fixed K–K4 level; the K-serials are levels of
   commitment, not timestamps:
 
   | Serial | Commits |
@@ -261,8 +262,9 @@ doctrine defines.
   | K3 | Bn Res |
   | K4 | Div Res |
 
-- **Designation** — e.g. `302 Div Res 1`, and owning formation (`301 Div`, `1/903`).
-- **Intelligence status — assessed vs confirmed** (p.56), with a hard rule:
+- ~~**Designation** and owning formation~~ **Done** — the mark's backward-compatible
+  `name` is its designation, with a separate owning-formation field.
+- ~~**Intelligence status — assessed vs confirmed**~~ **Done** (p.56), with a hard rule:
   - *Assessed* (pink) — Int Assessment only
   - *Confirmed* (red) — two or more sources from collection agencies
     (Bde RSTA / Bn Scout / UAV)
@@ -282,8 +284,9 @@ doctrine defines.
     manpower but is still a company, because the company HQ is present. Anything
     deriving echelon from headcount will misread every reduced formation. See
     [`DOCTRINE.md` §1](DOCTRINE.md).
-- **Location as a named terrain reference** — reserves at `TOMA 1b`, objectives
-  at `MATO 1b`. This is the "IVO / locality name" field.
+- ~~**Location as a named terrain reference**~~ **Done for reserves** — reserves
+  carry an operator-editable IVO/locality field, auto-suggested from the shared
+  place lookup. Objectives at `MATO 1b` remain to be wired.
 - **Timing model** (p.62), the largest single gap:
 
   > K2 is commencement of movement *(inclusive of Decision Time and Readiness Time)*

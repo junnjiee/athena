@@ -189,6 +189,7 @@ export function RouteStudiesPage() {
   const clearLastMark = useRouteStudy((state) => state.clearLastMark)
   const removeMark = useRouteStudy((state) => state.removeMark)
   const renameMark = useRouteStudy((state) => state.renameMark)
+  const updateMark = useRouteStudy((state) => state.updateMark)
   const runStudy = useRouteStudy((state) => state.run)
   const loadStudy = useRouteStudy((state) => state.load)
   const resetStudy = useRouteStudy((state) => state.reset)
@@ -524,7 +525,16 @@ export function RouteStudiesPage() {
       addUnit(placingEchelon, position.longitude, position.latitude)
       return
     }
-    addMark('reserve', position.longitude, position.latitude)
+    const markId = addMark('reserve', position.longitude, position.latitude)
+    void lookupNearestPlace(position.longitude, position.latitude, 10_000).then((place) => {
+      if (!place) return
+      // A slow lookup is only a suggestion. If the operator has typed an IVO
+      // reference in the meantime, that field is already authoritative.
+      const current = useRouteStudy.getState().draftMarks.reserves.find((mark) => mark.id === markId)
+      if (current && !current.locality?.trim()) {
+        useRouteStudy.getState().updateMark('reserve', markId, { locality: place.name })
+      }
+    }).catch(() => {})
   }
 
   /** An objective drawn as ground. A drag too small to be ground was a click,
@@ -979,6 +989,7 @@ export function RouteStudiesPage() {
             hasStudy={study !== null}
             onSetToolMode={setToolMode}
             onRenameMark={renameMark}
+            onUpdateMark={updateMark}
             onRemoveMark={removeMark}
             onRun={() => void submitStudy()}
             onLocate={(mark) => flyToPositions([{ longitude: mark.lon, latitude: mark.lat }])}
@@ -1220,6 +1231,7 @@ function MarksPanel({
   hasStudy,
   onSetToolMode,
   onRenameMark,
+  onUpdateMark,
   onRemoveMark,
   onRun,
   onLocate,
@@ -1235,6 +1247,7 @@ function MarksPanel({
   hasStudy: boolean
   onSetToolMode: (mode: OperationalToolMode) => void
   onRenameMark: (kind: StudyMarkKind, id: string, name: string) => void
+  onUpdateMark: (kind: StudyMarkKind, id: string, patch: Partial<StudyMark>) => void
   onRemoveMark: (kind: StudyMarkKind, id: string) => void
   onRun: () => void
   onLocate: (mark: StudyMark) => void
@@ -1261,6 +1274,7 @@ function MarksPanel({
         active={toolMode === 'place-reserve'}
         onAdd={() => onSetToolMode('place-reserve')}
         onRename={onRenameMark}
+        onUpdate={onUpdateMark}
         onRemove={onRemoveMark}
         onLocate={onLocate}
       />
@@ -1272,6 +1286,7 @@ function MarksPanel({
         active={toolMode === 'draw-objective-area'}
         onAdd={() => onSetToolMode('draw-objective-area')}
         onRename={onRenameMark}
+        onUpdate={onUpdateMark}
         onRemove={onRemoveMark}
         onLocate={onLocate}
       />
@@ -1296,6 +1311,7 @@ function MarkGroup({
   active,
   onAdd,
   onRename,
+  onUpdate,
   onRemove,
   onLocate,
 }: {
@@ -1308,6 +1324,7 @@ function MarkGroup({
   active: boolean
   onAdd: () => void
   onRename: (kind: StudyMarkKind, id: string, name: string) => void
+  onUpdate: (kind: StudyMarkKind, id: string, patch: Partial<StudyMark>) => void
   onRemove: (kind: StudyMarkKind, id: string) => void
   onLocate: (mark: StudyMark) => void
 }) {
@@ -1324,7 +1341,7 @@ function MarkGroup({
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="mt-1 max-h-24 overflow-y-auto">
+      <div className="mt-1 max-h-64 overflow-y-auto">
         {marks.length === 0 && (
           <div className="px-1 py-1 text-[11px] text-(--text-dim)">
             {kind === 'reserve' ? 'No reserves marked yet.' : 'No objectives drawn yet.'}
@@ -1333,25 +1350,81 @@ function MarkGroup({
         {marks.map((mark) => (
           <div
             key={mark.id}
-            className={`group flex items-center gap-1 rounded-md px-1 py-1 transition-colors ${
+            className={`group rounded-md px-1 py-1 transition-colors ${
               mark.id === lastMarkId ? 'bg-(--accent-bg) ring-1 ring-(--accent-border)' : 'hover:bg-white/5'
             }`}
           >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${kind === 'reserve' ? 'bg-(--hostile)' : 'bg-(--accent)'}`} />
-            <input
-              value={mark.name}
-              maxLength={80}
-              aria-label={`${kind === 'reserve' ? 'Enemy reserve' : 'Objective'} name`}
-              onChange={(event) => onRename(kind, mark.id, event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-xs text-(--text-h) focus:outline-none"
-            />
-            {mark.bbox && <span className="shrink-0 text-[9px] tracking-wide text-(--text-dim)">AREA</span>}
-            <button type="button" title="Locate" onClick={() => onLocate(mark)} className="text-(--text-dim) opacity-0 hover:text-(--text-h) group-hover:opacity-100">
-              <Crosshair className="h-3 w-3" />
-            </button>
-            <button type="button" title="Remove" onClick={() => onRemove(kind, mark.id)} className="text-(--text-dim) opacity-0 hover:text-(--hostile) group-hover:opacity-100">
-              <Trash2 className="h-3 w-3" />
-            </button>
+            <div className="flex items-center gap-1">
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                kind === 'reserve'
+                  ? mark.intelligence_status === 'confirmed' ? 'bg-(--hostile)' : 'bg-pink-400'
+                  : 'bg-(--accent)'
+              }`} />
+              <input
+                value={mark.name}
+                maxLength={80}
+                aria-label={`${kind === 'reserve' ? 'Enemy reserve designation' : 'Objective name'}`}
+                onChange={(event) => onRename(kind, mark.id, event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-xs text-(--text-h) focus:outline-none"
+              />
+              {mark.bbox && <span className="shrink-0 text-[9px] tracking-wide text-(--text-dim)">AREA</span>}
+              <button type="button" title="Locate" onClick={() => onLocate(mark)} className="text-(--text-dim) opacity-0 hover:text-(--text-h) group-hover:opacity-100">
+                <Crosshair className="h-3 w-3" />
+              </button>
+              <button type="button" title="Remove" onClick={() => onRemove(kind, mark.id)} className="text-(--text-dim) opacity-0 hover:text-(--hostile) group-hover:opacity-100">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+            {kind === 'reserve' && (
+              <div className="mt-1 grid grid-cols-2 gap-1 pl-2.5">
+                <select
+                  value={mark.level ?? ''}
+                  aria-label={`${mark.name} reserve level`}
+                  onChange={(event) => onUpdate(kind, mark.id, {
+                    level: (event.target.value || undefined) as StudyMark['level'],
+                  })}
+                  className="rounded border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
+                >
+                  <option value="">Level unconfirmed</option>
+                  <option value="K">K · Outside activities</option>
+                  <option value="K1">K1 · Local reinforcement</option>
+                  <option value="K2">K2 · Coy reserve</option>
+                  <option value="K3">K3 · Bn reserve</option>
+                  <option value="K4">K4 · Div reserve</option>
+                </select>
+                <select
+                  value={mark.intelligence_status ?? 'assessed'}
+                  aria-label={`${mark.name} intelligence status`}
+                  onChange={(event) => onUpdate(kind, mark.id, {
+                    intelligence_status: event.target.value as StudyMark['intelligence_status'],
+                  })}
+                  className="rounded border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
+                >
+                  <option value="assessed">Assessed · 1 source</option>
+                  <option value="confirmed">Confirmed · 2+ sources</option>
+                </select>
+                <input
+                  value={mark.owning_formation ?? ''}
+                  maxLength={80}
+                  aria-label={`${mark.name} owning formation`}
+                  placeholder="Owning formation"
+                  onChange={(event) => onUpdate(kind, mark.id, {
+                    owning_formation: event.target.value || undefined,
+                  })}
+                  className="min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[10px] text-(--text-h) placeholder:text-(--text-dim) focus:outline-none"
+                />
+                <input
+                  value={mark.locality ?? ''}
+                  maxLength={120}
+                  aria-label={`${mark.name} IVO locality`}
+                  placeholder="IVO / locality"
+                  onChange={(event) => onUpdate(kind, mark.id, {
+                    locality: event.target.value || undefined,
+                  })}
+                  className="min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[10px] text-(--text-h) placeholder:text-(--text-dim) focus:outline-none"
+                />
+              </div>
+            )}
           </div>
         ))}
       </div>

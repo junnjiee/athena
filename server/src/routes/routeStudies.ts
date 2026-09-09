@@ -38,8 +38,17 @@ const markSchema = z.object({
     .optional(),
 })
 
+export const reserveMarkSchema = markSchema.extend({
+  level: z.enum(['K', 'K1', 'K2', 'K3', 'K4']).optional(),
+  owning_formation: z.string().trim().min(1).max(80).optional(),
+  /** Confirmed is an operator assertion backed by the two-source rule. New and
+   *  legacy reserve marks therefore enter as assessed unless explicitly set. */
+  intelligence_status: z.enum(['assessed', 'confirmed']).default('assessed'),
+  locality: z.string().trim().min(1).max(120).optional(),
+})
+
 const marksSchema = z.object({
-  reserves: z.array(markSchema).min(1),
+  reserves: z.array(reserveMarkSchema).min(1),
   objectives: z.array(markSchema).min(1),
 })
 
@@ -143,7 +152,18 @@ export function needsResearch(
   ) {
     return true
   }
-  if (next.marks && JSON.stringify(next.marks) !== JSON.stringify(current.marks)) return true
+  if (next.marks) {
+    // Names and reserve intelligence annotate the deployment overlay; the
+    // graph search only sees mark identity and position. Saving an assessment
+    // must not churn corridor identities when no pin moved.
+    const routingMarks = (marks: StudyMarks) => ({
+      reserves: marks.reserves.map(({ id, lon, lat }) => ({ id, lon, lat })),
+      objectives: marks.objectives.map(({ id, lon, lat }) => ({ id, lon, lat })),
+    })
+    if (JSON.stringify(routingMarks(next.marks)) !== JSON.stringify(routingMarks(current.marks))) {
+      return true
+    }
+  }
   if (
     next.edgeOverrides &&
     JSON.stringify([...next.edgeOverrides].sort()) !== JSON.stringify([...current.edgeOverrides].sort())

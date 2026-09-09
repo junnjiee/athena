@@ -220,6 +220,14 @@ so every mark is snapped to the **nearest node**. Distance is equirectangular at
 the mark's own latitude; ties break on node id, so a mark equidistant from two
 junctions always snaps to the same one. Marks are *scenario input*.
 
+A reserve mark also carries its deployment intelligence: optional K level
+(`K` through `K4`), owning formation, assessed/confirmed status, and IVO
+locality. These fields do not alter snapping or routing; they are preserved for
+the deployment overlay and supplied to the enemy-course assessment. New and
+legacy reserves default to **assessed**. Only the operator can assert
+**confirmed**, reflecting the two-independent-source rule. Objectives do not
+carry reserve metadata.
+
 A mark may carry a bounding box — an objective the operator drew as ground
 rather than clicked as a point. The engine ignores it: `lon`/`lat` is the centre,
 and routing goes to the node nearest that centre. The footprint is for the

@@ -101,7 +101,19 @@ def describe_corridors(corridors: list[CorridorOut], reserves: list[Mark]) -> st
     geometry is withheld — it would fill the context without changing any
     judgement the model is being asked for.
     """
-    names = {mark.id: mark.name for mark in reserves}
+    def describe_reserve(mark: Mark) -> str:
+        details = [mark.name]
+        if mark.level:
+            details.append(mark.level.value)
+        if mark.owning_formation:
+            details.append(f"owned by {mark.owning_formation}")
+        if mark.intelligence_status:
+            details.append(mark.intelligence_status.value)
+        if mark.locality:
+            details.append(f"IVO {mark.locality}")
+        return ", ".join(details)
+
+    names = {mark.id: describe_reserve(mark) for mark in reserves}
     lines: list[str] = []
     for corridor in corridors:
         serving = sorted({route.reserve_id for route in corridor.routes})

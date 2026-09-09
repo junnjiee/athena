@@ -5,6 +5,8 @@ deterministic. Enemy intent, ranking and the courses of action themselves come
 later and sit on top of what this produces; nothing here guesses.
 """
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
 from athena.corridors import cluster_into_corridors
@@ -19,6 +21,19 @@ from athena.params import (
 from athena.routing import Route, find_diverse_routes
 
 
+class ReserveLevel(StrEnum):
+    OUTSIDE_ACTIVITIES = "K"
+    LOCAL_REINFORCEMENT = "K1"
+    COMPANY_RESERVE = "K2"
+    BATTALION_RESERVE = "K3"
+    DIVISION_RESERVE = "K4"
+
+
+class IntelligenceStatus(StrEnum):
+    ASSESSED = "assessed"
+    CONFIRMED = "confirmed"
+
+
 class Mark(BaseModel):
     """A point the operator placed: a suspected reserve, or an objective."""
 
@@ -26,6 +41,10 @@ class Mark(BaseModel):
     name: str
     lon: float
     lat: float
+    level: ReserveLevel | None = None
+    owning_formation: str | None = None
+    intelligence_status: IntelligenceStatus | None = None
+    locality: str | None = None
 
 
 class RouteOut(BaseModel):

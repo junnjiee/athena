@@ -55,14 +55,24 @@ export interface RoadGraph {
 
 export interface StudyMark {
   id: string
+  /** Reserve designation. Kept as `name` for backward compatibility with
+   *  existing studies and with objective marks. */
   name: string
   lon: number
   lat: number
+  /** Reserve-only S2 fields. Older saved marks legitimately omit them. */
+  level?: ReserveLevel
+  owning_formation?: string
+  intelligence_status?: IntelligenceStatus
+  locality?: string
   /** Objectives are usually ground, not a pin. When the operator dragged an
    *  area, its bounds ride along and lon/lat is the centre — the engine still
    *  routes to the centre, so this only changes what is drawn. */
   bbox?: BBoxDeg
 }
+
+export type ReserveLevel = 'K' | 'K1' | 'K2' | 'K3' | 'K4'
+export type IntelligenceStatus = 'assessed' | 'confirmed'
 
 export interface StudyMarks {
   reserves: StudyMark[]

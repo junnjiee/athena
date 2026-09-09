@@ -6,6 +6,11 @@ export interface Mark {
   name: string
   lon: number
   lat: number
+  /** Reserve-only deployment-overlay fields; absent on objectives and legacy marks. */
+  level?: 'K' | 'K1' | 'K2' | 'K3' | 'K4'
+  owning_formation?: string
+  intelligence_status?: 'assessed' | 'confirmed'
+  locality?: string
   /** Objectives are ground, not pins: when the operator dragged an area rather
    *  than clicking a point, its bounds ride along and lon/lat is the centre.
    *  The engine still routes to the centre, so this is display only. */

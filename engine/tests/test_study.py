@@ -1,7 +1,7 @@
 """Marked ground in, corridors out."""
 
 from athena.graph import RoadGraph, nearest_node
-from athena.study import Mark, run_study
+from athena.study import IntelligenceStatus, Mark, ReserveLevel, run_study
 
 from .conftest import edge, node
 
@@ -16,6 +16,30 @@ def test_snaps_a_mark_to_the_closest_junction(ladder: RoadGraph) -> None:
 
 def test_snapping_an_empty_graph_finds_nothing() -> None:
     assert nearest_node(RoadGraph(nodes=(), edges=()), 0, 0) is None
+
+
+def test_a_reserve_carries_its_deployment_intelligence() -> None:
+    reserve = Mark(
+        id="res1",
+        name="302 Div Res 1",
+        lon=1,
+        lat=2,
+        level=ReserveLevel.DIVISION_RESERVE,
+        owning_formation="301 Div",
+        intelligence_status=IntelligenceStatus.ASSESSED,
+        locality="TOMA 1b",
+    )
+
+    assert reserve.model_dump(mode="json") == {
+        "id": "res1",
+        "name": "302 Div Res 1",
+        "lon": 1.0,
+        "lat": 2.0,
+        "level": "K4",
+        "owning_formation": "301 Div",
+        "intelligence_status": "assessed",
+        "locality": "TOMA 1b",
+    }
 
 
 def test_a_tie_always_snaps_to_the_same_junction() -> None:
