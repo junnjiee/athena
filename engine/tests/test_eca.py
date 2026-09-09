@@ -1,13 +1,20 @@
 """Enemy courses of action: what the model is given, and what it is allowed back."""
 
+import pytest
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.test import TestModel
+
 from athena.eca import (
     CourseOfAction,
     DraftCourses,
     Effort,
+    RefusedError,
     build_prompt,
     describe_corridors,
     generate_courses,
     ground_courses,
+    model_generator,
     rank_courses,
 )
 from athena.intent import EnemyIntent, Posture
@@ -255,3 +262,26 @@ def test_an_empty_intent_is_recognisable() -> None:
     assert EnemyIntent().is_empty()
     assert not EnemyIntent(posture=Posture.ATTACKING).is_empty()
     assert not EnemyIntent(narrative="They want the bridge.").is_empty()
+
+
+# --- The model call itself ---------------------------------------------------
+#
+# Driven through pydantic-ai's own test models, so the engine's one model call
+# is exercised without naming a provider or touching a network.
+
+
+def test_generator_returns_the_structured_courses() -> None:
+    generate = model_generator(TestModel())
+    draft = generate(system="assess", prompt="the ground")
+    assert isinstance(draft, DraftCourses)
+
+
+def test_output_that_is_not_an_assessment_is_a_refusal() -> None:
+    """A decline, a truncation and prose are one case: no courses came back."""
+
+    def declines(messages: object, info: object) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("I will not assess this.")])
+
+    generate = model_generator(FunctionModel(declines))
+    with pytest.raises(RefusedError):
+        generate(system="assess", prompt="the ground")

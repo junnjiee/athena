@@ -16,12 +16,18 @@ Two rules make an end-to-end agent acceptable here:
 """
 
 import json
+import os
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from athena.intent import EnemyIntent
-from athena.params import ECA_MAX_TOKENS, ECA_MODEL, ECA_SYSTEM_PROMPT
+from athena.params import (
+    ECA_MAX_TOKENS,
+    ECA_MODEL,
+    ECA_MODEL_ENV_VAR,
+    ECA_SYSTEM_PROMPT,
+)
 from athena.study import CorridorOut, Mark
 
 
@@ -264,35 +270,35 @@ class RefusedError(RuntimeError):
     """
 
 
-def anthropic_generator(client: object | None = None) -> CourseGenerator:
+def model_generator(model: object | None = None) -> CourseGenerator:
     """The real model call.
 
-    Structured output is used rather than server-side refusal fallbacks: the two
-    do not compose cleanly on this endpoint, and for this product a decline
-    should surface loudly rather than be quietly re-run on another model.
+    No provider appears here. The model is named as ``provider:name`` and
+    resolved by pydantic-ai, so which company reasons about enemy intent is a
+    deployment decision rather than something the engine has been built around.
+    A ``Model`` instance may be passed instead, which is how a test drives this
+    layer without a network.
     """
 
     def generate(system: str, prompt: str) -> DraftCourses:
-        import anthropic
+        from pydantic_ai import Agent, UnexpectedModelBehavior
+        from pydantic_ai.settings import ModelSettings
 
-        api = client or anthropic.Anthropic()
-        response = api.messages.parse(
-            model=ECA_MODEL,
-            max_tokens=ECA_MAX_TOKENS,
-            thinking={"type": "adaptive"},
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=DraftCourses,
+        agent = Agent(
+            model or os.environ.get(ECA_MODEL_ENV_VAR) or ECA_MODEL,
+            output_type=DraftCourses,
+            instructions=system,
+            model_settings=ModelSettings(max_tokens=ECA_MAX_TOKENS),
         )
-        if response.stop_reason == "refusal":
+        try:
+            return agent.run_sync(prompt).output
+        except UnexpectedModelBehavior as error:
+            # A decline, a truncation and a wall of prose all arrive here, and
+            # the engine does not need to tell them apart: none of them is an
+            # assessment, which is the only distinction that matters.
             raise RefusedError(
-                "the model declined to assess this intent: "
-                f"{getattr(response.stop_details, 'explanation', 'no explanation given')}"
-            )
-        parsed = response.parsed_output
-        if parsed is None:
-            raise RefusedError("the model returned no parsable courses of action")
-        return parsed
+                f"no courses of action came back from the model: {error}"
+            ) from error
 
     return generate
 
