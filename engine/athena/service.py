@@ -165,12 +165,13 @@ class BlockRequest(BaseModel):
     graph: RoadGraph | None = None
     corridors: list[CorridorOut]
     orbat: Orbat
+    reserves: list[Mark] = Field(default_factory=list)
 
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
     graph = await _resolve_graph(request.area_id, request.graph_revision, request.graph)
-    return plan_blocks(graph, request.corridors, request.orbat)
+    return plan_blocks(graph, request.corridors, request.orbat, request.reserves)
 
 
 class CoursesRequest(BaseModel):

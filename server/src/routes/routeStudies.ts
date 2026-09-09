@@ -439,6 +439,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
           graphRevision: row.graphRevision,
           corridors: row.result.corridors,
           orbat,
+          reserves: row.marks.reserves,
         })
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {

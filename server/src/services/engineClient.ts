@@ -83,6 +83,7 @@ export interface BlockForceRequest {
   graphRevision: number
   corridors: StudyResult['corridors']
   orbat: Orbat
+  reserves: StudyMarks['reserves']
 }
 
 /** Asks the engine what could block each corridor.
@@ -103,6 +104,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
       graph_revision: request.graphRevision,
       corridors: request.corridors,
       orbat: request.orbat,
+      reserves: request.reserves,
     }),
     signal: AbortSignal.timeout(config.engineTimeoutMs),
   })

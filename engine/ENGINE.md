@@ -553,10 +553,31 @@ hold other inlets. If there is only one inlet, that same parent remains eligible
 this is a coverage rule, not an echelon ceiling. Ties break on unit id, so the
 result is deterministic.
 
-The candidate's weapon list describes what the allocated force brings. It does
-not yet decide whether those systems defeat the reserve's platforms; matching
-and sufficiency are separate downstream judgements, and neither may reduce
-inlet coverage.
+The candidate's weapon list describes what the allocated force brings. Sealing
+is assessed only after the maximum-coverage allocation is fixed, so an
+under-equipped block force remains visible rather than silently costing the
+plan an inlet.
+
+### Sealing assessment
+
+For each allocated inlet, the engine finds the reserve named by that route and
+selects the hardest catalogued platform class in its task organisation. Counts
+retain the composition modifier as an exact reduced fraction. Only weapons
+that the matching table marks **preferred** or **acceptable** for destruction
+count; conditional matches do not become facts by assumption.
+
+The recorded effective-weapon count is compared one-for-one with that
+hardest-platform count:
+
+- no effective weapon — **passed**;
+- some effect but a remaining platform fraction — **delayed and attrited**;
+- enough effect to leave no remainder — **destroyed at the block**.
+
+Missing reserves, unrecognised platform names, and compositions with no
+catalogued hardness produce **unknown**, with a reason. They never produce a
+guessed result. Mixed compositions are deliberately assessed against their
+hardest known class; softer elements are not used to make an anti-armour block
+look stronger. The result is deterministic and does not change allocation.
 
 ### Two kinds of absence, kept apart
 
@@ -611,8 +632,10 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
                           excluded_edge_ids? }
                         -> { corridors[], unreachable[] }
 
-POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat }
-                        -> { inlets[], allocation[], unblockable[], uncovered[] }
+POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat,
+                          reserves[] }
+                        -> { inlets[], allocation[], unblockable[], uncovered[],
+                             sealing[] }
 
 POST /v1/enemy-courses-of-action
                         { corridors[], reserves[], objectives[], intent, weights? }
@@ -668,9 +691,10 @@ Under Docker the variables are passed in by compose, so no file is read.
 - **No arrival timing.** The engine says a route exists and how long the enemy
   takes along it, but never whether a block force gets there first. A block plan
   is an option set for a human to time, not a plan.
-- **A block force is never sized against the threat.** The engine does not ask
-  whether a section can actually hold what is coming down the corridor, only
-  whether it is uncommitted.
+- **Sealing is a capability comparison, not combat simulation.** Effective
+  weapons are compared one-for-one with the hardest known reserve platforms.
+  The engine does not model ammunition expenditure, rate of fire, exposure,
+  losses to the block force, or a conditional engagement becoming feasible.
 - **No dismounted movement**, and therefore no cross-country approach — for the
   enemy or for a block force moving to its position.
 - **Completeness is scoped to marked pairs** (see above).

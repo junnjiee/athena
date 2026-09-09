@@ -1,5 +1,12 @@
 import { descendants, orbatRows, type OrbatRow } from './orbatTree'
-import type { BlockPlan, InletBlock, OrbatUnit, RoadGraph } from '../types/routeStudy'
+import type {
+  BlockPlan,
+  ExactCount,
+  InletBlock,
+  OrbatUnit,
+  RoadGraph,
+  SealingAssessment,
+} from '../types/routeStudy'
 
 /**
  * Reading a block plan.
@@ -39,6 +46,17 @@ export function unblockableByInlet(plan: BlockPlan): Map<string, string> {
       entry.reason,
     ]),
   )
+}
+
+export function sealingByInlet(plan: BlockPlan): Map<string, SealingAssessment> {
+  return new Map((plan.sealing ?? []).map((assessment) => [assessment.inlet_id, assessment]))
+}
+
+/** Preserve the engine's exact fractions instead of implying false precision
+ * by rounding reduced force estimates to whole platforms. */
+export function formatExactCount(count: ExactCount | null | undefined): string {
+  if (!count) return '—'
+  return count.denominator === 1 ? String(count.numerator) : `${count.numerator}/${count.denominator}`
 }
 
 /** The formed body committed by one allocation, presented as an ORBAT rooted

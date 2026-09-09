@@ -3,7 +3,15 @@
 from athena.blocking import plan_blocks
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
-from athena.study import CorridorOut, RouteOut
+from athena.study import (
+    AggressorEchelon,
+    CompositionModifier,
+    CorridorOut,
+    Mark,
+    PlatformCount,
+    RouteOut,
+    TaskOrganizationElement,
+)
 from athena.units import Echelon
 
 from .conftest import node
@@ -85,6 +93,31 @@ def graph_with_chokes() -> RoadGraph:
 GRAPH = graph_with_chokes()
 WEST = corridor("cor_west", ["11:0"], seconds=300)
 EAST = corridor("cor_east", ["22:0"], seconds=900)
+
+
+def reserve(
+    platform: str = "BTR-90",
+    count: int = 10,
+    modifier: CompositionModifier = CompositionModifier.FULL,
+) -> Mark:
+    return Mark(
+        id="res1",
+        name="Reserve 1",
+        lon=0,
+        lat=0,
+        task_organization=[
+            TaskOrganizationElement(
+                id="rrc",
+                designation="RRC",
+                echelon=AggressorEchelon.COMPANY,
+                modifier=modifier,
+                order_of_move=1,
+                platforms=[
+                    PlatformCount(id="target", platform=platform, establishment_count=count)
+                ],
+            )
+        ],
+    )
 
 
 # Candidates
@@ -334,3 +367,91 @@ def test_an_empty_orbat_covers_nothing_and_says_so() -> None:
 
     assert plan.allocation == []
     assert len(plan.unblockable) == 1
+
+
+# Sealing assessment
+
+
+def test_effective_weapons_destroy_the_hardest_platforms_when_sufficient() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(
+                    WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=10),
+                ),
+            ),
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [WEST], orbat, [reserve()])
+
+    assessment = plan.sealing[0]
+    assert assessment.outcome == "destroyed_at_block"
+    assert assessment.target_hardness == "hard_skin_light"
+    assert assessment.target_platform_count.model_dump() == {"numerator": 10, "denominator": 1}
+    assert assessment.effective_weapon_count == 10
+    assert assessment.remaining_platform_count is not None
+    assert assessment.remaining_platform_count.numerator == 0
+
+
+def test_fractional_reserve_composition_is_never_rounded() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=3),),
+            ),
+        )
+    )
+
+    plan = plan_blocks(
+        GRAPH,
+        [WEST],
+        orbat,
+        [reserve(modifier=CompositionModifier.EQUAL)],
+    )
+
+    assessment = plan.sealing[0]
+    assert assessment.outcome == "delayed_and_attrited"
+    assert assessment.target_platform_count is not None
+    assert assessment.target_platform_count.model_dump() == {"numerator": 10, "denominator": 3}
+    assert assessment.remaining_platform_count is not None
+    assert assessment.remaining_platform_count.model_dump() == {"numerator": 1, "denominator": 3}
+
+
+def test_conditional_or_ineffective_weapons_do_not_claim_a_kill() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="gpmg", weapon=WeaponSystem.GPMG, count=20),),
+            ),
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [WEST], orbat, [reserve()])
+
+    assert plan.sealing[0].outcome == "passed"
+    assert plan.sealing[0].effective_weapon_count == 0
+
+
+def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:
+    orbat = Orbat(units=(unit("block", Echelon.SECTION, 0),))
+
+    plan = plan_blocks(
+        GRAPH,
+        [WEST],
+        orbat,
+        [Mark(id="res1", name="Reserve 1", lon=0, lat=0)],
+    )
+
+    assert len(plan.allocation) == 1
+    assert plan.sealing[0].outcome == "unknown"
+    assert "no catalogued" in plan.sealing[0].reason
