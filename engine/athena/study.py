@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field
 
 from athena.corridors import cluster_into_corridors
 from athena.graph import RoadGraph, nearest_node
-from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
+from athena.params import (
+    CORRIDOR_DETOUR_RATIO,
+    CORRIDOR_SEPARATION_METERS,
+    MAX_SHARING,
+    MAX_STRETCH,
+    ROUTES_PER_PAIR,
+)
 from athena.routing import Route, find_diverse_routes
 
 
@@ -61,7 +67,8 @@ def run_study(
     k: int = ROUTES_PER_PAIR,
     max_stretch: float = MAX_STRETCH,
     max_sharing: float = MAX_SHARING,
-    similarity: float = CORRIDOR_SIMILARITY,
+    separation_meters: float = CORRIDOR_SEPARATION_METERS,
+    detour_ratio: float = CORRIDOR_DETOUR_RATIO,
     excluded_edge_ids: frozenset[str] = frozenset(),
 ) -> StudyResult:
     """Routes every reserve to every objective, then groups the lot.
@@ -112,7 +119,9 @@ def run_study(
                 routes.append(route)
 
     corridors = []
-    for corridor in cluster_into_corridors(routes, similarity=similarity):
+    for corridor in cluster_into_corridors(
+        routes, graph, separation_meters=separation_meters, detour_ratio=detour_ratio
+    ):
         corridors.append(
             CorridorOut(
                 id=corridor.id,

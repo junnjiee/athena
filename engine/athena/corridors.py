@@ -1,15 +1,28 @@
-"""Turning a set of routes into the approaches a commander would name.
+"""Bundling axes into the approaches a commander would name.
 
-A corridor is not asked of the graph directly -- "mobility corridor" has no
-clean definition as a graph query. It is derived: routes that run down much of
-the same ground *are* one approach, and the grouping falls out of measuring
-that. What the operator later renames or splits sits on top of this.
+An axis is one route through the ground. A corridor is a *bundle* of axes: the
+set that together forms one approach, from the same place to the same place
+through the same gap.
+
+Grouping is on how the axes lie, never on tarmac they share. Two roads either
+side of the same gap share no segment whatever and are plainly one approach, so
+shared length is the wrong question -- it was the old rule here, and it split
+every such pair in two.
+
+Three things make two axes one corridor: they run close, they point the same
+way, and you can cross between them along their length. The third does the
+separating, and it needs no terrain data: where ground is impassable there are
+no roads over it, so an obstacle shows up as a long way round.
 """
 
 import hashlib
+import heapq
+import math
+import statistics
 from dataclasses import dataclass
 
-from athena.params import CORRIDOR_SIMILARITY
+from athena.graph import Node, RoadGraph
+from athena.params import CORRIDOR_DETOUR_RATIO, CORRIDOR_SEPARATION_METERS
 from athena.routing import Route
 
 
@@ -23,19 +36,90 @@ class Corridor:
     fastest_seconds: float
 
 
-def route_similarity(one: Route, other: Route) -> float:
-    """Shared length as a fraction of the two routes together.
+METERS_PER_DEGREE = 111_320.0
 
-    Symmetric on purpose: a short route running entirely inside a long one is
-    not thereby the same approach, and an asymmetric measure would say it was.
+
+def _meters_between(one: Node, other: Node) -> float:
+    """Equirectangular, projected at the latitude of the pair.
+
+    Exact enough at operational scale, and it keeps the module free of a
+    geodesy dependency for a comparison that only has to rank.
     """
-    total = one.length_meters + other.length_meters
-    if total <= 0:
+    lat_scale = math.cos(math.radians((one.lat + other.lat) / 2))
+    dx = (one.lon - other.lon) * lat_scale
+    dy = one.lat - other.lat
+    return math.hypot(dx, dy) * METERS_PER_DEGREE
+
+
+def axis_separation_meters(
+    one: Route,
+    other: Route,
+    nodes: dict[int, Node],
+) -> float:
+    """How far apart two axes run, in metres.
+
+    Every node of each axis is measured to the nearest node of the other, and
+    the median of those is taken. Median rather than minimum because two
+    approaches that merely touch at a shared objective are not thereby close
+    along their length, and minimum would say they were.
+    """
+    here = [nodes[n] for n in one.nodes if n in nodes]
+    there = [nodes[n] for n in other.nodes if n in nodes]
+    if not here or not there:
+        return math.inf
+
+    nearest = [min(_meters_between(a, b) for b in there) for a in here]
+    nearest += [min(_meters_between(b, a) for a in here) for b in there]
+    return statistics.median(nearest)
+
+
+def _network_meters(graph: RoadGraph, start: int, goal: int) -> float:
+    """Shortest driving distance between two junctions, or infinity."""
+    if start == goal:
         return 0.0
-    shared_ids = one.edge_ids & other.edge_ids
-    shared = sum(edge.length_meters for edge in one.edges if edge.id in shared_ids)
-    shared += sum(edge.length_meters for edge in other.edges if edge.id in shared_ids)
-    return shared / total
+    links = graph.adjacency()
+    if start not in links or goal not in links:
+        return math.inf
+
+    best: dict[int, float] = {start: 0.0}
+    queue = [(0.0, start)]
+    while queue:
+        cost, here = heapq.heappop(queue)
+        if here == goal:
+            return cost
+        if cost > best.get(here, math.inf):
+            continue
+        for neighbour, edge_, _ in links[here]:
+            through = cost + edge_.length_meters
+            if through < best.get(neighbour, math.inf):
+                best[neighbour] = through
+                heapq.heappush(queue, (through, neighbour))
+    return math.inf
+
+
+def lateral_detour_ratio(one: Route, other: Route, graph: RoadGraph) -> float:
+    """How far round you must drive to cross between two axes, over how far
+    apart they actually are.
+
+    Measured between the **middles** of the two axes, never their ends. Routes
+    from one reserve to one objective share both endpoints, so an end-measured
+    distance is always zero and would merge every approach into one.
+
+    A rung between two parallel roads gives a ratio near 1. Water with no road
+    across it gives a large one, because the network has to go round -- which is
+    how an obstacle is detected without any terrain data at all.
+    """
+    here = [n for n in one.nodes if n in graph.nodes_by_id()]
+    there = [n for n in other.nodes if n in graph.nodes_by_id()]
+    if not here or not there:
+        return math.inf
+
+    mid_one, mid_other = here[len(here) // 2], there[len(there) // 2]
+    nodes = graph.nodes_by_id()
+    straight = _meters_between(nodes[mid_one], nodes[mid_other])
+    if straight <= 0:
+        return 0.0
+    return _network_meters(graph, mid_one, mid_other) / straight
 
 
 def _corridor_id(routes: tuple[Route, ...]) -> str:
@@ -52,14 +136,15 @@ def _corridor_id(routes: tuple[Route, ...]) -> str:
 
 def cluster_into_corridors(
     routes: list[Route],
-    similarity: float = CORRIDOR_SIMILARITY,
+    graph: RoadGraph,
+    separation_meters: float = CORRIDOR_SEPARATION_METERS,
+    detour_ratio: float = CORRIDOR_DETOUR_RATIO,
 ) -> list[Corridor]:
-    """Groups routes into corridors by how much ground they share.
+    """Bundles axes into corridors.
 
-    Single-link agglomerative: two routes join the same corridor when they are
-    similar enough, and similarity is transitive through the group. That suits
-    an approach that bends -- the two ends of a long corridor may share little
-    with each other while both clearly belong to the middle.
+    Single-link agglomerative, so belonging is transitive through the group.
+    That suits an approach that bends: the two ends of a long corridor may lie
+    far apart while both clearly belong to the middle.
     """
     if not routes:
         return []
@@ -72,9 +157,16 @@ def cluster_into_corridors(
             i = parent[i]
         return i
 
+    nodes = graph.nodes_by_id()
+
+    def same_corridor(one: Route, other: Route) -> bool:
+        if axis_separation_meters(one, other, nodes) > separation_meters:
+            return False
+        return lateral_detour_ratio(one, other, graph) <= detour_ratio
+
     for i in range(len(routes)):
         for j in range(i + 1, len(routes)):
-            if route_similarity(routes[i], routes[j]) >= similarity:
+            if same_corridor(routes[i], routes[j]):
                 parent[find(i)] = find(j)
 
     groups: dict[int, list[Route]] = {}

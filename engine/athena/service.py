@@ -25,7 +25,13 @@ from athena.eca import (
 from athena.graph import RoadGraph
 from athena.intent import EnemyIntent
 from athena.orbat import Orbat
-from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
+from athena.params import (
+    CORRIDOR_DETOUR_RATIO,
+    CORRIDOR_SEPARATION_METERS,
+    MAX_SHARING,
+    MAX_STRETCH,
+    ROUTES_PER_PAIR,
+)
 from athena.preference import (
     Features,
     Verdict,
@@ -56,7 +62,8 @@ class StudyRequest(BaseModel):
     routes_per_pair: int = Field(default=ROUTES_PER_PAIR, ge=1, le=32)
     max_stretch: float = Field(default=MAX_STRETCH, gt=1.0)
     max_sharing: float = Field(default=MAX_SHARING, gt=0.0, le=1.0)
-    corridor_similarity: float = Field(default=CORRIDOR_SIMILARITY, ge=0.0, le=1.0)
+    corridor_separation_meters: float = Field(default=CORRIDOR_SEPARATION_METERS, gt=0.0)
+    corridor_detour_ratio: float = Field(default=CORRIDOR_DETOUR_RATIO, ge=1.0)
     excluded_edge_ids: list[str] = Field(default_factory=list)
     """Edges the operator has marked impassable -- a dropped bridge, a flooded
     ford. Terrain the engine has no way of knowing about on its own."""
@@ -103,7 +110,8 @@ async def route_study(request: StudyRequest) -> StudyResult:
         k=request.routes_per_pair,
         max_stretch=request.max_stretch,
         max_sharing=request.max_sharing,
-        similarity=request.corridor_similarity,
+        separation_meters=request.corridor_separation_meters,
+        detour_ratio=request.corridor_detour_ratio,
         excluded_edge_ids=frozenset(request.excluded_edge_ids),
     )
 

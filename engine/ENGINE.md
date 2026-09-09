@@ -138,17 +138,43 @@ is shown.
 
 ## Corridors
 
-A corridor is never asked of the graph directly — "mobility corridor" has no
-clean definition as a graph query. It is derived: routes running down much of the
-same ground *are* one approach.
+An **axis** is one route through the ground. A **corridor is a bundle of axes**:
+the set that together forms one approach, from the same place to the same place
+through the same gap.
 
-- Routes cluster **single-link agglomerative** on shared length, joining when
-  similarity reaches `CORRIDOR_SIMILARITY` (0.4). Single-link suits an approach
-  that bends: the two ends of a long corridor may share little with each other
-  while both clearly belong to the middle. *Configurable today.*
-- Similarity is **symmetric** — shared length counted on both routes, over the
-  two routes' combined length. A short route running entirely inside a long one
-  is not thereby the same approach, and an asymmetric measure would say it was.
+Grouping is on how the axes lie, never on tarmac they share. Two roads either
+side of the same gap share no segment whatever and are plainly one approach, so
+shared length is the wrong question. It was the rule here until now, and it split
+every such pair in two — reporting a lone axis as a corridor and overstating how
+many approaches an enemy has.
+
+Two axes are one corridor when all three hold:
+
+- **Laterally close** — median separation at or under `CORRIDOR_SEPARATION_METERS`
+  (5 km). Every node of each axis is measured to the nearest node of the other and
+  the median taken. Median rather than minimum, because two approaches that merely
+  touch at a shared objective are not thereby close along their length.
+  *Configurable today.*
+- **Laterally connected** — the way round from the middle of one axis to the
+  middle of the other is at most `CORRIDOR_DETOUR_RATIO` (3.0) times their
+  straight-line separation. *Configurable today.*
+- Grouping is **single-link agglomerative**, so belonging is transitive. That
+  suits an approach that bends: the two ends of a long corridor may lie far apart
+  while both clearly belong to the middle.
+
+### The obstacle test needs no terrain
+
+Connectivity is what separates corridors, and it is measured entirely on the road
+graph. Where ground is impassable there are no roads across it, so an obstacle
+appears as a long way round: two axes either side of a reservoir sit 2 km apart
+and 30 km apart through the network. **The engine reads no landcover, no
+trafficability surface and no off-road terrain.** Node elevation remains, sampled
+at road nodes for gradient in the cost model — a property of the axis itself.
+
+Connectivity is measured between the **middles** of two axes, never their ends.
+Routes from one reserve to one objective share both endpoints, so an end-measured
+distance is always zero and would merge every approach into one.
+
 - Clustering runs **across all pairs**, not per pair: two reserves feeding the
   same valley are using one approach, and blocking it blocks both.
 - Corridors are returned **fastest first**, ties broken on corridor id. Routes
@@ -156,16 +182,18 @@ same ground *are* one approach.
 
 ### Choke points
 
-**The edges common to every route in a corridor are its choke point** — the
-ground every route through that corridor must cross. This is where a block is
-sited, and it is derived from terrain rather than asserted by an agent.
+**The edges common to every axis in a corridor are its choke point** — the ground
+every route through that corridor must cross. This is where a block is sited, and
+it is derived from the network rather than asserted by an agent.
 
 - Ordered along the corridor's fastest route, so it reads in the direction of
   travel.
-- A corridor of one route is wholly its own choke point; there is no narrowing
-  to find.
-- Routes forced into one corridor while sharing no edge have **no** choke point,
-  reported as empty rather than invented.
+- A corridor of one axis is wholly its own choke point; there is no narrowing to
+  find.
+- **Axes in one corridor that share no ground have no choke point**, reported as
+  empty rather than invented. This is now the common case rather than a curiosity:
+  two roads through the same gap are one corridor with nowhere a single block sits
+  astride both. Such a corridor must be held axis by axis.
 
 ### Corridor identity
 
@@ -488,7 +516,8 @@ GET  /health            -> { ok }
 
 POST /v1/route-study    { area_id | graph, reserves[], objectives[],
                           routes_per_pair?, max_stretch?, max_sharing?,
-                          corridor_similarity?, excluded_edge_ids? }
+                          corridor_separation_meters?, corridor_detour_ratio?,
+                          excluded_edge_ids? }
                         -> { corridors[], unreachable[] }
 
 POST /v1/block-forces   { area_id | graph, corridors[], orbat, ceiling }
@@ -504,7 +533,8 @@ POST /v1/preference/feedback
 ```
 
 Request bounds on `/v1/route-study`: `routes_per_pair` 1–32, `max_stretch` above
-1.0, `max_sharing` above 0 and at most 1.0, `corridor_similarity` 0–1.
+1.0, `max_sharing` above 0 and at most 1.0, `corridor_separation_meters` above 0,
+`corridor_detour_ratio` at least 1.0.
 
 `excluded_edge_ids` carries the operator's own knowledge of the ground — a
 dropped bridge, a flooded ford — which the engine has no way of knowing on its

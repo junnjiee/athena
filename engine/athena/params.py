@@ -60,9 +60,18 @@ MAX_SEARCH_ITERATIONS = 40
 """Ceiling on penalty iterations per pair, so a graph that cannot yield ``K``
 diverse routes terminates instead of grinding."""
 
-CORRIDOR_SIMILARITY = 0.4
-"""Routes sharing at least this fraction of their length belong to one
-corridor. The single knob deciding how coarse a corridor is."""
+CORRIDOR_SEPARATION_METERS = 5_000.0
+"""How far apart two axes may run and still be one corridor.
+
+Lateral separation, not shared length: two roads through the same gap share no
+segment at all and are plainly one approach."""
+
+CORRIDOR_DETOUR_RATIO = 3.0
+"""How far round you may drive to cross between two axes, as a multiple of how
+far apart they are, before they count as separate approaches.
+
+This is the obstacle test. Water with no road across it shows up as a long way
+round, which is why no terrain data is needed."""
 
 
 # --- Enemy courses of action -------------------------------------------------
