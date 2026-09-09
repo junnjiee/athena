@@ -11,8 +11,9 @@ This doc records the Athena engine's behaviour and its modelling assumptions.
 The engine does not fight battles. It complements battle procedure: on the S2
 side it finds the routes an enemy reserve can reinforce along, and on the S3
 side it finds the block forces a unit can deploy against them. This document
-covers what is built — the route substrate and the block-force pass. Neither
-uses an agent; both are deterministic.
+covers what is built: the route substrate, the enemy courses-of-action
+assessment, and the block-force pass. Only the courses-of-action pass uses a
+model; everything else is deterministic.
 
 Three kinds of value appear below:
 
@@ -171,6 +172,75 @@ between the marks.
 Likewise, an area whose graph cannot be fetched is a `502`, never an empty
 study — a study on ground nobody read would be a confident answer about nothing.
 
+## Enemy courses of action
+
+The S2 assessment, and **the only place in the engine where a model reasons**.
+Everything else is deterministic, and that is what makes this defensible: the
+corridors, routes and ground are the route substrate's output, and the model
+supplies judgement over them rather than facts of its own.
+
+A course of action is a **scheme**, not a single move: exactly one main effort
+plus any supporting efforts. An assessment that could only ever name one
+corridor would describe a simpler enemy than the one being planned against.
+
+### The model may not invent ground
+
+Every effort names a corridor id and a reserve id from the study. Anything else
+is rejected and **reported** in `rejected`, never rendered as a real approach. A
+model inventing a corridor is the failure this whole boundary exists to catch,
+so suppressing it would destroy the only evidence that it happened.
+
+A course failing the check is **dropped whole, not repaired**. Removing one
+effort leaves a scheme the model never proposed and nobody has judged.
+
+Two further rules are enforced on shape: a course must have at least one
+effort, and exactly one main effort. *Hardcoded rules.*
+
+### The model judges; the code ranks
+
+The model scores each course on **likelihood** (given the stated intent) and
+**danger** (cost to us if it happens) independently. The doctrinal pair — most
+likely and most dangerous — is then selected **in code** from those scores, not
+chosen by the model. One course can be both, and when it is, that is the finding
+rather than a fault. Ties break on name, so the same scores always name the same
+course. *Hardcoded rule.*
+
+### Intent
+
+Two halves, because a staff officer works in both:
+
+- **Structured** — posture from a fixed set (attacking, defending, delaying,
+  withdrawing, unknown) and which marked objectives the enemy is believed to
+  want. An unstated posture stays `unknown` rather than being guessed, and no
+  named objectives means every objective is in play, stated as such in the
+  prompt.
+- **Prose** — free text as an S2 would write it, passed to the model unedited.
+  It is the half no schema holds.
+
+Intent is *scenario input*. The posture set is deliberately short: it steers
+judgement rather than parameterising a calculation, and a longer list would
+imply a precision the engine has not got.
+
+### What the model is shown
+
+Corridor id, fastest time, how many routes, which reserves can use it, and
+whether it has a choke point. **Route geometry is withheld** — it would fill the
+context without changing any judgement being asked for.
+
+### Model and failure
+
+`claude-opus-5` with adaptive thinking and structured output. *Configurable
+today* in `athena/params.py`, along with the system prompt.
+
+- **With no corridors the model is not called at all.** Given nothing to reason
+  over it would fill the silence, which is the failure the grounding check
+  exists for.
+- **A refusal raises rather than returning an empty list.** "The enemy has no
+  options" and "we did not get an answer" are opposite findings, and the second
+  must never be rendered as the first. Server-side refusal fallbacks are
+  deliberately not enabled: a decline should surface rather than be silently
+  re-run on another model.
+
 ## Order of battle
 
 The force a commander has to block with. This is the force *available for this
@@ -272,7 +342,14 @@ POST /v1/route-study     { area_id | graph, reserves[], objectives[], ...params 
                          -> { corridors[], unreachable[] }
 POST /v1/block-forces    { area_id | graph, corridors[], orbat, ceiling }
                          -> { corridors[], allocation[], unblockable[], uncovered[] }
+POST /v1/enemy-courses-of-action
+                         { corridors[], reserves[], objectives[], intent }
+                         -> { courses[], most_likely, most_dangerous, rejected[] }
 ```
+
+The courses endpoint takes no graph: it reasons about which approaches an enemy
+would use, not about the ground beneath them, and the corridors already carry
+everything that judgement rests on.
 
 `area_id` is resolved against `TERRAIN_SERVICE_URL`. `graph` is accepted
 directly so the engine can be exercised without a terrain service running. A
@@ -290,8 +367,22 @@ answer.
 - **No dismounted movement**, and therefore no cross-country approach — for the
   enemy or for a block force moving to its position.
 - **Completeness is scoped to marked pairs** (see above).
-- **No enemy intent, ranking, or courses of action yet.** Everything here is
-  deterministic; the S2 agent layer sits on top of it and is not built.
+- **The courses-of-action pass is not reproducible.** Everything else in the
+  engine answers the same way every time; this one does not. Two runs over
+  identical ground and identical intent may name different courses. Where a
+  decision needs to be defended later, record the assessment rather than
+  expecting to regenerate it.
+- **An assessment is only as good as the intent it was given.** With no posture
+  and no narrative the model has nothing but terrain, and what comes back is
+  geography rather than intelligence. The engine reports when intent is empty;
+  it does not refuse.
+- **The model's scores are judgement, not measurement.** Likelihood and danger
+  are its opinion on a scale, not probabilities derived from anything. They
+  order courses; they do not quantify risk.
+- **A rejected reference means the assessment was incomplete.** Courses that
+  named ground which does not exist were dropped, so what remains is a subset of
+  what the model proposed — read `rejected` before treating the list as the
+  whole answer.
 - **The allocation is one greedy pass, not an optimum.** It serves urgency
   first and never backtracks, so a different assignment may cover more
   corridors. It is a starting point for a commander, not a solution.
