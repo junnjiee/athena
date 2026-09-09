@@ -1,4 +1,5 @@
-import type { BlockPlan, RoadGraph } from '../types/routeStudy'
+import { descendants, orbatRows, type OrbatRow } from './orbatTree'
+import type { BlockPlan, OrbatUnit, RoadGraph } from '../types/routeStudy'
 
 /**
  * Reading a block plan.
@@ -18,6 +19,16 @@ export function allocationByCorridor(plan: BlockPlan) {
 
 export function unblockableByCorridor(plan: BlockPlan): Map<string, string> {
   return new Map(plan.unblockable.map((entry) => [entry.corridor_id, entry.reason]))
+}
+
+/** The formed body committed by one allocation, presented as an ORBAT rooted
+ * at the assigned unit. Ancestors are availability dependencies, not members
+ * of the task-organised block force, so only the unit and its descendants are
+ * included. */
+export function blockForceOrbat(units: OrbatUnit[], unitId: string): OrbatRow[] {
+  if (!units.some((unit) => unit.unit_id === unitId)) return []
+  const included = new Set([unitId, ...descendants(units, unitId)])
+  return orbatRows(units.filter((unit) => included.has(unit.unit_id)))
 }
 
 /** What happened to one corridor. `unknown` means this plan predates the

@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   allocationByCorridor,
+  blockForceOrbat,
   blockCoverage,
   blockSummary,
   chokeMidpoint,
   unblockableByCorridor,
 } from '../src/lib/blockForces'
-import type { BlockPlan, RoadGraph } from '../src/types/routeStudy'
+import type { BlockPlan, OrbatUnit, RoadGraph } from '../src/types/routeStudy'
 
 const PLAN: BlockPlan = {
   corridors: [
@@ -56,6 +57,39 @@ describe('unblockableByCorridor', () => {
 describe('blockSummary', () => {
   test('counts each outcome once', () => {
     expect(blockSummary(PLAN)).toEqual({ allocated: 1, uncovered: 1, unblockable: 1 })
+  })
+})
+
+describe('blockForceOrbat', () => {
+  const units: OrbatUnit[] = [
+    {
+      unit_id: 'coy', name: 'A Company', echelon: 'company', parent_id: null,
+      lon: 103.8, lat: 1.35, strength: 90, availability: 'uncommitted',
+    },
+    {
+      unit_id: '1-pl', name: '1 Platoon', echelon: 'platoon', parent_id: 'coy',
+      lon: 103.8, lat: 1.35, strength: 24, availability: 'uncommitted', redcon: 2,
+    },
+    {
+      unit_id: '1-sec', name: '1 Section', echelon: 'section', parent_id: '1-pl',
+      lon: 103.8, lat: 1.35, strength: 7, availability: 'uncommitted', redcon: 3,
+    },
+    {
+      unit_id: '2-pl', name: '2 Platoon', echelon: 'platoon', parent_id: 'coy',
+      lon: 103.8, lat: 1.35, strength: 24, availability: 'uncommitted',
+    },
+  ]
+
+  test('roots the task organisation at the allocated unit and includes its descendants', () => {
+    expect(blockForceOrbat(units, '1-pl').map(({ unit, depth }) => [unit.unit_id, depth])).toEqual([
+      ['1-pl', 0],
+      ['1-sec', 1],
+    ])
+  })
+
+  test('does not treat ancestors or sibling formations as part of the block force', () => {
+    expect(blockForceOrbat(units, '1-sec').map(({ unit }) => unit.unit_id)).toEqual(['1-sec'])
+    expect(blockForceOrbat(units, 'missing')).toEqual([])
   })
 })
 
