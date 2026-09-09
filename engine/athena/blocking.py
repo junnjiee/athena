@@ -102,6 +102,21 @@ class RejectedDelayAssessment(BaseModel):
     reason: str
 
 
+class BlockEstablishmentInput(BaseModel):
+    """When one allocated force will be established at its exact block point."""
+
+    inlet_id: str = Field(min_length=1, max_length=120)
+    unit_id: str = Field(min_length=1, max_length=120)
+    block_point_lon: float = Field(ge=-180, le=180)
+    block_point_lat: float = Field(ge=-85, le=85)
+    established_minutes: float = Field(ge=0, le=10_080)
+
+
+class RejectedBlockEstablishment(BaseModel):
+    inlet_id: str
+    reason: str
+
+
 class Unblockable(BaseModel):
     """An inlet nothing can be put on, and why."""
 
@@ -147,6 +162,8 @@ class ReactionTimeline(BaseModel):
 
     commencement_minutes: float | None = Field(default=None, ge=0)
     contact_minutes: float | None = Field(default=None, ge=0)
+    block_established_minutes: float | None = Field(default=None, ge=0)
+    block_established_by_contact: bool | None = None
     delay_minutes: float | None = Field(default=None, ge=0)
     remnant_continued: bool | None = None
     objective_arrival_minutes: float | None = Field(default=None, ge=0)
@@ -182,6 +199,10 @@ class BlockPlan(BaseModel):
     rejected_block_points: list[RejectedBlockPoint] = Field(default_factory=list)
     delay_assessments: list[DelayAssessmentInput] = Field(default_factory=list)
     rejected_delay_assessments: list[RejectedDelayAssessment] = Field(
+        default_factory=list
+    )
+    block_establishments: list[BlockEstablishmentInput] = Field(default_factory=list)
+    rejected_block_establishments: list[RejectedBlockEstablishment] = Field(
         default_factory=list
     )
 
@@ -390,6 +411,7 @@ def _reaction_timeline(
     reserve: Mark | None,
     outcome: SealingOutcome,
     delay_minutes: float | None,
+    established_minutes: float | None,
 ) -> ReactionTimeline:
     """Build only the reaction events justified by current inputs.
 
@@ -418,11 +440,37 @@ def _reaction_timeline(
         unknowns.append("contact time needs reserve commencement")
     if commencement is None:
         unknowns.append("commencement needs decision and readiness time")
+    established_by_contact = (
+        established_minutes <= contact
+        if established_minutes is not None and contact is not None
+        else None
+    )
+    if established_minutes is None:
+        unknowns.append("block-force establishment time is not assessed")
+    elif contact is None:
+        unknowns.append("block timing cannot be compared until contact is known")
+
+    if established_by_contact is False:
+        if task_complete is None:
+            unknowns.append("objective arrival needs complete reserve timing")
+        return ReactionTimeline(
+            commencement_minutes=commencement,
+            contact_minutes=contact,
+            block_established_minutes=established_minutes,
+            block_established_by_contact=False,
+            delay_minutes=0,
+            remnant_continued=True,
+            objective_arrival_minutes=task_complete,
+            objective_outcome=ObjectiveOutcome.REACHED,
+            unknowns=unknowns,
+        )
 
     if outcome is SealingOutcome.DESTROYED:
         return ReactionTimeline(
             commencement_minutes=commencement,
             contact_minutes=contact,
+            block_established_minutes=established_minutes,
+            block_established_by_contact=established_by_contact,
             remnant_continued=False,
             objective_outcome=ObjectiveOutcome.DID_NOT_REACH,
             unknowns=unknowns,
@@ -433,6 +481,8 @@ def _reaction_timeline(
         return ReactionTimeline(
             commencement_minutes=commencement,
             contact_minutes=contact,
+            block_established_minutes=established_minutes,
+            block_established_by_contact=established_by_contact,
             delay_minutes=0,
             remnant_continued=True,
             objective_arrival_minutes=task_complete,
@@ -448,6 +498,8 @@ def _reaction_timeline(
         return ReactionTimeline(
             commencement_minutes=commencement,
             contact_minutes=contact,
+            block_established_minutes=established_minutes,
+            block_established_by_contact=established_by_contact,
             delay_minutes=delay_minutes,
             remnant_continued=True,
             objective_arrival_minutes=(
@@ -462,6 +514,8 @@ def _reaction_timeline(
     return ReactionTimeline(
         commencement_minutes=commencement,
         contact_minutes=contact,
+        block_established_minutes=established_minutes,
+        block_established_by_contact=established_by_contact,
         objective_outcome=ObjectiveOutcome.UNKNOWN,
         unknowns=unknowns,
     )
@@ -472,6 +526,7 @@ def _assess_sealing(
     allocation: Allocation,
     reserve: Mark | None,
     delay_minutes: float | None,
+    established_minutes: float | None,
 ) -> SealingAssessment:
     candidate = next(
         (entry for entry in block.candidates if entry.unit_id == allocation.unit_id),
@@ -489,7 +544,7 @@ def _assess_sealing(
             outcome=outcome,
             reason="reserve is not present in the supplied assessment",
             reaction=_reaction_timeline(
-                block, allocation, reserve, outcome, delay_minutes
+                block, allocation, reserve, outcome, delay_minutes, established_minutes
             ),
         )
 
@@ -507,7 +562,7 @@ def _assess_sealing(
             outcome=outcome,
             reason="reserve has no catalogued platform hardness to assess",
             reaction=_reaction_timeline(
-                block, allocation, reserve, outcome, delay_minutes
+                block, allocation, reserve, outcome, delay_minutes, established_minutes
             ),
         )
 
@@ -549,7 +604,9 @@ def _assess_sealing(
         remaining_platform_count=_exact(remaining),
         outcome=outcome,
         reason=reason,
-        reaction=_reaction_timeline(block, allocation, reserve, outcome, delay_minutes),
+        reaction=_reaction_timeline(
+            block, allocation, reserve, outcome, delay_minutes, established_minutes
+        ),
     )
 
 
@@ -560,6 +617,7 @@ def plan_blocks(
     reserves: list[Mark] | None = None,
     block_points: list[BlockPointInput] | None = None,
     delay_assessments: list[DelayAssessmentInput] | None = None,
+    block_establishments: list[BlockEstablishmentInput] | None = None,
 ) -> BlockPlan:
     """Block options and a maximum-coverage allocation for every axis/inlet."""
     available = orbat.available()
@@ -597,6 +655,22 @@ def plan_blocks(
             RejectedDelayAssessment(
                 inlet_id=inlet_id,
                 reason="delay assessment was supplied more than once",
+            )
+        )
+    rejected_block_establishments: list[RejectedBlockEstablishment] = []
+    establishment_by_id: dict[str, BlockEstablishmentInput] = {}
+    duplicate_establishment_ids: set[str] = set()
+    for establishment in block_establishments or []:
+        if establishment.inlet_id in establishment_by_id:
+            duplicate_establishment_ids.add(establishment.inlet_id)
+            continue
+        establishment_by_id[establishment.inlet_id] = establishment
+    for inlet_id in sorted(duplicate_establishment_ids):
+        establishment_by_id.pop(inlet_id, None)
+        rejected_block_establishments.append(
+            RejectedBlockEstablishment(
+                inlet_id=inlet_id,
+                reason="block establishment was supplied more than once",
             )
         )
     urgency: dict[str, tuple[float, float, str]] = {}
@@ -740,6 +814,29 @@ def plan_blocks(
         rejected_delay_assessments.append(
             RejectedDelayAssessment(inlet_id=inlet_id, reason=reason)
         )
+    accepted_establishments: dict[str, BlockEstablishmentInput] = {}
+    for inlet_id, establishment in establishment_by_id.items():
+        assigned = allocation_by_inlet.get(inlet_id)
+        point = assigned.block_point if assigned is not None else None
+        if inlet_id not in known_inlet_ids:
+            reason = "block establishment names an inlet outside this study"
+        elif assigned is None:
+            reason = "block establishment names an inlet with no allocated block force"
+        elif assigned.unit_id != establishment.unit_id:
+            reason = "block establishment belongs to a different allocated block force"
+        elif point is None:
+            reason = "block establishment requires an exact block point"
+        elif not (
+            math.isclose(point.lon, establishment.block_point_lon, abs_tol=1e-7)
+            and math.isclose(point.lat, establishment.block_point_lat, abs_tol=1e-7)
+        ):
+            reason = "block establishment belongs to a different block point"
+        else:
+            accepted_establishments[inlet_id] = establishment
+            continue
+        rejected_block_establishments.append(
+            RejectedBlockEstablishment(inlet_id=inlet_id, reason=reason)
+        )
     blocks_by_inlet = {block.inlet_id: block for block in blocks}
     reserves_by_id = {reserve.id: reserve for reserve in reserves or []}
     sealing = [
@@ -749,6 +846,9 @@ def plan_blocks(
             reserves_by_id.get(blocks_by_inlet[entry.inlet_id].reserve_id),
             accepted_delays[entry.inlet_id].delay_minutes
             if entry.inlet_id in accepted_delays
+            else None,
+            accepted_establishments[entry.inlet_id].established_minutes
+            if entry.inlet_id in accepted_establishments
             else None,
         )
         for entry in allocation
@@ -767,6 +867,7 @@ def plan_blocks(
         )
         accepted_delays.pop(inlet_id)
     rejected_delay_assessments.sort(key=lambda entry: (entry.inlet_id, entry.reason))
+    rejected_block_establishments.sort(key=lambda entry: (entry.inlet_id, entry.reason))
     return BlockPlan(
         inlets=blocks,
         allocation=allocation,
@@ -779,4 +880,8 @@ def plan_blocks(
             accepted_delays.values(), key=lambda entry: entry.inlet_id
         ),
         rejected_delay_assessments=rejected_delay_assessments,
+        block_establishments=sorted(
+            accepted_establishments.values(), key=lambda entry: entry.inlet_id
+        ),
+        rejected_block_establishments=rejected_block_establishments,
     )

@@ -6,6 +6,7 @@ import type { Forecast } from '../types/forecast'
 import type { DocumentIntelligence } from '../types/documentIntelligence'
 import type {
   BlockPlan,
+  BlockEstablishmentInput,
   BlockPointInput,
   DelayAssessmentInput,
   CorridorEdit,
@@ -472,11 +473,12 @@ export async function runBlockForces(
   orbat: Orbat,
   blockPoints: BlockPointInput[] = [],
   delayAssessments: DelayAssessmentInput[] = [],
+  blockEstablishments: BlockEstablishmentInput[] = [],
 ): Promise<{ orbat: Orbat; blockPlan: BlockPlan }> {
   const res = await fetch(`/api/route-study/${studyId}/block-forces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orbat, blockPoints, delayAssessments }),
+    body: JSON.stringify({ orbat, blockPoints, delayAssessments, blockEstablishments }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as { orbat: Orbat; blockPlan: BlockPlan }

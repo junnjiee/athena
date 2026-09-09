@@ -193,6 +193,14 @@ export interface DelayAssessmentInput {
   delay_minutes: number
 }
 
+export interface BlockEstablishmentInput {
+  inlet_id: string
+  unit_id: string
+  block_point_lon: number
+  block_point_lat: number
+  established_minutes: number
+}
+
 /** An inlet nothing can be put on. Distinct from `uncovered`, which is an
  *  inlet that could have been blocked had the force not run out. */
 export interface UnblockableCorridor {
@@ -209,6 +217,8 @@ export interface ExactCount {
 export interface ReactionTimeline {
   commencement_minutes?: number | null
   contact_minutes?: number | null
+  block_established_minutes?: number | null
+  block_established_by_contact?: boolean | null
   delay_minutes?: number | null
   remnant_continued?: boolean | null
   objective_arrival_minutes?: number | null
@@ -244,6 +254,8 @@ export interface BlockPlan {
   rejected_block_points?: { inlet_id: string; reason: string }[]
   delay_assessments?: DelayAssessmentInput[]
   rejected_delay_assessments?: { inlet_id: string; reason: string }[]
+  block_establishments?: BlockEstablishmentInput[]
+  rejected_block_establishments?: { inlet_id: string; reason: string }[]
 }
 
 /** What the operator believes the enemy is trying to do. */

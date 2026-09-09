@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from athena.blocking import (
+    BlockEstablishmentInput,
     BlockPlan,
     BlockPointInput,
     DelayAssessmentInput,
@@ -180,6 +181,9 @@ class BlockRequest(BaseModel):
     reserves: list[Mark] = Field(default_factory=list)
     block_points: list[BlockPointInput] = Field(default_factory=list, max_length=128)
     delay_assessments: list[DelayAssessmentInput] = Field(default_factory=list, max_length=128)
+    block_establishments: list[BlockEstablishmentInput] = Field(
+        default_factory=list, max_length=128
+    )
 
     @field_validator("block_points")
     @classmethod
@@ -201,6 +205,16 @@ class BlockRequest(BaseModel):
             raise ValueError("delay assessment inlet ids must be unique")
         return assessments
 
+    @field_validator("block_establishments")
+    @classmethod
+    def block_establishment_inlets_are_unique(
+        cls, establishments: list[BlockEstablishmentInput]
+    ) -> list[BlockEstablishmentInput]:
+        inlet_ids = [entry.inlet_id for entry in establishments]
+        if len(inlet_ids) != len(set(inlet_ids)):
+            raise ValueError("block establishment inlet ids must be unique")
+        return establishments
+
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
@@ -212,6 +226,7 @@ async def block_forces(request: BlockRequest) -> BlockPlan:
         request.reserves,
         request.block_points,
         request.delay_assessments,
+        request.block_establishments,
     )
 
 

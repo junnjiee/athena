@@ -387,6 +387,34 @@ def test_block_force_endpoint_accepts_one_bounded_delay_per_inlet() -> None:
     ).status_code == 422
 
 
+def test_block_force_endpoint_accepts_one_establishment_per_exact_point() -> None:
+    first = client.post("/v1/block-forces", json=block_request())
+    inlet_id = first.json()["inlets"][0]["inlet_id"]
+    point = {"inlet_id": inlet_id, "lon": 0.5, "lat": 0}
+    establishment = {
+        "inlet_id": inlet_id,
+        "unit_id": "sec1",
+        "block_point_lon": 0.5,
+        "block_point_lat": 0,
+        "established_minutes": 20,
+    }
+
+    response = client.post(
+        "/v1/block-forces",
+        json=block_request(
+            block_points=[point],
+            block_establishments=[establishment],
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["block_establishments"] == [establishment]
+    assert client.post(
+        "/v1/block-forces",
+        json=block_request(block_establishments=[establishment, establishment]),
+    ).status_code == 422
+
+
 def test_an_invalid_orbat_tree_is_rejected() -> None:
     broken = {
         "units": [

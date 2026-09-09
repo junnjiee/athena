@@ -34,6 +34,7 @@ interface Props {
   onBeginBlockPoint: (inletId: string) => void
   onClearBlockPoint: (inletId: string) => void
   onSetDelayAssessment: (inletId: string, delayMinutes: number | null) => void
+  onSetBlockEstablishment: (inletId: string, establishedMinutes: number | null) => void
 }
 
 /**
@@ -54,6 +55,7 @@ export function BlockForcePanel({
   onBeginBlockPoint,
   onClearBlockPoint,
   onSetDelayAssessment,
+  onSetBlockEstablishment,
 }: Props) {
   const [selectedInletId, setSelectedInletId] = useState<string | null>(null)
   const plan = study.blockPlan
@@ -68,6 +70,9 @@ export function BlockForcePanel({
   const allocated = plan ? allocationByInlet(plan) : new Map()
   const sealing = plan ? sealingByInlet(plan) : new Map()
   const blockPoints = new Map((plan?.block_points ?? []).map((point) => [point.inlet_id, point]))
+  const delayAssessments = new Map(
+    (plan?.delay_assessments ?? []).map((entry) => [entry.inlet_id, entry.delay_minutes]),
+  )
   const inletNames = new Map(inlets.map((block) => [
     block.inlet_id,
     `${corridorNames.get(block.corridor_id)?.label ?? block.corridor_id} · inlet ${block.inlet_number}`,
@@ -138,6 +143,16 @@ export function BlockForcePanel({
           </div>
         )}
 
+        {(plan?.rejected_block_establishments?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1.5 text-[10px] text-amber-300">
+            {plan!.rejected_block_establishments!.map((rejection) => (
+              <div key={`${rejection.inlet_id}:${rejection.reason}`}>
+                {inletNames.get(rejection.inlet_id) ?? rejection.inlet_id} · {rejection.reason}
+              </div>
+            ))}
+          </div>
+        )}
+
         {inlets.map((block) => (
           <InletBlockRow
             key={block.inlet_id}
@@ -146,6 +161,7 @@ export function BlockForcePanel({
             allocation={allocated.get(block.inlet_id)}
             sealing={sealing.get(block.inlet_id)}
             blockPoint={blockPoints.get(block.inlet_id)}
+            delayAssessmentMinutes={delayAssessments.get(block.inlet_id)}
             units={units}
             unblockableReason={unblockable.get(block.inlet_id)}
             uncovered={uncovered.has(block.inlet_id)}
@@ -159,6 +175,9 @@ export function BlockForcePanel({
             onBeginBlockPoint={() => onBeginBlockPoint(block.inlet_id)}
             onClearBlockPoint={() => onClearBlockPoint(block.inlet_id)}
             onSetDelayAssessment={(minutes) => onSetDelayAssessment(block.inlet_id, minutes)}
+            onSetBlockEstablishment={(minutes) => (
+              onSetBlockEstablishment(block.inlet_id, minutes)
+            )}
             blockPointControlsDisabled={running}
           />
         ))}
@@ -167,7 +186,8 @@ export function BlockForcePanel({
           <p className="px-0.5 pt-1 text-[10px] leading-relaxed text-(--text-dim)">
             Every axis is an inlet. Coverage drives allocation; sufficiency describes the result.
             Distances are straight-line to the inlet, not road distance or time. An operator-set
-            block point times enemy contact; own-force arrival remains a separate judgement.
+            block point times enemy contact; an operator establishment assessment is compared
+            against it without inventing own-force travel time.
           </p>
         )}
       </div>
@@ -196,6 +216,7 @@ function InletBlockRow({
   allocation,
   sealing,
   blockPoint,
+  delayAssessmentMinutes,
   units,
   unblockableReason,
   uncovered,
@@ -206,6 +227,7 @@ function InletBlockRow({
   onBeginBlockPoint,
   onClearBlockPoint,
   onSetDelayAssessment,
+  onSetBlockEstablishment,
   blockPointControlsDisabled,
 }: {
   block: InletBlock
@@ -213,6 +235,7 @@ function InletBlockRow({
   allocation: BlockAllocation | undefined
   sealing: SealingAssessment | undefined
   blockPoint: BlockPoint | undefined
+  delayAssessmentMinutes: number | undefined
   units: OrbatUnit[]
   unblockableReason: string | undefined
   uncovered: boolean
@@ -223,6 +246,7 @@ function InletBlockRow({
   onBeginBlockPoint: () => void
   onClearBlockPoint: () => void
   onSetDelayAssessment: (delayMinutes: number | null) => void
+  onSetBlockEstablishment: (establishedMinutes: number | null) => void
   blockPointControlsDisabled: boolean
 }) {
   const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
@@ -278,6 +302,9 @@ function InletBlockRow({
               contactUnitName={allocation.unit_name}
               disabled={blockPointControlsDisabled}
               onSetDelayAssessment={onSetDelayAssessment}
+              assessedDelayMinutes={delayAssessmentMinutes}
+              blockPoint={blockPoint}
+              onSetBlockEstablishment={onSetBlockEstablishment}
             />
           )}
           {forceRows.length > 0 ? (
@@ -411,11 +438,17 @@ function SealingResult({
   contactUnitName,
   disabled,
   onSetDelayAssessment,
+  assessedDelayMinutes,
+  blockPoint,
+  onSetBlockEstablishment,
 }: {
   assessment: SealingAssessment
   contactUnitName: string
   disabled: boolean
   onSetDelayAssessment: (delayMinutes: number | null) => void
+  assessedDelayMinutes: number | undefined
+  blockPoint: BlockPoint | undefined
+  onSetBlockEstablishment: (establishedMinutes: number | null) => void
 }) {
   const presentation = {
     destroyed_at_block: {
@@ -444,7 +477,9 @@ function SealingResult({
 
   return (
     <div className={`mt-2 rounded-md border px-2 py-1.5 ${presentation.className}`}>
-      <div className="text-[10px] font-medium tracking-wide">{presentation.label.toUpperCase()}</div>
+      <div className="text-[10px] font-medium tracking-wide">
+        CAPABILITY · {presentation.label.toUpperCase()}
+      </div>
       {assessment.outcome === 'delayed_and_attrited' && (
         <div className="mt-0.5 text-[10px]">{remaining} of {targetCount} hardest platforms remain</div>
       )}
@@ -467,11 +502,27 @@ function SealingResult({
         </div>
       )}
       {assessment.outcome === 'delayed_and_attrited' && (
-        <DelayAssessmentEditor
-          key={assessment.reaction?.delay_minutes ?? 'unset'}
-          value={assessment.reaction?.delay_minutes ?? null}
+        <TimingAssessmentEditor
+          key={`delay:${assessedDelayMinutes ?? 'unset'}`}
+          label="OPERATOR DELAY ASSESSMENT"
+          ariaLabel="Delay duration in minutes"
+          value={assessedDelayMinutes ?? null}
+          minimum={1}
           disabled={disabled}
           onSave={onSetDelayAssessment}
+          explanation="Enter a judged delay; Athena will not infer one from attrition alone."
+        />
+      )}
+      {blockPoint && (
+        <TimingAssessmentEditor
+          key={`established:${assessment.reaction?.block_established_minutes ?? 'unset'}`}
+          label="BLOCK FORCE ESTABLISHMENT"
+          ariaLabel="Block force establishment time in minutes"
+          value={assessment.reaction?.block_established_minutes ?? null}
+          minimum={0}
+          disabled={disabled}
+          onSave={onSetBlockEstablishment}
+          explanation="Minutes after the same planning reference as enemy commencement; moving the unit or point clears stale timing."
         />
       )}
       {assessment.reaction && (
@@ -481,34 +532,45 @@ function SealingResult({
   )
 }
 
-function DelayAssessmentEditor({
+function TimingAssessmentEditor({
+  label,
+  ariaLabel,
   value,
+  minimum,
   disabled,
   onSave,
+  explanation,
 }: {
+  label: string
+  ariaLabel: string
   value: number | null
+  minimum: number
   disabled: boolean
   onSave: (delayMinutes: number | null) => void
+  explanation: string
 }) {
   const [draft, setDraft] = useState(value == null ? '' : String(value))
 
   const parsed = Number(draft)
-  const valid = draft.trim() !== '' && Number.isFinite(parsed) && parsed > 0 && parsed <= 10_080
+  const valid = draft.trim() !== ''
+    && Number.isFinite(parsed)
+    && parsed >= minimum
+    && parsed <= 10_080
   const changed = valid && parsed !== value
 
   return (
     <div className="mt-1.5 border-t border-current/15 pt-1.5 text-[9px] text-(--text-dim)">
-      <div className="tracking-wide">OPERATOR DELAY ASSESSMENT</div>
+      <div className="tracking-wide">{label}</div>
       <div className="mt-1 flex items-center gap-1">
         <input
           type="number"
-          min={1}
+          min={minimum}
           max={10_080}
           step={1}
           value={draft}
           disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
-          aria-label="Delay duration in minutes"
+          aria-label={ariaLabel}
           placeholder="minutes"
           className="min-w-0 flex-1 rounded border border-current/20 bg-black/20 px-1.5 py-1 text-(--text) outline-none disabled:opacity-40"
         />
@@ -533,11 +595,11 @@ function DelayAssessmentEditor({
         )}
       </div>
       {!valid && draft.trim() !== '' && (
-        <div className="mt-1 normal-case text-(--hostile)">Enter 1–10,080 minutes.</div>
+        <div className="mt-1 normal-case text-(--hostile)">
+          Enter {minimum.toLocaleString()}–10,080 minutes.
+        </div>
       )}
-      <div className="mt-1 normal-case leading-relaxed">
-        Enter a judged delay; Athena will not infer one from attrition alone.
-      </div>
+      <div className="mt-1 normal-case leading-relaxed">{explanation}</div>
     </div>
   )
 }
@@ -562,12 +624,21 @@ function ReactionChain({
     : reaction.objective_outcome === 'reached'
       ? `reached objective · ${time(reaction.objective_arrival_minutes)}`
       : 'objective outcome unknown'
+  const blockTiming = reaction.block_established_by_contact == null
+    ? 'block timing incomplete'
+    : reaction.block_established_by_contact
+      ? 'block established by contact'
+      : 'block force late to contact'
 
   return (
     <div className="mt-1.5 border-t border-current/15 pt-1.5 text-[9px] text-(--text-dim)">
       <div className="tracking-wide">REACTION CHAIN</div>
       <div className="mt-0.5">COMMENCED · {time(reaction.commencement_minutes)}</div>
+      <div>BLOCK FORCE ESTABLISHED · {time(reaction.block_established_minutes)}</div>
       <div>CONTACTED BY {contactUnitName.toUpperCase()} · {time(reaction.contact_minutes)}</div>
+      <div className={reaction.block_established_by_contact === false ? 'text-(--hostile)' : ''}>
+        {blockTiming.toUpperCase()}
+      </div>
       {assessment.outcome === 'delayed_and_attrited' && (
         <div>DELAY · {time(reaction.delay_minutes)}</div>
       )}

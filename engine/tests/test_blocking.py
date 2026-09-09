@@ -1,6 +1,11 @@
 """Which forces a commander can put on which approach."""
 
-from athena.blocking import BlockPointInput, DelayAssessmentInput, plan_blocks
+from athena.blocking import (
+    BlockEstablishmentInput,
+    BlockPointInput,
+    DelayAssessmentInput,
+    plan_blocks,
+)
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
 from athena.study import (
@@ -160,6 +165,96 @@ def test_an_operator_block_point_times_enemy_contact_on_the_inlet() -> None:
     assert result.allocation[0].block_point == point
     assert reaction.contact_minutes == 30 + point.enemy_movement_seconds / 60
     assert not any("block position" in unknown for unknown in reaction.unknowns)
+
+
+def test_operator_establishment_time_compares_the_block_force_with_contact() -> None:
+    force = Orbat(
+        units=(
+            unit(
+                "near",
+                Echelon.SECTION,
+                0.0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=10),),
+            ),
+        )
+    )
+    baseline = plan_blocks(GRAPH, [WEST], force)
+    inlet_id = baseline.inlets[0].inlet_id
+    point = BlockPointInput(inlet_id=inlet_id, lon=0.005, lat=0)
+    timed = reserve(
+        timing=ReserveTiming(
+            decision_minutes=10,
+            readiness_minutes=20,
+            deployment_minutes=15,
+        )
+    )
+
+    ready = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        [timed],
+        [point],
+        block_establishments=[
+            BlockEstablishmentInput(
+                inlet_id=inlet_id,
+                unit_id="near",
+                block_point_lon=0.005,
+                block_point_lat=0,
+                established_minutes=25,
+            )
+        ],
+    )
+    late = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        [timed],
+        [point],
+        block_establishments=[
+            BlockEstablishmentInput(
+                inlet_id=inlet_id,
+                unit_id="near",
+                block_point_lon=0.005,
+                block_point_lat=0,
+                established_minutes=60,
+            )
+        ],
+    )
+
+    assert ready.sealing[0].reaction.block_established_minutes == 25
+    assert ready.sealing[0].reaction.block_established_by_contact is True
+    assert ready.sealing[0].reaction.objective_outcome == "did_not_reach"
+    assert late.sealing[0].outcome == "destroyed_at_block"
+    assert late.sealing[0].reaction.block_established_by_contact is False
+    assert late.sealing[0].reaction.delay_minutes == 0
+    assert late.sealing[0].reaction.remnant_continued is True
+    assert late.sealing[0].reaction.objective_arrival_minutes == 30 + 301 / 60 + 15
+    assert late.sealing[0].reaction.objective_outcome == "reached"
+
+
+def test_moving_a_block_point_rejects_its_stale_establishment_time() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    inlet_id = plan_blocks(GRAPH, [WEST], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        block_points=[BlockPointInput(inlet_id=inlet_id, lon=0.006, lat=0)],
+        block_establishments=[
+            BlockEstablishmentInput(
+                inlet_id=inlet_id,
+                unit_id="near",
+                block_point_lon=0.005,
+                block_point_lat=0,
+                established_minutes=20,
+            )
+        ],
+    )
+
+    assert result.block_establishments == []
+    assert "different block point" in result.rejected_block_establishments[0].reason
 
 
 def test_a_block_point_away_from_or_outside_the_study_is_rejected() -> None:
@@ -685,7 +780,10 @@ def test_unimpeded_reserve_reaction_has_a_computable_objective_arrival() -> None
     assert reaction.delay_minutes == 0
     assert reaction.objective_arrival_minutes == 30 + 301 / 60 + 15
     assert reaction.objective_outcome == "reached"
-    assert reaction.unknowns == ["contact time needs an operator-set block position"]
+    assert reaction.unknowns == [
+        "contact time needs an operator-set block position",
+        "block-force establishment time is not assessed",
+    ]
 
 
 def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:

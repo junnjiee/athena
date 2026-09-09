@@ -178,6 +178,14 @@ const delayAssessmentSchema = z.object({
   delay_minutes: z.number().finite().gt(0).max(10_080),
 })
 
+const blockEstablishmentSchema = z.object({
+  inlet_id: z.string().min(1).max(120),
+  unit_id: z.string().min(1).max(120),
+  block_point_lon: z.number().gte(-180).lte(180),
+  block_point_lat: z.number().gte(-85).lte(85),
+  established_minutes: z.number().finite().gte(0).max(10_080),
+})
+
 export const blockForcesBody = z.object({
   orbat: orbatSchema,
   blockPoints: z.array(blockPointSchema).max(128).default([]).refine(
@@ -187,6 +195,10 @@ export const blockForcesBody = z.object({
   delayAssessments: z.array(delayAssessmentSchema).max(128).default([]).refine(
     (assessments) => new Set(assessments.map((entry) => entry.inlet_id)).size === assessments.length,
     'delay assessment inlet ids must be unique',
+  ),
+  blockEstablishments: z.array(blockEstablishmentSchema).max(128).default([]).refine(
+    (entries) => new Set(entries.map((entry) => entry.inlet_id)).size === entries.length,
+    'block establishment inlet ids must be unique',
   ),
 })
 
@@ -474,6 +486,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
           reserves: row.marks.reserves,
           blockPoints: parsed.data.blockPoints,
           delayAssessments: parsed.data.delayAssessments,
+          blockEstablishments: parsed.data.blockEstablishments,
         })
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {

@@ -88,6 +88,10 @@ describe('revision-pinned engine calls', () => {
       reserves: [],
       blockPoints: [{ inlet_id: 'inlet-1', lon: 103.8, lat: 1.35 }],
       delayAssessments: [{ inlet_id: 'inlet-1', unit_id: 'sec1', delay_minutes: 45 }],
+      blockEstablishments: [{
+        inlet_id: 'inlet-1', unit_id: 'sec1', block_point_lon: 103.8,
+        block_point_lat: 1.35, established_minutes: 20,
+      }],
     })
 
     expect(sent.graph_revision).toBe(4)
@@ -96,6 +100,10 @@ describe('revision-pinned engine calls', () => {
     expect(sent.delay_assessments).toEqual([
       { inlet_id: 'inlet-1', unit_id: 'sec1', delay_minutes: 45 },
     ])
+    expect(sent.block_establishments).toEqual([{
+      inlet_id: 'inlet-1', unit_id: 'sec1', block_point_lon: 103.8,
+      block_point_lat: 1.35, established_minutes: 20,
+    }])
   })
 })
 

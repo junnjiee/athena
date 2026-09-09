@@ -138,4 +138,23 @@ describe('blockForcesBody', () => {
       delayAssessments: [{ ...assessment, delay_minutes: 10_081 }],
     })).success).toBe(false)
   })
+
+  test('accepts one bounded establishment assessment per exact point', () => {
+    const establishment = {
+      inlet_id: 'inlet-1',
+      unit_id: 'sec1',
+      block_point_lon: 103.8,
+      block_point_lat: 1.35,
+      established_minutes: 20,
+    }
+    expect(blockForcesBody.parse(
+      body({ blockEstablishments: [establishment] }),
+    ).blockEstablishments).toEqual([establishment])
+    expect(blockForcesBody.safeParse(body({
+      blockEstablishments: [establishment, establishment],
+    })).success).toBe(false)
+    expect(blockForcesBody.safeParse(body({
+      blockEstablishments: [{ ...establishment, established_minutes: -1 }],
+    })).success).toBe(false)
+  })
 })
