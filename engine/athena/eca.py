@@ -370,6 +370,13 @@ def generate_courses(
     weights: "Weights | None" = None,
 ) -> RankedCourses:
     """Ask the model, check what it said, then rank it."""
+    known_objectives = {objective.id for objective in objectives}
+    unknown_objectives = sorted(set(intent.objective_ids) - known_objectives)
+    if unknown_objectives:
+        raise InvalidIntentError(
+            "intent names objective(s) outside this study: "
+            + ", ".join(unknown_objectives)
+        )
     if not corridors:
         # Nothing to reason over. Asking anyway invites the model to fill the
         # silence, which is exactly the failure the grounding check exists for.
@@ -404,6 +411,10 @@ class RefusedError(RuntimeError):
     list of courses. 'The enemy has no options' and 'we did not get an answer'
     are opposite findings.
     """
+
+
+class InvalidIntentError(ValueError):
+    """Structured intent names an objective outside the supplied study."""
 
 
 class NotConfiguredError(RuntimeError):

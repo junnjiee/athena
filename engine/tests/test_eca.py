@@ -11,6 +11,7 @@ from athena.eca import (
     CourseCorridor,
     DraftCourses,
     Effort,
+    InvalidIntentError,
     NotConfiguredError,
     RefusedError,
     build_prompt,
@@ -216,6 +217,32 @@ def test_unstated_objectives_are_declared_in_play_rather_than_omitted() -> None:
     prompt = build_prompt(CORRIDORS, RESERVES, OBJECTIVES, EnemyIntent())
 
     assert "every objective as in play" in prompt
+
+
+def test_structured_intent_rejects_blank_and_duplicate_objective_ids() -> None:
+    with pytest.raises(ValueError, match="must not be blank"):
+        EnemyIntent(objective_ids=[""])
+    with pytest.raises(ValueError, match="must be unique"):
+        EnemyIntent(objective_ids=["obj1", "obj1"])
+
+
+def test_unknown_intent_objectives_fail_before_the_model_is_called() -> None:
+    called = False
+
+    def generator(system: str, prompt: str) -> DraftCourses:
+        nonlocal called
+        called = True
+        return DraftCourses(courses=[])
+
+    with pytest.raises(InvalidIntentError, match="obj_ghost"):
+        generate_courses(
+            CORRIDORS,
+            RESERVES,
+            OBJECTIVES,
+            EnemyIntent(objective_ids=["obj_ghost"]),
+            generator,
+        )
+    assert called is False
 
 
 def test_the_prompt_forbids_inventing_ground() -> None:

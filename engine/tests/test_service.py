@@ -530,6 +530,18 @@ def test_course_endpoint_retains_operator_corridor_context_for_the_prompt() -> N
     assert 'operator category "main approach"' in seen["prompt"]
 
 
+def test_course_endpoint_rejects_intent_outside_the_study() -> None:
+    response = client.post(
+        "/v1/enemy-courses-of-action",
+        json=courses_request(
+            intent={"objective_ids": ["obj_ghost"], "narrative": ""}
+        ),
+    )
+
+    assert response.status_code == 400
+    assert "obj_ghost" in response.json()["detail"]
+
+
 def test_invented_ground_is_reported_rather_than_rendered() -> None:
     from athena.service import get_course_generator
 

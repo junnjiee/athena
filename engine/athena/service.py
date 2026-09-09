@@ -23,6 +23,7 @@ from athena.eca import (
     CourseGenerator,
     CourseCorridor,
     CourseOfAction,
+    InvalidIntentError,
     NotConfiguredError,
     RankedCourses,
     RefusedError,
@@ -304,6 +305,8 @@ def enemy_courses(
             generator,
             weights=request.weights,
         )
+    except InvalidIntentError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except NotConfiguredError as error:
         # 503, not 502: nothing upstream failed, this deployment was never given
         # a model to ask. The distinction is what tells an operator to edit the

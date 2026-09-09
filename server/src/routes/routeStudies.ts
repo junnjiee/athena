@@ -47,6 +47,15 @@ export function corridorsForCourseAssessment(
   })
 }
 
+/** Structured intent may only point at objectives belonging to this study. */
+export function unknownIntentObjectiveIds(
+  intent: EnemyIntent,
+  objectives: StudyMarks['objectives'],
+): string[] {
+  const known = new Set(objectives.map((objective) => objective.id))
+  return [...new Set(intent.objective_ids.filter((id) => !known.has(id)))].sort()
+}
+
 const markBoundsSchema = z.object({
   west: z.number().gte(-180).lte(180),
   south: z.number().gte(-85).lte(85),
@@ -231,7 +240,10 @@ export const blockForcesBody = z.object({
 
 export const enemyCoursesBody = z.object({
   intent: z.object({
-    objective_ids: z.array(z.string()).default([]),
+    objective_ids: z.array(z.string().trim().min(1)).max(100).default([]).refine(
+      (ids) => new Set(ids).size === ids.length,
+      'intent objective ids must be unique',
+    ),
     /** Free text, as an S2 would write it. Reaches the model unedited. */
     narrative: z.string().max(4000).default(''),
   }),
@@ -553,6 +565,12 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       if (!row) return reply.status(404).send({ error: 'unknown route study' })
 
       const intent = parsed.data.intent as EnemyIntent
+      const unknownObjectives = unknownIntentObjectiveIds(intent, row.marks.objectives)
+      if (unknownObjectives.length > 0) {
+        return reply.status(400).send({
+          error: `intent names objective(s) outside this study: ${unknownObjectives.join(', ')}`,
+        })
+      }
 
       let courses
       try {
