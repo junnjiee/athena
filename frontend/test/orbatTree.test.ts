@@ -4,7 +4,6 @@ import {
   ECHELON_ORDER,
   availabilitySummary,
   commitsWith,
-  fitsWithin,
   orbatIssues,
   orbatRows,
   validParents,
@@ -43,11 +42,6 @@ describe('echelons', () => {
     expect(ECHELON_ORDER).toEqual(['company', 'platoon', 'section', 'group'])
   })
 
-  test('a ceiling admits itself and everything smaller', () => {
-    expect(fitsWithin('platoon', 'platoon')).toBe(true)
-    expect(fitsWithin('section', 'platoon')).toBe(true)
-    expect(fitsWithin('company', 'platoon')).toBe(false)
-  })
 })
 
 describe('orbatIssues', () => {

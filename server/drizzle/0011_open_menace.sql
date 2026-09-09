@@ -1,0 +1,1 @@
+ALTER TABLE "route_studies" DROP COLUMN "ceiling";

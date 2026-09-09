@@ -169,7 +169,6 @@ export interface RouteStudy {
   corridorEdits: Record<string, CorridorEdit>
   /** The S3 pass. Null until block forces have been run over this study. */
   orbat: Orbat | null
-  ceiling: Echelon | null
   blockPlan: BlockPlan | null
   /** The S2 pass. Null until courses of action have been assessed. */
   intent: EnemyIntent | null

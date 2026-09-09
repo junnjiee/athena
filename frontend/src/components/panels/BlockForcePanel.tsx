@@ -6,12 +6,11 @@ import {
   blockSummary,
   unblockableByCorridor,
 } from '../../lib/blockForces'
-import { ECHELON_LABEL, ECHELON_ORDER, availabilitySummary, fitsWithin } from '../../lib/orbatTree'
+import { ECHELON_LABEL, availabilitySummary } from '../../lib/orbatTree'
 import { formatRouteDistance } from '../../lib/routeStudy'
 import type {
   BlockAllocation,
   CorridorBlock,
-  Echelon,
   OrbatUnit,
   RouteStudy,
 } from '../../types/routeStudy'
@@ -19,10 +18,8 @@ import type {
 interface Props {
   study: RouteStudy
   units: OrbatUnit[]
-  ceiling: Echelon
   running: boolean
   selectedCorridorId: string | null
-  onSetCeiling: (ceiling: Echelon) => void
   onSelectCorridor: (id: string) => void
   onRun: () => void
 }
@@ -32,23 +29,18 @@ interface Props {
  *
  * An option set for a commander to time, not a plan. The engine never asks
  * whether a block force arrives first or whether it can hold what is coming —
- * only whether it is free, within the ceiling, and near enough to be offered.
+ * only whether it is free and near enough to be offered.
  */
 export function BlockForcePanel({
   study,
   units,
-  ceiling,
   running,
   selectedCorridorId,
-  onSetCeiling,
   onSelectCorridor,
   onRun,
 }: Props) {
   const plan = study.blockPlan
   const counts = availabilitySummary(units)
-  const withinCeiling = units.filter(
-    (unit) => unit.availability === 'uncommitted' && fitsWithin(unit.echelon, ceiling),
-  ).length
   const corridorNames = new Map(
     study.result.corridors.map((corridor, index) => [
       corridor.id,
@@ -70,25 +62,9 @@ export function BlockForcePanel({
         {running && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
       </div>
 
-      <label className="mb-2 block text-[10px] tracking-wide text-(--text-dim)">
-        LARGEST FORMATION PER CORRIDOR
-        <select
-          value={ceiling}
-          onChange={(event) => onSetCeiling(event.target.value as Echelon)}
-          className="mt-1 w-full rounded-md border border-(--border) bg-(--panel-bg-solid) px-2 py-1.5 text-xs text-(--text-h) focus:outline-none"
-        >
-          {ECHELON_ORDER.map((echelon) => (
-            <option key={echelon} value={echelon}>
-              {ECHELON_LABEL[echelon]} or smaller
-            </option>
-          ))}
-        </select>
-      </label>
-
       <div className="mb-2 flex items-center gap-1.5 px-0.5 text-[11px] text-(--text-dim)">
         <Users className="h-3.5 w-3.5" />
-        {withinCeiling} of {counts.total} unit{counts.total === 1 ? '' : 's'} free and within the
-        ceiling
+        {counts.uncommitted} of {counts.total} unit{counts.total === 1 ? '' : 's'} available for tasking
       </div>
 
       <button
@@ -261,7 +237,7 @@ function CorridorBlockRow({
           </div>
           {block.candidates.length === 0 && (
             <div className="mt-1 text-[11px] text-(--text-dim)">
-              No free unit within the ceiling can reach this choke point.
+              No uncommitted unit can reach this choke point.
             </div>
           )}
           {block.candidates.map((candidate) => (

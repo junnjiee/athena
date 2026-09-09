@@ -151,7 +151,6 @@ def block_request(**overrides: object) -> dict[str, object]:
             }
         ],
         "orbat": ORBAT,
-        "ceiling": "section",
     }
     body.update(overrides)
     return body
@@ -173,14 +172,13 @@ def test_block_forces_need_ground_to_answer_over() -> None:
     assert client.post("/v1/block-forces", json=request).status_code == 400
 
 
-def test_a_ceiling_below_the_force_leaves_the_corridor_unblockable() -> None:
+def test_a_company_can_be_offered_without_an_artificial_ceiling() -> None:
     company_only = {"units": [{**ORBAT["units"][0], "echelon": "company"}]}
     response = client.post("/v1/block-forces", json=block_request(orbat=company_only))
 
     assert response.status_code == 200
     body = response.json()
-    assert body["allocation"] == []
-    assert len(body["unblockable"]) == 1
+    assert body["allocation"][0]["unit_id"] == "sec1"
 
 
 def test_an_invalid_orbat_tree_is_rejected() -> None:

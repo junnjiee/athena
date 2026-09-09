@@ -13,12 +13,11 @@ const unit = (over: Record<string, unknown> = {}) => ({
 
 const body = (over: Record<string, unknown> = {}) => ({
   orbat: { units: [unit()] },
-  ceiling: 'platoon',
   ...over,
 })
 
 describe('blockForcesBody', () => {
-  test('accepts an ORBAT and a ceiling', () => {
+  test('accepts an ORBAT without an artificial size ceiling', () => {
     const parsed = blockForcesBody.safeParse(body())
 
     expect(parsed.success).toBe(true)
@@ -49,11 +48,6 @@ describe('blockForcesBody', () => {
     ).success).toBe(false)
   })
 
-  test('rejects an echelon the engine does not model', () => {
-    // nothing above a company exists, so a battalion would silently mean nothing
-    expect(blockForcesBody.safeParse(body({ ceiling: 'battalion' })).success).toBe(false)
-  })
-
   test('rejects a unit of no men', () => {
     expect(
       blockForcesBody.safeParse(body({ orbat: { units: [unit({ strength: 0 })] } })).success,
@@ -66,10 +60,10 @@ describe('blockForcesBody', () => {
     ).toBe(false)
   })
 
-  test('requires a ceiling rather than assuming one', () => {
-    // Assuming a ceiling would quietly commit a larger force than intended.
-    const { ceiling: _ceiling, ...withoutCeiling } = body()
-    expect(blockForcesBody.safeParse(withoutCeiling).success).toBe(false)
+  test('strips the retired ceiling from older clients', () => {
+    const parsed = blockForcesBody.parse(body({ ceiling: 'platoon' }))
+    expect(parsed).not.toHaveProperty('ceiling')
+    expect(parsed.orbat.units[0].availability).toBe('uncommitted')
   })
 
   test('an empty ORBAT is allowed, and answers that nothing can block', () => {

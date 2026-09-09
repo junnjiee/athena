@@ -40,12 +40,6 @@ export const AVAILABILITY_LABEL: Record<Availability, string> = {
   reserve: 'Reserve',
 }
 
-/** Whether committing this echelon stays inside the operator's ceiling. On
- *  depth rather than a rank order, so it cannot disagree with the tree rule. */
-export function fitsWithin(echelon: Echelon, ceiling: Echelon): boolean {
-  return ECHELON_DEPTH[echelon] >= ECHELON_DEPTH[ceiling]
-}
-
 /** What the engine would refuse, phrased for the operator. Empty means the
  *  ORBAT is sendable. */
 export function orbatIssues(units: OrbatUnit[]): string[] {

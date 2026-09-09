@@ -41,7 +41,6 @@ from athena.preference import (
     update_weights,
 )
 from athena.study import CorridorOut, Mark, StudyResult, run_study
-from athena.units import Echelon
 
 app = FastAPI(title="Athena planning engine", version="0.1.0")
 
@@ -140,14 +139,12 @@ class BlockRequest(BaseModel):
     graph: RoadGraph | None = None
     corridors: list[CorridorOut]
     orbat: Orbat
-    ceiling: Echelon = Echelon.COMPANY
-    """Largest formation that may be committed to any one corridor."""
 
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
     graph = await _resolve_graph(request.area_id, request.graph_revision, request.graph)
-    return plan_blocks(graph, request.corridors, request.orbat, ceiling=request.ceiling)
+    return plan_blocks(graph, request.corridors, request.orbat)
 
 
 class CoursesRequest(BaseModel):
