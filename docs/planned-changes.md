@@ -375,11 +375,12 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   - **Display only.** It does not constrain block-force allocation and does not
     feed a timing model. Shown on the ORBAT; the judgement stays with the
     operator.
-- **The block force's ORBAT.** `BlockPlan.allocation` is a flat
-  `{corridor_id, unit_id, unit_name, distance_meters}` list. The block force as
-  an ORBAT is that grouped by corridor and resolved back against the tree —
-  task organisation rather than an allocation table. Derived view; all the data
-  is already in the response, no engine change.
+- ~~**The block force's ORBAT.**~~ **Done** — each corridor allocation is
+  resolved back against the own-force tree and rendered as a task-organised
+  formation rooted at the assigned unit, including its subordinate units and
+  their REDCON. Ancestors remain availability dependencies rather than being
+  misreported as members of the block force. This is a derived view over the
+  existing `BlockPlan.allocation`; no engine response change was required.
 - **Remove the echelon ceiling entirely.** There is no largest-formation-per-route
   rule. This is the one change so far that needs a **database migration** —
   `ceiling` is a real `text` column on `route_studies` (`db/schema.ts:102`), not

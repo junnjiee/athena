@@ -1,9 +1,20 @@
 import { AlertTriangle, Ban, Loader2, ShieldCheck, Users } from 'lucide-react'
 import { corridorColor, corridorLabel } from '../../lib/corridors'
-import { allocationByCorridor, blockSummary, unblockableByCorridor } from '../../lib/blockForces'
+import {
+  allocationByCorridor,
+  blockForceOrbat,
+  blockSummary,
+  unblockableByCorridor,
+} from '../../lib/blockForces'
 import { ECHELON_LABEL, ECHELON_ORDER, availabilitySummary, fitsWithin } from '../../lib/orbatTree'
 import { formatRouteDistance } from '../../lib/routeStudy'
-import type { CorridorBlock, Echelon, OrbatUnit, RouteStudy } from '../../types/routeStudy'
+import type {
+  BlockAllocation,
+  CorridorBlock,
+  Echelon,
+  OrbatUnit,
+  RouteStudy,
+} from '../../types/routeStudy'
 
 interface Props {
   study: RouteStudy
@@ -111,6 +122,7 @@ export function BlockForcePanel({
             block={block}
             named={corridorNames.get(block.corridor_id)}
             allocation={allocated.get(block.corridor_id)}
+            units={units}
             unblockableReason={unblockable.get(block.corridor_id)}
             uncovered={uncovered.has(block.corridor_id)}
             selected={selectedCorridorId === block.corridor_id}
@@ -149,6 +161,7 @@ function CorridorBlockRow({
   block,
   named,
   allocation,
+  units,
   unblockableReason,
   uncovered,
   selected,
@@ -156,12 +169,15 @@ function CorridorBlockRow({
 }: {
   block: CorridorBlock
   named: { label: string; color: string } | undefined
-  allocation: { unit_name: string; distance_meters: number } | undefined
+  allocation: BlockAllocation | undefined
+  units: OrbatUnit[]
   unblockableReason: string | undefined
   uncovered: boolean
   selected: boolean
   onSelect: () => void
 }) {
+  const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
+
   return (
     <div
       role="button"
@@ -191,9 +207,36 @@ function CorridorBlockRow({
       </div>
 
       {allocation && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-(--accent)">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          {allocation.unit_name} · {formatRouteDistance(allocation.distance_meters)} out
+        <div className="mt-1.5">
+          <div className="flex items-center gap-1.5 text-[11px] text-(--accent)">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {allocation.unit_name} · {formatRouteDistance(allocation.distance_meters)} out
+          </div>
+          {forceRows.length > 0 ? (
+            <div className="mt-2 rounded-md border border-(--border) bg-black/15 px-2 py-1.5">
+              <div className="mb-1 text-[9px] tracking-wide text-(--text-dim)">
+                BLOCK FORCE · TASK ORGANISATION
+              </div>
+              {forceRows.map(({ unit, depth, hasChildren }) => (
+                <div
+                  key={unit.unit_id}
+                  className="flex min-w-0 items-center gap-1 py-0.5 text-[10px]"
+                  style={{ paddingLeft: depth * 12 }}
+                >
+                  <span aria-hidden="true" className="w-2 shrink-0 text-white/25">
+                    {depth > 0 ? '└' : hasChildren ? '◆' : '•'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-(--text-h)">{unit.name}</span>
+                  <span className="text-(--text-dim)">{ECHELON_LABEL[unit.echelon]}</span>
+                  {unit.redcon != null && <span className="text-(--accent)">R{unit.redcon}</span>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-1 text-[10px] text-amber-300">
+              Saved allocation is no longer present in the current ORBAT.
+            </div>
+          )}
         </div>
       )}
 
