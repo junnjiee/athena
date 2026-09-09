@@ -1,5 +1,16 @@
 import type { BBoxDeg } from './terrain'
 
+export type RoadTheme = 'raptors' | 'big-cats' | 'weather' | 'trees'
+export type OperationalRoadWidth = 2 | 4 | 6
+export type OperationalRoadType = 'X' | 'Y' | 'Z'
+
+export interface RoadEdit {
+  name: string
+  width: OperationalRoadWidth
+  dual: boolean
+  type: OperationalRoadType
+}
+
 export interface OperationalAreaMeta {
   id: string
   name: string
@@ -8,6 +19,9 @@ export interface OperationalAreaMeta {
   nodeCount: number
   edgeCount: number
   demResolutionMeters: number
+  roadTheme: RoadTheme
+  /** Sparse operator edits keyed by road identity, never by graph segment. */
+  roadEdits: Record<string, RoadEdit>
 }
 
 export interface GraphNode {

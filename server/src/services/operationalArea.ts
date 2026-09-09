@@ -77,6 +77,8 @@ export async function ingestOperationalArea(
       nodeCount: graph.nodes.length,
       edgeCount: graph.edges.length,
       demResolutionMeters: config.operationalDemResolutionMeters,
+      roadTheme: 'raptors',
+      roadEdits: {},
     },
     graph,
   }

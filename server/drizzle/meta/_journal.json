@@ -64,6 +64,13 @@
       "when": 1788916808056,
       "tag": "0008_chubby_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788975645775,
+      "tag": "0009_friendly_deadpool",
+      "breakpoints": true
     }
   ]
 }

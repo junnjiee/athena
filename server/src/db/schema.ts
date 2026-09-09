@@ -1,5 +1,5 @@
 import { pgTable, text, integer, real, jsonb, timestamp, customType } from 'drizzle-orm/pg-core'
-import type { BBox, Weather, OsmFeatures, SegmentationInfo } from '../types'
+import type { BBox, Weather, OsmFeatures, RoadEdit, RoadTheme, SegmentationInfo } from '../types'
 import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
 import type {
   BlockPlan,
@@ -73,6 +73,8 @@ export const operationalAreas = pgTable('operational_areas', {
   nodeCount: integer('node_count').notNull(),
   edgeCount: integer('edge_count').notNull(),
   demResolutionMeters: real('dem_resolution_meters').notNull(),
+  roadTheme: text('road_theme').$type<RoadTheme>().notNull().default('raptors'),
+  roadEdits: jsonb('road_edits').$type<Record<string, RoadEdit>>().notNull().default({}),
   /** gzipped JSON — see services/graphWire.ts for why not a binary layout. */
   graphBuffer: bytea('graph_buffer').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

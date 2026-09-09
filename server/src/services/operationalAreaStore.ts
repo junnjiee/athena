@@ -2,7 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/client'
 import { courseFeedback, operationalAreas, routeStudies } from '../db/schema'
 import { decodeGraph, encodeGraph } from './graphWire'
-import type { OperationalAreaMeta, RoadGraph } from '../types'
+import type { OperationalAreaMeta, RoadEdit, RoadGraph, RoadTheme } from '../types'
 
 /** Writes an ingested area. Called only after a complete ingest: a partial
  *  graph is never persisted, so a row that exists is a row that routes. */
@@ -18,6 +18,8 @@ export async function persistOperationalArea(
     nodeCount: meta.nodeCount,
     edgeCount: meta.edgeCount,
     demResolutionMeters: meta.demResolutionMeters,
+    roadTheme: meta.roadTheme,
+    roadEdits: meta.roadEdits,
     graphBuffer: encodeGraph(graph),
   })
 }
@@ -38,6 +40,8 @@ export async function loadOperationalArea(
       nodeCount: row.nodeCount,
       edgeCount: row.edgeCount,
       demResolutionMeters: row.demResolutionMeters,
+      roadTheme: row.roadTheme,
+      roadEdits: row.roadEdits,
     },
     graph: decodeGraph(row.graphBuffer),
   }
@@ -64,9 +68,33 @@ export async function listOperationalAreas(): Promise<OperationalAreaMeta[]> {
       nodeCount: operationalAreas.nodeCount,
       edgeCount: operationalAreas.edgeCount,
       demResolutionMeters: operationalAreas.demResolutionMeters,
+      roadTheme: operationalAreas.roadTheme,
+      roadEdits: operationalAreas.roadEdits,
     })
     .from(operationalAreas)
   return rows
+}
+
+export async function updateOperationalRoadSettings(
+  id: string,
+  settings: { roadTheme?: RoadTheme; roadEdits?: Record<string, RoadEdit> },
+): Promise<OperationalAreaMeta | null> {
+  const rows = await db
+    .update(operationalAreas)
+    .set(settings)
+    .where(eq(operationalAreas.id, id))
+    .returning({
+      id: operationalAreas.id,
+      name: operationalAreas.name,
+      bbox: operationalAreas.bbox,
+      generatedAt: operationalAreas.generatedAt,
+      nodeCount: operationalAreas.nodeCount,
+      edgeCount: operationalAreas.edgeCount,
+      demResolutionMeters: operationalAreas.demResolutionMeters,
+      roadTheme: operationalAreas.roadTheme,
+      roadEdits: operationalAreas.roadEdits,
+    })
+  return rows[0] ?? null
 }
 
 /** Removes an area and everything standing on it.
