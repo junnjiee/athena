@@ -28,6 +28,9 @@ services:
       context: ./engine
     environment:
       TERRAIN_SERVICE_URL: http://server:8787
+      # Only the courses-of-action pass needs this; routes and block forces
+      # are deterministic and run without it.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - '8000:8000'
     volumes:

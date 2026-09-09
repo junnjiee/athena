@@ -1,5 +1,13 @@
 import { config } from '../config'
-import type { BlockPlan, Echelon, Orbat, StudyMarks, StudyResult } from '../db/studyTypes'
+import type {
+  BlockPlan,
+  Echelon,
+  EnemyIntent,
+  Orbat,
+  RankedCourses,
+  StudyMarks,
+  StudyResult,
+} from '../db/studyTypes'
 
 /**
  * Calls the planning engine.
@@ -82,4 +90,38 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
   }
 
   return (await response.json()) as BlockPlan
+}
+
+export interface CoursesRequest {
+  corridors: StudyResult['corridors']
+  reserves: StudyMarks['reserves']
+  objectives: StudyMarks['objectives']
+  intent: EnemyIntent
+}
+
+/** Asks the engine to assess how the enemy would use these corridors.
+ *
+ *  The only call in this service that reaches a model. A failure is surfaced
+ *  rather than degraded for the same reason as everywhere else here: an empty
+ *  assessment reads as "the enemy has no options". */
+export async function runEnemyCourses(request: CoursesRequest): Promise<RankedCourses> {
+  if (!config.engineUrl) {
+    throw new EngineUnavailableError('ENGINE_URL is not set')
+  }
+
+  const response = await fetch(`${config.engineUrl}/v1/enemy-courses-of-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(config.engineReasoningTimeoutMs),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new EngineUnavailableError(
+      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
+    )
+  }
+
+  return (await response.json()) as RankedCourses
 }

@@ -106,3 +106,43 @@ export interface BlockPlan {
   unblockable: UnblockableCorridor[]
   uncovered: { corridor_id: string }[]
 }
+
+/** What the operator believes the enemy is trying to do. */
+export interface EnemyIntent {
+  posture: 'attacking' | 'defending' | 'delaying' | 'withdrawing' | 'unknown'
+  objective_ids: string[]
+  /** Free text as an S2 would write it; reaches the model unedited. */
+  narrative: string
+}
+
+export interface Effort {
+  kind: 'main' | 'supporting'
+  corridor_id: string
+  reserve_id: string
+  rationale: string
+}
+
+export interface CourseOfAction {
+  name: string
+  narrative: string
+  efforts: Effort[]
+  likelihood: number
+  danger: number
+}
+
+/** Ground the model named that the study does not contain. Surfaced, never
+ *  swallowed — a model inventing a corridor is the failure the grounding check
+ *  exists to catch, and hiding it removes the evidence it happened. */
+export interface RejectedReference {
+  course_name: string
+  corridor_id?: string | null
+  reserve_id?: string | null
+  reason: string
+}
+
+export interface RankedCourses {
+  courses: CourseOfAction[]
+  most_likely: CourseOfAction | null
+  most_dangerous: CourseOfAction | null
+  rejected: RejectedReference[]
+}

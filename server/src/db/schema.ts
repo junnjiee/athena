@@ -1,7 +1,16 @@
 import { pgTable, text, integer, real, jsonb, timestamp, customType } from 'drizzle-orm/pg-core'
 import type { BBox, Weather, OsmFeatures, SegmentationInfo } from '../types'
 import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
-import type { BlockPlan, CorridorEdit, Echelon, Orbat, StudyMarks, StudyResult } from './studyTypes'
+import type {
+  BlockPlan,
+  CorridorEdit,
+  Echelon,
+  EnemyIntent,
+  Orbat,
+  RankedCourses,
+  StudyMarks,
+  StudyResult,
+} from './studyTypes'
 
 const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -90,6 +99,10 @@ export const routeStudies = pgTable('route_studies', {
   ceiling: text('ceiling').$type<Echelon | null>(),
   /** Last block-force result, cached like the corridor result above. */
   blockPlan: jsonb('block_plan').$type<BlockPlan | null>(),
+  /** What the operator believes the enemy wants, and the courses of action the
+   *  engine assessed from it. Null until an S2 pass has been run. */
+  intent: jsonb('intent').$type<EnemyIntent | null>(),
+  courses: jsonb('courses').$type<RankedCourses | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

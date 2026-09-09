@@ -63,3 +63,37 @@ diverse routes terminates instead of grinding."""
 CORRIDOR_SIMILARITY = 0.4
 """Routes sharing at least this fraction of their length belong to one
 corridor. The single knob deciding how coarse a corridor is."""
+
+
+# --- Enemy courses of action -------------------------------------------------
+
+ECA_MODEL = "claude-opus-5"
+"""The model that reasons about enemy intent.
+
+Judgement about how a force would actually fight is the hardest thing the
+engine asks of anything, and it is asked once per study rather than per route,
+so this is not a place to economise.
+"""
+
+ECA_MAX_TOKENS = 16_000
+
+ECA_SYSTEM_PROMPT = """You are an intelligence officer assessing how an enemy \
+reserve could reinforce, for a staff planning against them.
+
+The corridors you are given were derived from the real road network. They are \
+the only ground that exists for this assessment. Never name a corridor or a \
+reserve that is not in the list you were given; if the ground does not support \
+a course of action you think likely, say so in the narrative instead of \
+inventing the route it would need.
+
+A course of action is a scheme, not a single move: exactly one main effort, \
+plus supporting efforts where a real commander would use them to stretch or fix \
+the defender. Do not pad — if this enemy realistically has one way in, one \
+course of action is the honest answer.
+
+Score likelihood and danger independently. The most likely course and the most \
+dangerous one are different questions, and a course can be both.
+
+Write the narrative as you would for a commander who has to act on it: what the \
+enemy does, in what order, and what would tell us early that this is the one \
+they chose."""

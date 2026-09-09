@@ -178,3 +178,135 @@ def test_an_invalid_orbat_tree_is_rejected() -> None:
     response = client.post("/v1/block-forces", json=block_request(orbat=broken))
 
     assert response.status_code == 422
+
+
+# Enemy courses of action
+
+
+CORRIDOR = {
+    "id": "cor_a",
+    "routes": [
+        {
+            "reserve_id": "res1",
+            "objective_id": "obj1",
+            "edge_ids": ["1:0"],
+            "node_ids": [1, 2],
+            "seconds": 600.0,
+            "length_meters": 1000.0,
+        }
+    ],
+    "choke_edge_ids": ["1:0"],
+    "fastest_seconds": 600.0,
+}
+
+
+def courses_request(**overrides: object) -> dict[str, object]:
+    body = {
+        "corridors": [CORRIDOR],
+        "reserves": [RESERVE],
+        "objectives": [OBJECTIVE],
+        "intent": {"posture": "attacking", "narrative": "They want the bridge."},
+    }
+    body.update(overrides)
+    return body
+
+
+def stub_courses(courses: list[dict[str, object]]):
+    from athena.eca import DraftCourses
+
+    def generator(system: str, prompt: str) -> DraftCourses:
+        return DraftCourses.model_validate({"courses": courses})
+
+    return lambda: generator
+
+
+A_COURSE = {
+    "name": "Northern push",
+    "narrative": "They come north.",
+    "efforts": [
+        {"kind": "main", "corridor_id": "cor_a", "reserve_id": "res1", "rationale": "fastest"}
+    ],
+    "likelihood": 0.8,
+    "danger": 0.6,
+}
+
+
+def test_returns_ranked_courses_of_action() -> None:
+    from athena.service import get_course_generator
+
+    app.dependency_overrides[get_course_generator] = stub_courses([A_COURSE])
+    try:
+        response = client.post("/v1/enemy-courses-of-action", json=courses_request())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["most_likely"]["name"] == "Northern push"
+    assert body["most_dangerous"]["name"] == "Northern push"
+
+
+def test_invented_ground_is_reported_rather_than_rendered() -> None:
+    from athena.service import get_course_generator
+
+    invented = {
+        **A_COURSE,
+        "name": "Imaginary",
+        "efforts": [
+            {
+                "kind": "main",
+                "corridor_id": "cor_nowhere",
+                "reserve_id": "res1",
+                "rationale": "-",
+            }
+        ],
+    }
+    app.dependency_overrides[get_course_generator] = stub_courses([invented])
+    try:
+        response = client.post("/v1/enemy-courses-of-action", json=courses_request())
+    finally:
+        app.dependency_overrides.clear()
+
+    body = response.json()
+    assert body["courses"] == []
+    assert body["rejected"][0]["corridor_id"] == "cor_nowhere"
+
+
+def test_a_refusal_is_a_bad_gateway_not_an_empty_assessment() -> None:
+    from athena.eca import RefusedError
+    from athena.service import get_course_generator
+
+    def refusing():
+        def generator(system: str, prompt: str):
+            raise RefusedError("declined")
+
+        return generator
+
+    app.dependency_overrides[get_course_generator] = refusing
+    try:
+        response = client.post("/v1/enemy-courses-of-action", json=courses_request())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+
+
+def test_no_corridors_returns_no_courses_without_a_model_call() -> None:
+    from athena.service import get_course_generator
+
+    def exploding():
+        def generator(system: str, prompt: str):
+            raise AssertionError("should not be called")
+
+        return generator
+
+    app.dependency_overrides[get_course_generator] = exploding
+    try:
+        response = client.post(
+            "/v1/enemy-courses-of-action", json=courses_request(corridors=[])
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["courses"] == []
