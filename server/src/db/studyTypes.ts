@@ -96,6 +96,7 @@ export interface OrbatUnit {
   lat: number
   strength: number
   availability: 'uncommitted' | 'committed' | 'reserve'
+  redcon?: 1 | 2 | 3 | 4 | 5 | null
 }
 
 export interface Orbat {

@@ -115,6 +115,9 @@ const orbatSchema = z.object({
       lat: z.number().gte(-85).lte(85),
       strength: z.number().int().positive(),
       availability: z.enum(['uncommitted', 'committed', 'reserve']).default('uncommitted'),
+      redcon: z.union([
+        z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5),
+      ]).nullish(),
     }),
   ),
 })

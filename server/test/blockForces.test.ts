@@ -38,6 +38,17 @@ describe('blockForcesBody', () => {
     expect(parsed.orbat.units[0].availability).toBe('committed')
   })
 
+  test('accepts REDCON 1 through 5 without confusing it with availability', () => {
+    const parsed = blockForcesBody.parse(
+      body({ orbat: { units: [unit({ redcon: 4, availability: 'uncommitted' })] } }),
+    )
+
+    expect(parsed.orbat.units[0]).toMatchObject({ redcon: 4, availability: 'uncommitted' })
+    expect(blockForcesBody.safeParse(
+      body({ orbat: { units: [unit({ redcon: 6 })] } }),
+    ).success).toBe(false)
+  })
+
   test('rejects an echelon the engine does not model', () => {
     // nothing above a company exists, so a battalion would silently mean nothing
     expect(blockForcesBody.safeParse(body({ ceiling: 'battalion' })).success).toBe(false)

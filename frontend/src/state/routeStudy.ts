@@ -357,6 +357,7 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       lat,
       strength: DEFAULT_STRENGTH[echelon],
       availability: 'uncommitted',
+      redcon: null,
     }
     set({ orbatUnits: [...units, unit], selectedUnitId: unit.unit_id })
   },
