@@ -76,6 +76,7 @@ export async function ingestOperationalArea(
       generatedAt: new Date().toISOString(),
       nodeCount: graph.nodes.length,
       edgeCount: graph.edges.length,
+      currentRevision: 1,
       demResolutionMeters: config.operationalDemResolutionMeters,
       roadTheme: 'raptors',
       roadEdits: {},

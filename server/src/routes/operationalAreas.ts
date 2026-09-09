@@ -108,18 +108,25 @@ export function registerOperationalAreaRoutes(
   /** The engine's input. Served as the stored gzip bytes rather than re-encoded
    *  JSON: the engine pulls this on every study, and inflating a graph here
    *  only to have it recompressed on the wire is pure waste. */
-  app.get<{ Params: { id: string } }>('/api/operational-area/:id/graph', async (req, reply) => {
-    const packed = await loadOperationalGraphBuffer(req.params.id)
-    if (packed) {
-      return reply.header('Content-Type', 'application/gzip').send(packed)
-    }
+  app.get<{ Params: { id: string }; Querystring: { revision?: string } }>(
+    '/api/operational-area/:id/graph',
+    async (req, reply) => {
+      const revision = req.query.revision === undefined ? undefined : Number(req.query.revision)
+      if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) {
+        return reply.status(400).send({ error: 'revision must be a positive integer' })
+      }
+      const packed = await loadOperationalGraphBuffer(req.params.id, revision)
+      if (packed) {
+        return reply.header('Content-Type', 'application/gzip').send(packed)
+      }
 
-    // Not yet persisted, but possibly still in the job that built it.
-    const job = getOperationalAreaJob(req.params.id)
-    if (!job) return reply.status(404).send({ error: 'unknown operational area' })
-    if (job.status === 'error') return reply.status(500).send({ error: job.error })
-    return reply.status(409).send({ error: 'not ready' })
-  })
+      // Not yet persisted, but possibly still in the job that built it.
+      const job = getOperationalAreaJob(req.params.id)
+      if (!job) return reply.status(404).send({ error: 'unknown operational area or revision' })
+      if (job.status === 'error') return reply.status(500).send({ error: job.error })
+      return reply.status(409).send({ error: 'not ready' })
+    },
+  )
 
   /** Drops the area and the studies routed over it. The count comes back so
    *  the client can say what it cost rather than guessing from a stale list. */

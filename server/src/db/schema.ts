@@ -60,9 +60,7 @@ export const plans = pgTable('plans', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-/** An ingested operational area: the drivable road network over wide ground,
- *  stored as a gzipped graph. Immutable once written, like a battleground, so
- *  route studies over the same ground never re-hit Overpass. */
+/** An ingested operational area and the head of its road-graph history. */
 export const operationalAreas = pgTable('operational_areas', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -75,7 +73,21 @@ export const operationalAreas = pgTable('operational_areas', {
   demResolutionMeters: real('dem_resolution_meters').notNull(),
   roadTheme: text('road_theme').$type<RoadTheme>().notNull().default('raptors'),
   roadEdits: jsonb('road_edits').$type<Record<string, RoadEdit>>().notNull().default({}),
+  currentRevision: integer('current_revision').notNull().default(1),
   /** gzipped JSON — see services/graphWire.ts for why not a binary layout. */
+  graphBuffer: bytea('graph_buffer').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Immutable graph snapshots. The area row keeps the head bytes for the common
+ *  current-graph read; this history is what lets an older study reopen on the
+ *  exact ground that produced its corridors. */
+export const operationalAreaRevisions = pgTable('operational_area_revisions', {
+  id: text('id').primaryKey(),
+  areaId: text('area_id')
+    .notNull()
+    .references(() => operationalAreas.id),
+  revision: integer('revision').notNull(),
   graphBuffer: bytea('graph_buffer').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
@@ -89,6 +101,8 @@ export const routeStudies = pgTable('route_studies', {
     .notNull()
     .references(() => operationalAreas.id),
   name: text('name').notNull(),
+  /** Immutable graph snapshot that produced result and its corridor ids. */
+  graphRevision: integer('graph_revision').notNull().default(1),
   marks: jsonb('marks').$type<StudyMarks>().notNull(),
   /** Edges the operator marked impassable — a dropped bridge is an edge, not a
    *  corridor, so removing one never deletes ground other corridors share. */

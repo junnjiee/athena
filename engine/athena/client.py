@@ -15,6 +15,7 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 async def fetch_graph(
     terrain_service_url: str,
     area_id: str,
+    revision: int | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> RoadGraph:
     """Fetches and inflates one area's road graph.
@@ -24,7 +25,8 @@ async def fetch_graph(
     that do.
     """
     url = f"{terrain_service_url.rstrip('/')}/api/operational-area/{area_id}/graph"
+    params = {"revision": revision} if revision is not None else None
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.get(url)
+        response = await client.get(url, params=params)
         response.raise_for_status()
         return decode_graph(response.content)

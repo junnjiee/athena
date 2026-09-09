@@ -18,6 +18,7 @@ export interface OperationalAreaMeta {
   generatedAt: string
   nodeCount: number
   edgeCount: number
+  currentRevision: number
   demResolutionMeters: number
   roadTheme: RoadTheme
   /** Sparse operator edits keyed by road identity, never by graph segment. */
@@ -109,6 +110,10 @@ export interface RouteStudy {
   id: string
   areaId: string
   name: string
+  /** Immutable road-graph snapshot that produced result. */
+  graphRevision: number
+  currentGraphRevision: number
+  stale: boolean
   marks: StudyMarks
   edgeOverrides: string[]
   result: StudyResult

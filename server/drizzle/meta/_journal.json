@@ -71,6 +71,13 @@
       "when": 1788975645775,
       "tag": "0009_friendly_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788976788214,
+      "tag": "0010_narrow_chamber",
+      "breakpoints": true
     }
   ]
 }

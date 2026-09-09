@@ -235,9 +235,7 @@ export interface RoadEdit {
   type: 'X' | 'Y' | 'Z'
 }
 
-/** An ingested operational area: the ground reinforcement routing runs over.
- *  Immutable once written, like a battleground — studies against the same
- *  ground never re-hit Overpass. */
+/** An ingested operational area: the current head of a revisioned road graph. */
 export interface OperationalAreaMeta {
   id: string
   name: string
@@ -245,6 +243,7 @@ export interface OperationalAreaMeta {
   generatedAt: string
   nodeCount: number
   edgeCount: number
+  currentRevision: number
   /** Ground resolution of the DEM the node elevations were sampled from. */
   demResolutionMeters: number
   roadTheme: RoadTheme

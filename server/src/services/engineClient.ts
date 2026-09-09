@@ -24,6 +24,7 @@ import type {
 
 export interface StudyRequest {
   areaId: string
+  graphRevision: number
   marks: StudyMarks
   excludedEdgeIds: string[]
 }
@@ -61,6 +62,7 @@ export async function runRouteStudy(request: StudyRequest): Promise<StudyResult>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       area_id: request.areaId,
+      graph_revision: request.graphRevision,
       reserves: request.marks.reserves,
       objectives: request.marks.objectives,
       excluded_edge_ids: request.excludedEdgeIds,
@@ -79,6 +81,7 @@ export async function runRouteStudy(request: StudyRequest): Promise<StudyResult>
 
 export interface BlockForceRequest {
   areaId: string
+  graphRevision: number
   corridors: StudyResult['corridors']
   orbat: Orbat
   ceiling: Echelon
@@ -99,6 +102,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       area_id: request.areaId,
+      graph_revision: request.graphRevision,
       corridors: request.corridors,
       orbat: request.orbat,
       ceiling: request.ceiling,
