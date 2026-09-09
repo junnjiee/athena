@@ -15,13 +15,16 @@ from athena.blocking import BlockPlan, plan_blocks
 from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
+    CourseOfAction,
     RankedCourses,
     RefusedError,
     anthropic_generator,
     generate_courses,
 )
-from athena.eca import CourseOfAction
+from athena.graph import RoadGraph
 from athena.intent import EnemyIntent
+from athena.orbat import Orbat
+from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
 from athena.preference import (
     Features,
     Verdict,
@@ -29,9 +32,6 @@ from athena.preference import (
     extract_features,
     update_weights,
 )
-from athena.graph import RoadGraph
-from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
-from athena.orbat import Orbat
 from athena.study import CorridorOut, Mark, StudyResult, run_study
 from athena.units import Echelon
 
