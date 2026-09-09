@@ -89,6 +89,19 @@ class RejectedBlockPoint(BaseModel):
     reason: str
 
 
+class DelayAssessmentInput(BaseModel):
+    """An operator-assessed delay caused at one inlet."""
+
+    inlet_id: str = Field(min_length=1, max_length=120)
+    unit_id: str = Field(min_length=1, max_length=120)
+    delay_minutes: float = Field(gt=0, le=10_080)
+
+
+class RejectedDelayAssessment(BaseModel):
+    inlet_id: str
+    reason: str
+
+
 class Unblockable(BaseModel):
     """An inlet nothing can be put on, and why."""
 
@@ -167,6 +180,10 @@ class BlockPlan(BaseModel):
     sealing: list[SealingAssessment]
     block_points: list[BlockPoint] = Field(default_factory=list)
     rejected_block_points: list[RejectedBlockPoint] = Field(default_factory=list)
+    delay_assessments: list[DelayAssessmentInput] = Field(default_factory=list)
+    rejected_delay_assessments: list[RejectedDelayAssessment] = Field(
+        default_factory=list
+    )
 
 
 def _inlet_id(reserve_id: str, objective_id: str, edge_ids: list[str]) -> str:
@@ -372,11 +389,12 @@ def _reaction_timeline(
     allocation: Allocation,
     reserve: Mark | None,
     outcome: SealingOutcome,
+    delay_minutes: float | None,
 ) -> ReactionTimeline:
     """Build only the reaction events justified by current inputs.
 
     Contact is timed only after the operator chooses a point on this inlet.
-    Delay duration still needs an assessed effect and remains a named gap.
+    Delay duration is used only when the operator assesses it for this inlet.
     """
     commencement = (
         reserve.timing.commencement_minutes()
@@ -422,12 +440,21 @@ def _reaction_timeline(
             unknowns=unknowns,
         )
     if outcome is SealingOutcome.DELAYED:
-        unknowns.append("delay duration is not assessed")
-        unknowns.append("objective arrival cannot be timed until delay is assessed")
+        if delay_minutes is None:
+            unknowns.append("delay duration is not assessed")
+            unknowns.append("objective arrival cannot be timed until delay is assessed")
+        elif task_complete is None:
+            unknowns.append("objective arrival needs complete reserve timing")
         return ReactionTimeline(
             commencement_minutes=commencement,
             contact_minutes=contact,
+            delay_minutes=delay_minutes,
             remnant_continued=True,
+            objective_arrival_minutes=(
+                task_complete + delay_minutes
+                if task_complete is not None and delay_minutes is not None
+                else None
+            ),
             objective_outcome=ObjectiveOutcome.REACHED,
             unknowns=unknowns,
         )
@@ -444,6 +471,7 @@ def _assess_sealing(
     block: InletBlock,
     allocation: Allocation,
     reserve: Mark | None,
+    delay_minutes: float | None,
 ) -> SealingAssessment:
     candidate = next(
         (entry for entry in block.candidates if entry.unit_id == allocation.unit_id),
@@ -460,7 +488,9 @@ def _assess_sealing(
             effective_weapon_count=0,
             outcome=outcome,
             reason="reserve is not present in the supplied assessment",
-            reaction=_reaction_timeline(block, allocation, reserve, outcome),
+            reaction=_reaction_timeline(
+                block, allocation, reserve, outcome, delay_minutes
+            ),
         )
 
     hardest = _hardest_platforms(reserve)
@@ -476,7 +506,9 @@ def _assess_sealing(
             effective_weapon_count=0,
             outcome=outcome,
             reason="reserve has no catalogued platform hardness to assess",
-            reaction=_reaction_timeline(block, allocation, reserve, outcome),
+            reaction=_reaction_timeline(
+                block, allocation, reserve, outcome, delay_minutes
+            ),
         )
 
     hardness, platforms = hardest
@@ -517,7 +549,7 @@ def _assess_sealing(
         remaining_platform_count=_exact(remaining),
         outcome=outcome,
         reason=reason,
-        reaction=_reaction_timeline(block, allocation, reserve, outcome),
+        reaction=_reaction_timeline(block, allocation, reserve, outcome, delay_minutes),
     )
 
 
@@ -527,6 +559,7 @@ def plan_blocks(
     orbat: Orbat,
     reserves: list[Mark] | None = None,
     block_points: list[BlockPointInput] | None = None,
+    delay_assessments: list[DelayAssessmentInput] | None = None,
 ) -> BlockPlan:
     """Block options and a maximum-coverage allocation for every axis/inlet."""
     available = orbat.available()
@@ -550,6 +583,22 @@ def plan_blocks(
             )
         )
     located_points: dict[str, BlockPoint] = {}
+    rejected_delay_assessments: list[RejectedDelayAssessment] = []
+    delay_by_id: dict[str, DelayAssessmentInput] = {}
+    duplicate_delay_ids: set[str] = set()
+    for assessment in delay_assessments or []:
+        if assessment.inlet_id in delay_by_id:
+            duplicate_delay_ids.add(assessment.inlet_id)
+            continue
+        delay_by_id[assessment.inlet_id] = assessment
+    for inlet_id in sorted(duplicate_delay_ids):
+        delay_by_id.pop(inlet_id, None)
+        rejected_delay_assessments.append(
+            RejectedDelayAssessment(
+                inlet_id=inlet_id,
+                reason="delay assessment was supplied more than once",
+            )
+        )
     urgency: dict[str, tuple[float, float, str]] = {}
     edges_by_id = {edge.id: edge for edge in graph.edges}
 
@@ -674,6 +723,23 @@ def plan_blocks(
         for inlet_id in sorted(requested_by_id)
     )
     rejected_block_points.sort(key=lambda entry: (entry.inlet_id, entry.reason))
+    known_inlet_ids = {block.inlet_id for block in blocks}
+    allocation_by_inlet = {entry.inlet_id: entry for entry in allocation}
+    accepted_delays: dict[str, DelayAssessmentInput] = {}
+    for inlet_id, assessment in delay_by_id.items():
+        assigned = allocation_by_inlet.get(inlet_id)
+        if inlet_id not in known_inlet_ids:
+            reason = "delay assessment names an inlet outside this study"
+        elif assigned is None:
+            reason = "delay assessment names an inlet with no allocated block force"
+        elif assigned.unit_id != assessment.unit_id:
+            reason = "delay assessment belongs to a different allocated block force"
+        else:
+            accepted_delays[inlet_id] = assessment
+            continue
+        rejected_delay_assessments.append(
+            RejectedDelayAssessment(inlet_id=inlet_id, reason=reason)
+        )
     blocks_by_inlet = {block.inlet_id: block for block in blocks}
     reserves_by_id = {reserve.id: reserve for reserve in reserves or []}
     sealing = [
@@ -681,9 +747,26 @@ def plan_blocks(
             blocks_by_inlet[entry.inlet_id],
             entry,
             reserves_by_id.get(blocks_by_inlet[entry.inlet_id].reserve_id),
+            accepted_delays[entry.inlet_id].delay_minutes
+            if entry.inlet_id in accepted_delays
+            else None,
         )
         for entry in allocation
     ]
+    delayed_inlets = {
+        assessment.inlet_id
+        for assessment in sealing
+        if assessment.outcome is SealingOutcome.DELAYED
+    }
+    for inlet_id in sorted(accepted_delays.keys() - delayed_inlets):
+        rejected_delay_assessments.append(
+            RejectedDelayAssessment(
+                inlet_id=inlet_id,
+                reason="delay assessment requires a delayed and attrited sealing outcome",
+            )
+        )
+        accepted_delays.pop(inlet_id)
+    rejected_delay_assessments.sort(key=lambda entry: (entry.inlet_id, entry.reason))
     return BlockPlan(
         inlets=blocks,
         allocation=allocation,
@@ -692,4 +775,8 @@ def plan_blocks(
         sealing=sealing,
         block_points=sorted(located_points.values(), key=lambda point: point.inlet_id),
         rejected_block_points=rejected_block_points,
+        delay_assessments=sorted(
+            accepted_delays.values(), key=lambda entry: entry.inlet_id
+        ),
+        rejected_delay_assessments=rejected_delay_assessments,
     )

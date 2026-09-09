@@ -10,12 +10,13 @@ import {
   updateRouteStudy,
 } from '../lib/api'
 import { chokeToggle } from '../lib/corridors'
-import { blockPointInputs } from '../lib/blockForces'
+import { blockPointInputs, delayAssessmentInputs } from '../lib/blockForces'
 import { emptyIntent } from '../lib/courses'
 import { DEFAULT_STRENGTH, ECHELON_DEPTH, nextUnitName, orbatIssues } from '../lib/orbatTree'
 import type {
   Availability,
   BlockPointInput,
+  DelayAssessmentInput,
   Corridor,
   Echelon,
   EnemyIntent,
@@ -96,7 +97,10 @@ interface RouteStudyState {
 
   // --- Block forces (S3) ---
   blockPhase: PassPhase
-  planBlocks: (blockPoints?: BlockPointInput[]) => Promise<void>
+  planBlocks: (
+    blockPoints?: BlockPointInput[],
+    delayAssessments?: DelayAssessmentInput[],
+  ) => Promise<void>
 
   // --- Learned ranking ---
   preferences: Preferences | null
@@ -387,7 +391,7 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
 
   // --- Block forces -----------------------------------------------------------
 
-  planBlocks: async (blockPoints) => {
+  planBlocks: async (blockPoints, delayAssessments) => {
     const study = get().study
     if (!study || get().blockPhase === 'running') return
     const units = get().orbatUnits
@@ -401,7 +405,13 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
     set({ blockPhase: 'running', error: null })
     try {
       const retainedPoints = blockPoints ?? blockPointInputs(study.blockPlan)
-      const { orbat, blockPlan } = await runBlockForces(study.id, { units }, retainedPoints)
+      const retainedDelays = delayAssessments ?? delayAssessmentInputs(study.blockPlan)
+      const { orbat, blockPlan } = await runBlockForces(
+        study.id,
+        { units },
+        retainedPoints,
+        retainedDelays,
+      )
       set({
         blockPhase: 'idle',
         orbatUnits: orbat.units,

@@ -187,6 +187,12 @@ export interface BlockPoint extends BlockPointInput {
   snap_distance_meters: number
 }
 
+export interface DelayAssessmentInput {
+  inlet_id: string
+  unit_id: string
+  delay_minutes: number
+}
+
 /** An inlet nothing can be put on. Distinct from `uncovered`, which is an
  *  inlet that could have been blocked had the force not run out. */
 export interface UnblockableCorridor {
@@ -236,6 +242,8 @@ export interface BlockPlan {
   sealing?: SealingAssessment[]
   block_points?: BlockPoint[]
   rejected_block_points?: { inlet_id: string; reason: string }[]
+  delay_assessments?: DelayAssessmentInput[]
+  rejected_delay_assessments?: { inlet_id: string; reason: string }[]
 }
 
 /** What the operator believes the enemy is trying to do. */

@@ -11,7 +11,12 @@ import os
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from athena.blocking import BlockPlan, BlockPointInput, plan_blocks
+from athena.blocking import (
+    BlockPlan,
+    BlockPointInput,
+    DelayAssessmentInput,
+    plan_blocks,
+)
 from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
@@ -174,6 +179,7 @@ class BlockRequest(BaseModel):
     orbat: Orbat
     reserves: list[Mark] = Field(default_factory=list)
     block_points: list[BlockPointInput] = Field(default_factory=list, max_length=128)
+    delay_assessments: list[DelayAssessmentInput] = Field(default_factory=list, max_length=128)
 
     @field_validator("block_points")
     @classmethod
@@ -185,6 +191,16 @@ class BlockRequest(BaseModel):
             raise ValueError("block point inlet ids must be unique")
         return points
 
+    @field_validator("delay_assessments")
+    @classmethod
+    def delay_assessment_inlets_are_unique(
+        cls, assessments: list[DelayAssessmentInput]
+    ) -> list[DelayAssessmentInput]:
+        inlet_ids = [assessment.inlet_id for assessment in assessments]
+        if len(inlet_ids) != len(set(inlet_ids)):
+            raise ValueError("delay assessment inlet ids must be unique")
+        return assessments
+
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
@@ -195,6 +211,7 @@ async def block_forces(request: BlockRequest) -> BlockPlan:
         request.orbat,
         request.reserves,
         request.block_points,
+        request.delay_assessments,
     )
 
 

@@ -1,6 +1,6 @@
 """Which forces a commander can put on which approach."""
 
-from athena.blocking import BlockPointInput, plan_blocks
+from athena.blocking import BlockPointInput, DelayAssessmentInput, plan_blocks
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
 from athena.study import (
@@ -523,6 +523,121 @@ def test_fractional_reserve_composition_is_never_rounded() -> None:
     assert assessment.reaction.objective_outcome == "reached"
     assert assessment.reaction.objective_arrival_minutes is None
     assert "delay duration is not assessed" in assessment.reaction.unknowns
+
+
+def test_operator_assessed_delay_completes_delayed_objective_arrival() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=3),),
+            ),
+        )
+    )
+    timed = reserve(
+        modifier=CompositionModifier.EQUAL,
+        timing=ReserveTiming(
+            decision_minutes=10,
+            readiness_minutes=20,
+            deployment_minutes=15,
+        ),
+    )
+    inlet_id = plan_blocks(GRAPH, [WEST], orbat, [timed]).inlets[0].inlet_id
+
+    plan = plan_blocks(
+        GRAPH,
+        [WEST],
+        orbat,
+        [timed],
+        delay_assessments=[
+            DelayAssessmentInput(inlet_id=inlet_id, unit_id="block", delay_minutes=45)
+        ],
+    )
+
+    reaction = plan.sealing[0].reaction
+    assert plan.delay_assessments[0].delay_minutes == 45
+    assert reaction.delay_minutes == 45
+    assert reaction.objective_arrival_minutes == 30 + 301 / 60 + 15 + 45
+    assert "delay duration is not assessed" not in reaction.unknowns
+
+
+def test_delay_assessment_for_unknown_or_duplicate_inlet_is_rejected() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    inlet_id = plan_blocks(GRAPH, [WEST], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        delay_assessments=[
+            DelayAssessmentInput(inlet_id=inlet_id, unit_id="near", delay_minutes=10),
+            DelayAssessmentInput(inlet_id=inlet_id, unit_id="near", delay_minutes=20),
+            DelayAssessmentInput(inlet_id="unknown", unit_id="near", delay_minutes=30),
+        ],
+    )
+
+    assert result.delay_assessments == []
+    assert {(entry.inlet_id, entry.reason) for entry in result.rejected_delay_assessments} == {
+        (inlet_id, "delay assessment was supplied more than once"),
+        ("unknown", "delay assessment names an inlet outside this study"),
+    }
+
+
+def test_delay_assessment_is_rejected_when_the_allocated_force_changed() -> None:
+    force = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=3),),
+            ),
+        )
+    )
+    inlet_id = plan_blocks(GRAPH, [WEST], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        [reserve(modifier=CompositionModifier.EQUAL)],
+        delay_assessments=[
+            DelayAssessmentInput(inlet_id=inlet_id, unit_id="old-unit", delay_minutes=30)
+        ],
+    )
+
+    assert result.delay_assessments == []
+    assert "different allocated block force" in result.rejected_delay_assessments[0].reason
+
+
+def test_delay_assessment_is_dropped_when_the_reserve_is_not_delayed() -> None:
+    force = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="gpmg", weapon=WeaponSystem.GPMG, count=3),),
+            ),
+        )
+    )
+    inlet_id = plan_blocks(GRAPH, [WEST], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        [reserve()],
+        delay_assessments=[
+            DelayAssessmentInput(inlet_id=inlet_id, unit_id="block", delay_minutes=30)
+        ],
+    )
+
+    assert result.sealing[0].outcome == "passed"
+    assert result.delay_assessments == []
+    assert "requires a delayed" in result.rejected_delay_assessments[0].reason
 
 
 def test_conditional_or_ineffective_weapons_do_not_claim_a_kill() -> None:

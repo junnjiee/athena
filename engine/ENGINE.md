@@ -594,8 +594,10 @@ unknown. The sealing outcome then decides whether a remnant continues:
   objective;
 - passed — delay is zero, the remnant continues, and reserve task-completion
   time gives **reached objective** when all timing inputs exist;
-- delayed and attrited — the remnant continues and reaches the objective, but
-  neither delay duration nor final arrival time is invented;
+- delayed and attrited — the remnant continues and reaches the objective. The
+  operator may enter a positive assessed delay for that inlet and allocated
+  force; complete reserve timing plus this explicit duration calculates final
+  arrival. Without it, neither delay duration nor final arrival time is invented;
 - unknown — continuation and objective outcome stay unknown.
 
 Every missing event input is returned in `reaction.unknowns`. This makes an
@@ -685,9 +687,11 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
                         -> { corridors[], unreachable[] }
 
 POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat,
-                          reserves[], block_points?: [{ inlet_id, lon, lat }] }
+                          reserves[], block_points?: [{ inlet_id, lon, lat }],
+                          delay_assessments?: [{ inlet_id, unit_id, delay_minutes }] }
                         -> { inlets[], allocation[], unblockable[], uncovered[],
-                             sealing[], block_points[], rejected_block_points[] }
+                             sealing[], block_points[], rejected_block_points[],
+                             delay_assessments[], rejected_delay_assessments[] }
 
 POST /v1/enemy-courses-of-action
                         { corridors[], reserves[], objectives[], intent, weights? }

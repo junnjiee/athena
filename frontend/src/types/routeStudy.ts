@@ -306,6 +306,12 @@ export interface BlockPoint extends BlockPointInput {
   snap_distance_meters: number
 }
 
+export interface DelayAssessmentInput {
+  inlet_id: string
+  unit_id: string
+  delay_minutes: number
+}
+
 export interface UnblockableCorridor {
   inlet_id?: string
   corridor_id: string
@@ -353,6 +359,8 @@ export interface BlockPlan {
   sealing?: SealingAssessment[]
   block_points?: BlockPoint[]
   rejected_block_points?: { inlet_id: string; reason: string }[]
+  delay_assessments?: DelayAssessmentInput[]
+  rejected_delay_assessments?: { inlet_id: string; reason: string }[]
 }
 
 export interface EnemyIntent {

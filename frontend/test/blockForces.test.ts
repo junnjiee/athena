@@ -5,9 +5,11 @@ import {
   blockForceOrbat,
   blockCoverage,
   blockSummary,
+  delayAssessmentInputs,
   formatExactCount,
   inletMidpoint,
   replaceBlockPoint,
+  replaceDelayAssessment,
   sealingByInlet,
   unblockableByInlet,
 } from '../src/lib/blockForces'
@@ -124,6 +126,41 @@ describe('operator block points', () => {
   test('clears only the named inlet', () => {
     expect(replaceBlockPoint(located, 'a', null)).toEqual([
       { inlet_id: 'b', lon: 103.8, lat: 1.4 },
+    ])
+  })
+})
+
+describe('operator delay assessments', () => {
+  const assessed: BlockPlan = {
+    ...PLAN,
+    allocation: [{ ...PLAN.allocation[0], inlet_id: 'a' }],
+    delay_assessments: [
+      { inlet_id: 'a', unit_id: '1-pl', delay_minutes: 30 },
+      { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
+    ],
+  }
+
+  test('reads persisted delay assessments as rerun inputs', () => {
+    expect(delayAssessmentInputs(assessed)).toEqual([
+      { inlet_id: 'a', unit_id: '1-pl', delay_minutes: 30 },
+      { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
+    ])
+  })
+
+  test('replaces or clears one delay without losing another', () => {
+    expect(replaceDelayAssessment(assessed, 'a', 60)).toEqual([
+      { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
+      { inlet_id: 'a', unit_id: '1-pl', delay_minutes: 60 },
+    ])
+    expect(replaceDelayAssessment(assessed, 'a', null)).toEqual([
+      { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
+    ])
+  })
+
+  test('does not attach a delay to an inlet with no allocated force', () => {
+    expect(replaceDelayAssessment(assessed, 'missing', 60)).toEqual([
+      { inlet_id: 'a', unit_id: '1-pl', delay_minutes: 30 },
+      { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
     ])
   })
 })

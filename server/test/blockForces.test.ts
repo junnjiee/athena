@@ -123,4 +123,19 @@ describe('blockForcesBody', () => {
       blockPoints: [{ ...point, lon: 999 }],
     })).success).toBe(false)
   })
+
+  test('accepts one bounded positive delay assessment per inlet', () => {
+    const assessment = { inlet_id: 'inlet-1', unit_id: 'sec1', delay_minutes: 45 }
+    expect(blockForcesBody.parse(body({ delayAssessments: [assessment] })).delayAssessments)
+      .toEqual([assessment])
+    expect(blockForcesBody.safeParse(body({
+      delayAssessments: [assessment, assessment],
+    })).success).toBe(false)
+    expect(blockForcesBody.safeParse(body({
+      delayAssessments: [{ ...assessment, delay_minutes: 0 }],
+    })).success).toBe(false)
+    expect(blockForcesBody.safeParse(body({
+      delayAssessments: [{ ...assessment, delay_minutes: 10_081 }],
+    })).success).toBe(false)
+  })
 })
