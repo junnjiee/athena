@@ -1,0 +1,2 @@
+ALTER TABLE "operational_areas" ADD COLUMN "road_theme" text DEFAULT 'raptors' NOT NULL;--> statement-breakpoint
+ALTER TABLE "operational_areas" ADD COLUMN "road_edits" jsonb DEFAULT '{}'::jsonb NOT NULL;

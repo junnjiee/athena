@@ -1,4 +1,4 @@
-export type RoadTheme = 'raptors' | 'big-cats' | 'weather' | 'trees'
+import type { RoadTheme } from '../types/routeStudy'
 
 interface ThemeName {
   name: string

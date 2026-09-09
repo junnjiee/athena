@@ -226,6 +226,15 @@ export interface RoadGraph {
   edges: GraphEdge[]
 }
 
+export type RoadTheme = 'raptors' | 'big-cats' | 'weather' | 'trees'
+
+export interface RoadEdit {
+  name: string
+  width: 2 | 4 | 6
+  dual: boolean
+  type: 'X' | 'Y' | 'Z'
+}
+
 /** An ingested operational area: the ground reinforcement routing runs over.
  *  Immutable once written, like a battleground — studies against the same
  *  ground never re-hit Overpass. */
@@ -238,6 +247,9 @@ export interface OperationalAreaMeta {
   edgeCount: number
   /** Ground resolution of the DEM the node elevations were sampled from. */
   demResolutionMeters: number
+  roadTheme: RoadTheme
+  /** Sparse operator edits keyed by road identity, never by graph segment. */
+  roadEdits: Record<string, RoadEdit>
 }
 
 export interface OperationalAreaJob {

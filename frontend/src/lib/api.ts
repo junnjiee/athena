@@ -191,6 +191,20 @@ export async function fetchOperationalArea(id: string): Promise<OperationalAreaM
   return body.meta
 }
 
+export async function updateOperationalRoadSettings(
+  id: string,
+  settings: Pick<OperationalAreaMeta, 'roadTheme' | 'roadEdits'>,
+): Promise<OperationalAreaMeta> {
+  const res = await fetch(`/api/operational-area/${id}/roads`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { meta: OperationalAreaMeta }
+  return body.meta
+}
+
 /** Drops the area and every study routed over it — a study without its graph
  *  cannot be reopened, so the two go together. Returns how many went with it. */
 export async function deleteOperationalArea(id: string): Promise<number> {

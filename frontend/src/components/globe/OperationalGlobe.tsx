@@ -10,6 +10,7 @@ import { useCorridorEntities } from '../../hooks/useCorridorEntities'
 import { useOrbatEntities } from '../../hooks/useOrbatEntities'
 import { useBlockLinkEntities } from '../../hooks/useBlockLinkEntities'
 import { useRoadNetworkEntities } from '../../hooks/useRoadNetworkEntities'
+import { useRoadLabelEntities } from '../../hooks/useRoadLabelEntities'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import type { CorridorLine } from '../../lib/routeStudy'
@@ -21,6 +22,7 @@ import type {
   OperationalToolMode,
   OrbatUnit,
   RoadGraph,
+  RoadEdit,
   StudyMarks,
 } from '../../types/routeStudy'
 
@@ -44,6 +46,7 @@ interface Props {
   selectedUnitId: string | null
   blockPlan: BlockPlan | null
   graph: RoadGraph | null
+  roadEdits: Record<string, RoadEdit>
   onSelectionFinalize: (selection: SelectionResult) => void
   onObjectiveAreaFinalize: (selection: SelectionResult) => void
   onViewerReady: (viewer: Cesium.Viewer) => void
@@ -66,6 +69,7 @@ function OperationalOverlayController({
   selectedUnitId,
   blockPlan,
   graph,
+  roadEdits,
   onPlace,
 }: Pick<
   Props,
@@ -79,6 +83,7 @@ function OperationalOverlayController({
   | 'selectedUnitId'
   | 'blockPlan'
   | 'graph'
+  | 'roadEdits'
   | 'onPlace'
 >) {
   const { viewer } = useCesium()
@@ -86,6 +91,7 @@ function OperationalOverlayController({
 
   // Under everything else: the detected network is context, not a finding.
   useRoadNetworkEntities({ viewer, graph })
+  useRoadLabelEntities({ viewer, graph, roadEdits })
   useAreaBoundsEntity({ viewer, bbox: areaBbox })
   useStudyMarkEntities({ viewer, marks })
   useCorridorEntities({ viewer, lines, selectedCorridorId, courseEmphasis })
@@ -115,6 +121,7 @@ export function OperationalGlobe({
   selectedUnitId,
   blockPlan,
   graph,
+  roadEdits,
   onSelectionFinalize,
   onObjectiveAreaFinalize,
   onViewerReady,
@@ -163,6 +170,7 @@ export function OperationalGlobe({
         selectedUnitId={selectedUnitId}
         blockPlan={blockPlan}
         graph={graph}
+        roadEdits={roadEdits}
         onPlace={onPlace}
       />
     </Viewer>

@@ -12,6 +12,7 @@ import {
   listOperationalAreas,
   loadOperationalArea,
   loadOperationalGraphBuffer,
+  updateOperationalRoadSettings,
 } from '../services/operationalAreaStore'
 
 const areaBody = z
@@ -24,6 +25,22 @@ const areaBody = z
   })
   .refine((b) => b.west < b.east && b.south < b.north, {
     message: 'bbox must have west < east and south < north',
+  })
+
+const roadEdit = z.object({
+  name: z.string().trim().min(1).max(40),
+  width: z.union([z.literal(2), z.literal(4), z.literal(6)]),
+  dual: z.boolean(),
+  type: z.enum(['X', 'Y', 'Z']),
+})
+
+export const roadSettingsBody = z
+  .object({
+    roadTheme: z.enum(['raptors', 'big-cats', 'weather', 'trees']).optional(),
+    roadEdits: z.record(roadEdit).optional(),
+  })
+  .refine((value) => value.roadTheme !== undefined || value.roadEdits !== undefined, {
+    message: 'roadTheme or roadEdits is required',
   })
 
 export function registerOperationalAreaRoutes(
@@ -60,6 +77,16 @@ export function registerOperationalAreaRoutes(
   )
 
   app.get('/api/operational-area', async () => listOperationalAreas())
+
+  app.patch<{ Params: { id: string } }>('/api/operational-area/:id/roads', async (req, reply) => {
+    const parsed = roadSettingsBody.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    }
+    const updated = await updateOperationalRoadSettings(req.params.id, parsed.data)
+    if (!updated) return reply.status(404).send({ error: 'unknown operational area' })
+    return { meta: updated }
+  })
 
   /** Live job first, falling back to the stored row, so an area survives the
    *  process that built it. */

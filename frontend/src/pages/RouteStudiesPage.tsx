@@ -23,6 +23,7 @@ import { BlockForcePanel } from '../components/panels/BlockForcePanel'
 import { CorridorEditorPanel } from '../components/panels/CorridorEditorPanel'
 import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
 import { OrbatPanel } from '../components/panels/OrbatPanel'
+import { RoadEditorPanel } from '../components/panels/RoadEditorPanel'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { useMapControls } from '../hooks/useMapControls'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
@@ -34,10 +35,12 @@ import {
   fetchOperationalGraph,
   listOperationalAreas,
   listRouteStudies,
+  updateOperationalRoadSettings,
 } from '../lib/api'
 import { courseEmphasis } from '../lib/courses'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
+import type { RoadIdentity } from '../lib/roads'
 import { computeRectangleStats } from '../lib/selectionGeometry'
 import { subscribeBattleground } from '../lib/socket'
 import { useRouteStudy } from '../state/routeStudy'
@@ -50,7 +53,9 @@ import type {
   OperationalAreaMeta,
   OperationalToolMode,
   OrbatUnit,
+  RoadEdit,
   RoadGraph,
+  RoadTheme,
   RouteStudySummary,
   StudyMark,
   StudyMarkKind,
@@ -73,6 +78,7 @@ const BRANCHES: { id: Branch; label: string; hint: string; icon: typeof Radar }[
 /** S3 asks two questions -- what we have, and what we put on the ground -- and
  *  both panels are too tall to stack in one column. */
 type S3Panel = 'orbat' | 'block'
+type GroundPanel = 'roads' | 'corridors'
 
 type LibraryState =
   | { kind: 'loading' }
@@ -160,6 +166,9 @@ export function RouteStudiesPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [branch, setBranch] = useState<Branch>('ground')
   const [s3Panel, setS3Panel] = useState<S3Panel>('orbat')
+  const [groundPanel, setGroundPanel] = useState<GroundPanel>('roads')
+  const [roadSaving, setRoadSaving] = useState(false)
+  const [roadError, setRoadError] = useState<string | null>(null)
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const areaGenerationRef = useRef(0)
   const areaUnsubscribeRef = useRef<(() => void) | null>(null)
@@ -321,6 +330,7 @@ export function RouteStudiesPage() {
       setAreaName(nextArea.name)
       if (!keepStudy) setStudyName(`${nextArea.name} Terrain Study`)
       setToolMode('navigate')
+      if (!keepStudy) setGroundPanel('roads')
       frameArea(nextArea)
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : 'failed to load AO')
@@ -349,6 +359,7 @@ export function RouteStudiesPage() {
       setAreaName(nextArea.name)
       setStudyName(loaded.name)
       setToolMode('navigate')
+      setGroundPanel('corridors')
       frameArea(nextArea)
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : 'failed to load terrain study')
@@ -366,6 +377,7 @@ export function RouteStudiesPage() {
     setAreaName('')
     setStudyName('')
     setAreaError(null)
+    setRoadError(null)
     setWorkspaceError(null)
     setAreaPhase('idle')
     setAreaSteps(freshAreaSteps())
@@ -576,6 +588,50 @@ export function RouteStudiesPage() {
     flyToPositions(edgePoints(points, graph).map(([longitude, latitude]) => ({ longitude, latitude })))
   }
 
+  function locateRoad(road: RoadIdentity) {
+    flyToPositions(road.points.map(([longitude, latitude]) => ({ longitude, latitude })))
+  }
+
+  function replaceArea(nextArea: OperationalAreaMeta) {
+    setArea(nextArea)
+    setLibrary((current) => current.kind === 'ready'
+      ? {
+          ...current,
+          areas: current.areas.map((candidate) => candidate.id === nextArea.id ? nextArea : candidate),
+        }
+      : current)
+  }
+
+  async function saveRoadSettings(roadTheme: RoadTheme, roadEdits: Record<string, RoadEdit>) {
+    if (!area || roadSaving) return
+    const previous = area
+    const optimistic = { ...area, roadTheme, roadEdits }
+    replaceArea(optimistic)
+    setRoadSaving(true)
+    setRoadError(null)
+    try {
+      replaceArea(await updateOperationalRoadSettings(area.id, { roadTheme, roadEdits }))
+    } catch (error: unknown) {
+      replaceArea(previous)
+      setRoadError(error instanceof Error ? error.message : 'failed to save road settings')
+    } finally {
+      setRoadSaving(false)
+    }
+  }
+
+  function setRoadTheme(roadTheme: RoadTheme) {
+    if (!area) return
+    void saveRoadSettings(roadTheme, area.roadEdits)
+  }
+
+  function editRoad(roadId: string, edit: RoadEdit | null) {
+    if (!area) return
+    const roadEdits = { ...area.roadEdits }
+    if (edit) roadEdits[roadId] = edit
+    else delete roadEdits[roadId]
+    void saveRoadSettings(area.roadTheme, roadEdits)
+  }
+
   const extentValid = selection !== null &&
     selection.stats.widthMeters >= OPERATIONAL_MIN_EXTENT_METERS &&
     selection.stats.heightMeters >= OPERATIONAL_MIN_EXTENT_METERS
@@ -651,6 +707,7 @@ export function RouteStudiesPage() {
           selectedUnitId={selectedUnitId}
           blockPlan={study?.blockPlan ?? null}
           graph={graph}
+          roadEdits={area?.roadEdits ?? {}}
           onSelectionFinalize={handleSelectionFinalize}
           onObjectiveAreaFinalize={handleObjectiveArea}
           onViewerReady={handleViewerReady}
@@ -799,7 +856,21 @@ export function RouteStudiesPage() {
           </div>
         )}
 
-        {area && (
+        {area && graph && !study && (
+          <div className="pointer-events-auto min-h-0 flex-1">
+            <RoadEditorPanel
+              area={area}
+              graph={graph}
+              saving={roadSaving}
+              error={roadError}
+              onSetTheme={setRoadTheme}
+              onEditRoad={editRoad}
+              onLocate={locateRoad}
+            />
+          </div>
+        )}
+
+        {area && !(study && branch === 'ground' && groundPanel === 'roads') && (
           <MarksPanel
             area={area}
             studyName={studyName}
@@ -843,6 +914,25 @@ export function RouteStudiesPage() {
               {BRANCHES.find((entry) => entry.id === branch)?.hint}
             </div>
 
+            {branch === 'ground' && (
+              <div className="glass flex items-center gap-0.5 rounded-lg p-0.5">
+                {(['roads', 'corridors'] as const).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setGroundPanel(id)}
+                    className={`flex flex-1 items-center justify-center rounded-md px-1.5 py-1 text-[11px] tracking-wide transition-colors ${
+                      groundPanel === id
+                        ? 'bg-white/10 text-(--text-h)'
+                        : 'text-(--text-dim) hover:text-(--text)'
+                    }`}
+                  >
+                    {id.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {branch === "s3" && (
               <div className="glass flex items-center gap-0.5 rounded-lg p-0.5">
                 {([
@@ -867,7 +957,19 @@ export function RouteStudiesPage() {
             )}
 
             <div className="min-h-0 flex-1">
-              {branch === 'ground' && (
+              {branch === 'ground' && groundPanel === 'roads' && graph && area && (
+                <RoadEditorPanel
+                  area={area}
+                  graph={graph}
+                  saving={roadSaving}
+                  error={roadError}
+                  onSetTheme={setRoadTheme}
+                  onEditRoad={editRoad}
+                  onLocate={locateRoad}
+                />
+              )}
+
+              {branch === 'ground' && groundPanel === 'corridors' && (
                 <CorridorEditorPanel
                   study={study}
                   running={runningStudy}
