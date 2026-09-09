@@ -49,4 +49,18 @@ describe('needsResearch', () => {
   test('resubmitting identical marks does not', () => {
     expect(needsResearch(current, { marks: MARKS, edgeOverrides: ['1:0'] })).toBe(false)
   })
+
+  test('explicitly running a stale study advances it to current ground', () => {
+    expect(
+      needsResearch(
+        { ...current, graphRevision: 2 },
+        { marks: MARKS, edgeOverrides: ['1:0'] },
+        3,
+      ),
+    ).toBe(true)
+  })
+
+  test('presentation edits do not silently advance a stale study', () => {
+    expect(needsResearch({ ...current, graphRevision: 2 }, {}, 3)).toBe(false)
+  })
 })

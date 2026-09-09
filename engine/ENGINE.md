@@ -516,13 +516,13 @@ resourcing problem while the first is not.
 ```
 GET  /health            -> { ok }
 
-POST /v1/route-study    { area_id | graph, reserves[], objectives[],
+POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectives[],
                           routes_per_pair?, max_stretch?, max_sharing?,
                           corridor_separation_meters?, corridor_detour_ratio?,
                           excluded_edge_ids? }
                         -> { corridors[], unreachable[] }
 
-POST /v1/block-forces   { area_id | graph, corridors[], orbat, ceiling }
+POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat, ceiling }
                         -> { corridors[], allocation[], unblockable[], uncovered[] }
 
 POST /v1/enemy-courses-of-action
@@ -546,8 +546,12 @@ The courses endpoint takes no graph: it reasons about which approaches an enemy
 would use, not about the ground beneath them, and the corridors already carry
 everything that judgement rests on.
 
-`area_id` is resolved against `TERRAIN_SERVICE_URL`. `graph` is accepted directly
-so the engine can be exercised without a terrain service running.
+`area_id` is resolved against `TERRAIN_SERVICE_URL`. When `graph_revision` is
+present, the engine fetches that immutable snapshot rather than the area's
+current head. Route studies pin this value, and the block-force pass carries it
+forward, so corridor edge ids are always interpreted against the ground that
+produced them. `graph` is accepted directly so the engine can be exercised
+without a terrain service running.
 
 | Status | Meaning |
 | --: | --- |

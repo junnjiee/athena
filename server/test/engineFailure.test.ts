@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 process.env.ENGINE_URL = 'http://engine.test'
-const { EngineUnavailableError, runEnemyCourses } = await import('../src/services/engineClient')
+const { EngineUnavailableError, runBlockForces, runEnemyCourses, runRouteStudy } = await import(
+  '../src/services/engineClient'
+)
 
 const realFetch = globalThis.fetch
 
@@ -50,5 +52,42 @@ describe('a failing engine call', () => {
     respondWith('', 502)
 
     await expect(runEnemyCourses(request)).rejects.toThrow('engine returned HTTP 502')
+  })
+})
+
+describe('revision-pinned engine calls', () => {
+  test('a route study names the immutable graph revision to search', async () => {
+    let sent: Record<string, unknown> = {}
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({ corridors: [], unreachable: [] })
+    }) as typeof fetch
+
+    await runRouteStudy({
+      areaId: 'ao-1',
+      graphRevision: 7,
+      marks: { reserves: [], objectives: [] },
+      excludedEdgeIds: [],
+    })
+
+    expect(sent.graph_revision).toBe(7)
+  })
+
+  test('block forces use the same graph revision as their corridors', async () => {
+    let sent: Record<string, unknown> = {}
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({ corridors: [], allocation: [], unblockable: [], uncovered: [] })
+    }) as typeof fetch
+
+    await runBlockForces({
+      areaId: 'ao-1',
+      graphRevision: 4,
+      corridors: [],
+      orbat: { units: [] },
+      ceiling: 'company',
+    })
+
+    expect(sent.graph_revision).toBe(4)
   })
 })

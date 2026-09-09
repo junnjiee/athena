@@ -56,6 +56,7 @@ class StudyRequest(BaseModel):
     """
 
     area_id: str | None = None
+    graph_revision: int | None = Field(default=None, ge=1)
     graph: RoadGraph | None = None
     reserves: list[Mark]
     objectives: list[Mark]
@@ -74,7 +75,11 @@ async def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-async def _resolve_graph(area_id: str | None, graph: RoadGraph | None) -> RoadGraph:
+async def _resolve_graph(
+    area_id: str | None,
+    graph_revision: int | None,
+    graph: RoadGraph | None,
+) -> RoadGraph:
     """The ground to answer over: supplied directly, or pulled by area id.
 
     A failure here is a 502 rather than an empty answer. Reporting no corridors
@@ -86,7 +91,7 @@ async def _resolve_graph(area_id: str | None, graph: RoadGraph | None) -> RoadGr
     if area_id is None:
         raise HTTPException(status_code=400, detail="either area_id or graph is required")
     try:
-        return await fetch_graph(TERRAIN_SERVICE_URL, area_id)
+        return await fetch_graph(TERRAIN_SERVICE_URL, area_id, graph_revision)
     except Exception as error:  # noqa: BLE001 - reported, never swallowed
         raise HTTPException(
             status_code=502,
@@ -96,7 +101,7 @@ async def _resolve_graph(area_id: str | None, graph: RoadGraph | None) -> RoadGr
 
 @app.post("/v1/route-study", response_model=StudyResult)
 async def route_study(request: StudyRequest) -> StudyResult:
-    graph = await _resolve_graph(request.area_id, request.graph)
+    graph = await _resolve_graph(request.area_id, request.graph_revision, request.graph)
 
     if not request.reserves:
         raise HTTPException(status_code=400, detail="at least one enemy reserve is required")
@@ -126,6 +131,7 @@ class BlockRequest(BaseModel):
     """
 
     area_id: str | None = None
+    graph_revision: int | None = Field(default=None, ge=1)
     graph: RoadGraph | None = None
     corridors: list[CorridorOut]
     orbat: Orbat
@@ -135,7 +141,7 @@ class BlockRequest(BaseModel):
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
-    graph = await _resolve_graph(request.area_id, request.graph)
+    graph = await _resolve_graph(request.area_id, request.graph_revision, request.graph)
     return plan_blocks(graph, request.corridors, request.orbat, ceiling=request.ceiling)
 
 

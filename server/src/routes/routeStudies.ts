@@ -19,6 +19,7 @@ import {
   runPreferenceFeedback,
   runRouteStudy,
 } from '../services/engineClient'
+import { loadOperationalAreaRevision } from '../services/operationalAreaStore'
 
 const markSchema = z.object({
   id: z.string().min(1),
@@ -130,9 +131,21 @@ export const feedbackBody = z.object({
  *  re-running the search for a typed name would churn corridor identity for
  *  nothing -- which is exactly what the operator's edits are keyed on. */
 export function needsResearch(
-  current: { marks: StudyMarks; edgeOverrides: string[] },
+  current: { marks: StudyMarks; edgeOverrides: string[]; graphRevision?: number },
   next: { marks?: StudyMarks; edgeOverrides?: string[] },
+  currentGraphRevision = current.graphRevision,
 ): boolean {
+  // A stale study only advances when the operator explicitly runs it (the run
+  // request carries marks). Presentation-only edits remain attached to the
+  // old corridor identities until that deliberate re-run.
+  if (
+    next.marks &&
+    current.graphRevision !== undefined &&
+    currentGraphRevision !== undefined &&
+    current.graphRevision !== currentGraphRevision
+  ) {
+    return true
+  }
   if (next.marks && JSON.stringify(next.marks) !== JSON.stringify(current.marks)) return true
   if (
     next.edgeOverrides &&
@@ -150,10 +163,12 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
     }
     const { areaId, name, marks, edgeOverrides } = parsed.data
+    const graphRevision = await loadOperationalAreaRevision(areaId)
+    if (graphRevision === null) return reply.status(404).send({ error: 'unknown operational area' })
 
     let result
     try {
-      result = await runRouteStudy({ areaId, marks, excludedEdgeIds: edgeOverrides })
+      result = await runRouteStudy({ areaId, graphRevision, marks, excludedEdgeIds: edgeOverrides })
     } catch (error: unknown) {
       // An engine we could not reach is a 503, never a study with no corridors:
       // an empty result reads as "no approaches exist".
@@ -168,12 +183,22 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       id,
       areaId,
       name,
+      graphRevision,
       marks,
       edgeOverrides,
       result,
       corridorEdits: {},
     })
-    return reply.status(201).send({ id, name, areaId, result, corridorEdits: {} })
+    return reply.status(201).send({
+      id,
+      name,
+      areaId,
+      graphRevision,
+      currentGraphRevision: graphRevision,
+      stale: false,
+      result,
+      corridorEdits: {},
+    })
   })
 
   app.get('/api/route-study', async () => {
@@ -192,10 +217,17 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
     const rows = await db.select().from(routeStudies).where(eq(routeStudies.id, req.params.id)).limit(1)
     const row = rows[0]
     if (!row) return reply.status(404).send({ error: 'unknown route study' })
+    const currentGraphRevision = await loadOperationalAreaRevision(row.areaId)
+    if (currentGraphRevision === null) {
+      return reply.status(404).send({ error: 'unknown operational area' })
+    }
     return {
       id: row.id,
       areaId: row.areaId,
       name: row.name,
+      graphRevision: row.graphRevision,
+      currentGraphRevision,
+      stale: row.graphRevision !== currentGraphRevision,
       marks: row.marks,
       edgeOverrides: row.edgeOverrides,
       result: row.result,
@@ -220,6 +252,10 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
     const rows = await db.select().from(routeStudies).where(eq(routeStudies.id, req.params.id)).limit(1)
     const row = rows[0]
     if (!row) return reply.status(404).send({ error: 'unknown route study' })
+    const currentGraphRevision = await loadOperationalAreaRevision(row.areaId)
+    if (currentGraphRevision === null) {
+      return reply.status(404).send({ error: 'unknown operational area' })
+    }
 
     const marks = parsed.data.marks ?? row.marks
     const edgeOverrides = parsed.data.edgeOverrides ?? row.edgeOverrides
@@ -227,9 +263,15 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       parsed.data.corridorEdits ?? row.corridorEdits
 
     let result = row.result
-    if (needsResearch(row, parsed.data)) {
+    const research = needsResearch(row, parsed.data, currentGraphRevision)
+    if (research) {
       try {
-        result = await runRouteStudy({ areaId: row.areaId, marks, excludedEdgeIds: edgeOverrides })
+        result = await runRouteStudy({
+          areaId: row.areaId,
+          graphRevision: currentGraphRevision,
+          marks,
+          excludedEdgeIds: edgeOverrides,
+        })
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {
           return reply.status(503).send({ error: error.message })
@@ -245,6 +287,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         marks,
         edgeOverrides,
         result,
+        graphRevision: research ? currentGraphRevision : row.graphRevision,
         corridorEdits,
         updatedAt: new Date(),
       })
@@ -254,6 +297,9 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       id: row.id,
       areaId: row.areaId,
       name: parsed.data.name ?? row.name,
+      graphRevision: research ? currentGraphRevision : row.graphRevision,
+      currentGraphRevision,
+      stale: research ? false : row.graphRevision !== currentGraphRevision,
       marks,
       edgeOverrides,
       result,
@@ -299,6 +345,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       try {
         blockPlan = await runBlockForces({
           areaId: row.areaId,
+          graphRevision: row.graphRevision,
           corridors: row.result.corridors,
           orbat,
           ceiling,

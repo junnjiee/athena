@@ -351,7 +351,9 @@ export function RouteStudiesPage() {
         ? library.areas.find((candidate) => candidate.id === loaded.areaId)
         : undefined
       const nextArea = knownArea ?? await fetchOperationalArea(loaded.areaId)
-      const nextGraph = await fetchOperationalGraph(nextArea.id)
+      // Corridors and edge ids only mean what they meant on the immutable
+      // snapshot that produced them. A stale study deliberately reopens there.
+      const nextGraph = await fetchOperationalGraph(nextArea.id, loaded.graphRevision)
       setArea(nextArea)
       setGraph(nextGraph)
       const rectangle = rectangleFor(nextArea)
@@ -537,6 +539,8 @@ export function RouteStudiesPage() {
     await runStudy(area.id, studyName.trim() || `${area.name} Terrain Study`)
     if (useRouteStudy.getState().phase === 'ready') {
       try {
+        const updated = useRouteStudy.getState().study
+        if (updated) setGraph(await fetchOperationalGraph(area.id, updated.graphRevision))
         await refreshLibrary()
       } catch (error: unknown) {
         setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh theater')
@@ -891,6 +895,20 @@ export function RouteStudiesPage() {
 
         {study && (
           <div className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-2">
+            {study.stale && (
+              <div className="glass rounded-xl border border-amber-300/30 p-3 text-xs text-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <div className="font-medium">Road graph changed</div>
+                    <div className="mt-0.5 text-amber-100/70">
+                      Showing revision {study.graphRevision}. The AO is revision{' '}
+                      {study.currentGraphRevision}. Re-run the terrain study to advance it.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="glass flex items-center gap-0.5 rounded-xl p-1">
               {BRANCHES.map(({ id, label, hint, icon: Icon }) => (
                 <button

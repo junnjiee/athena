@@ -217,8 +217,9 @@ export async function deleteOperationalArea(id: string): Promise<number> {
 /** The graph endpoint serves the stored gzip bytes directly. A browser does
  *  not unpack application/gzip automatically unless Content-Encoding is set,
  *  so detect the gzip signature before parsing. */
-export async function fetchOperationalGraph(id: string): Promise<RoadGraph> {
-  const res = await fetch(`/api/operational-area/${id}/graph`)
+export async function fetchOperationalGraph(id: string, revision?: number): Promise<RoadGraph> {
+  const query = revision === undefined ? '' : `?revision=${revision}`
+  const res = await fetch(`/api/operational-area/${id}/graph${query}`)
   if (!res.ok) throw new Error(await readError(res))
   return decodeOperationalGraph(await res.arrayBuffer())
 }
@@ -254,7 +255,14 @@ export async function createRouteStudy(payload: {
   // study shape without an unnecessary follow-up GET.
   const body = (await res.json()) as Pick<
     RouteStudy,
-    'id' | 'areaId' | 'name' | 'result' | 'corridorEdits'
+    | 'id'
+    | 'areaId'
+    | 'name'
+    | 'graphRevision'
+    | 'currentGraphRevision'
+    | 'stale'
+    | 'result'
+    | 'corridorEdits'
   >
   return {
     ...body,

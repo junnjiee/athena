@@ -1,6 +1,11 @@
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/client'
-import { courseFeedback, operationalAreas, routeStudies } from '../db/schema'
+import {
+  courseFeedback,
+  operationalAreaRevisions,
+  operationalAreas,
+  routeStudies,
+} from '../db/schema'
 import { decodeGraph, encodeGraph } from './graphWire'
 import type { OperationalAreaMeta, RoadEdit, RoadGraph, RoadTheme } from '../types'
 
@@ -10,6 +15,7 @@ export async function persistOperationalArea(
   meta: OperationalAreaMeta,
   graph: RoadGraph,
 ): Promise<void> {
+  const graphBuffer = encodeGraph(graph)
   await db.insert(operationalAreas).values({
     id: meta.id,
     name: meta.name,
@@ -20,8 +26,23 @@ export async function persistOperationalArea(
     demResolutionMeters: meta.demResolutionMeters,
     roadTheme: meta.roadTheme,
     roadEdits: meta.roadEdits,
-    graphBuffer: encodeGraph(graph),
+    currentRevision: 1,
+    graphBuffer,
   })
+  try {
+    await db.insert(operationalAreaRevisions).values({
+      id: `${meta.id}:1`,
+      areaId: meta.id,
+      revision: 1,
+      graphBuffer,
+    })
+  } catch (error: unknown) {
+    // neon-http cannot open an interactive transaction. Compensate so a
+    // failed snapshot write never leaves an AO whose advertised revision is
+    // impossible to retrieve.
+    await db.delete(operationalAreas).where(eq(operationalAreas.id, meta.id))
+    throw error
+  }
 }
 
 export async function loadOperationalArea(
@@ -39,6 +60,7 @@ export async function loadOperationalArea(
       generatedAt: row.generatedAt,
       nodeCount: row.nodeCount,
       edgeCount: row.edgeCount,
+      currentRevision: row.currentRevision,
       demResolutionMeters: row.demResolutionMeters,
       roadTheme: row.roadTheme,
       roadEdits: row.roadEdits,
@@ -49,13 +71,33 @@ export async function loadOperationalArea(
 
 /** The packed bytes as stored, for handing to the engine without a needless
  *  decode-and-re-encode round trip through this process. */
-export async function loadOperationalGraphBuffer(id: string): Promise<Buffer | null> {
+export async function loadOperationalGraphBuffer(
+  id: string,
+  revision?: number,
+): Promise<Buffer | null> {
+  if (revision !== undefined) {
+    const rows = await db
+      .select({ graphBuffer: operationalAreaRevisions.graphBuffer })
+      .from(operationalAreaRevisions)
+      .where(eq(operationalAreaRevisions.id, `${id}:${revision}`))
+      .limit(1)
+    return rows[0]?.graphBuffer ?? null
+  }
   const rows = await db
     .select({ graphBuffer: operationalAreas.graphBuffer })
     .from(operationalAreas)
     .where(eq(operationalAreas.id, id))
     .limit(1)
   return rows[0]?.graphBuffer ?? null
+}
+
+export async function loadOperationalAreaRevision(id: string): Promise<number | null> {
+  const rows = await db
+    .select({ currentRevision: operationalAreas.currentRevision })
+    .from(operationalAreas)
+    .where(eq(operationalAreas.id, id))
+    .limit(1)
+  return rows[0]?.currentRevision ?? null
 }
 
 export async function listOperationalAreas(): Promise<OperationalAreaMeta[]> {
@@ -67,6 +109,7 @@ export async function listOperationalAreas(): Promise<OperationalAreaMeta[]> {
       generatedAt: operationalAreas.generatedAt,
       nodeCount: operationalAreas.nodeCount,
       edgeCount: operationalAreas.edgeCount,
+      currentRevision: operationalAreas.currentRevision,
       demResolutionMeters: operationalAreas.demResolutionMeters,
       roadTheme: operationalAreas.roadTheme,
       roadEdits: operationalAreas.roadEdits,
@@ -90,6 +133,7 @@ export async function updateOperationalRoadSettings(
       generatedAt: operationalAreas.generatedAt,
       nodeCount: operationalAreas.nodeCount,
       edgeCount: operationalAreas.edgeCount,
+      currentRevision: operationalAreas.currentRevision,
       demResolutionMeters: operationalAreas.demResolutionMeters,
       roadTheme: operationalAreas.roadTheme,
       roadEdits: operationalAreas.roadEdits,
@@ -127,6 +171,7 @@ export async function deleteOperationalArea(
     await db.delete(courseFeedback).where(inArray(courseFeedback.studyId, studyIds))
     await db.delete(routeStudies).where(eq(routeStudies.areaId, id))
   }
+  await db.delete(operationalAreaRevisions).where(eq(operationalAreaRevisions.areaId, id))
   await db.delete(operationalAreas).where(eq(operationalAreas.id, id))
 
   return { deletedStudies: studyIds.length }
