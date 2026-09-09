@@ -543,9 +543,9 @@ every unit against every approach. **The race remains the commander's judgement.
 
 ### Allocation
 
-**Coverage is the first optimisation objective.** Each axis is an inlet and
-receives its own block position, including axes in a corridor with no common
-choke. The allocator computes the ORBAT's maximum independent commitment
+**Coverage is the first optimisation objective.** Each axis is an inlet and can
+receive its own operator-set block position, including axes in a corridor with
+no common choke. The allocator computes the ORBAT's maximum independent commitment
 capacity, then chooses the nearest force for each urgent inlet only when that
 choice leaves enough capacity to achieve the maximum. A nearby parent formation
 is therefore skipped when committing it would consume descendants needed to
@@ -583,9 +583,12 @@ look stronger. The result is deterministic and does not change allocation.
 
 Each sealing assessment also carries the doctrinal Reaction to Ops Plan chain.
 The reserve's decision plus readiness stages give **commenced**. An allocated
-unit establishes **contacted by block force**, but contact time remains unknown
-because the current inlet is an axis, not a fixed block point. The sealing
-outcome then decides whether a remnant continues:
+unit establishes **contacted by block force**. The operator may set an exact
+point on that inlet; the engine snaps a click within 500 m onto the routed
+polyline and accumulates the actual edge travel times to calculate enemy
+contact. A point naming unknown ground or outside that tolerance is rejected
+and surfaced. Without an operator point, contact time remains explicitly
+unknown. The sealing outcome then decides whether a remnant continues:
 
 - destroyed — no remnant continues and the reserve **did not reach** the
   objective;
@@ -682,9 +685,9 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
                         -> { corridors[], unreachable[] }
 
 POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat,
-                          reserves[] }
+                          reserves[], block_points?: [{ inlet_id, lon, lat }] }
                         -> { inlets[], allocation[], unblockable[], uncovered[],
-                             sealing[] }
+                             sealing[], block_points[], rejected_block_points[] }
 
 POST /v1/enemy-courses-of-action
                         { corridors[], reserves[], objectives[], intent, weights? }

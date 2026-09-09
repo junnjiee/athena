@@ -1,6 +1,6 @@
 """Which forces a commander can put on which approach."""
 
-from athena.blocking import plan_blocks
+from athena.blocking import BlockPointInput, plan_blocks
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
 from athena.study import (
@@ -121,6 +121,98 @@ def reserve(
             )
         ],
     )
+
+
+def test_an_operator_block_point_times_enemy_contact_on_the_inlet() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    route = CorridorOut(
+        id="cor_contact",
+        routes=[
+            RouteOut(
+                reserve_id="res1",
+                objective_id="obj1",
+                edge_ids=["11:0"],
+                node_ids=[1, 2],
+                seconds=300,
+                length_meters=1000,
+            )
+        ],
+        choke_edge_ids=["11:0"],
+        fastest_seconds=300,
+    )
+    baseline = plan_blocks(GRAPH, [route], force)
+    inlet_id = baseline.inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [route],
+        force,
+        reserves=[
+            reserve(timing=ReserveTiming(decision_minutes=10, readiness_minutes=20))
+        ],
+        block_points=[BlockPointInput(inlet_id=inlet_id, lon=0.005, lat=0)],
+    )
+
+    point = result.block_points[0]
+    reaction = result.sealing[0].reaction
+    assert point.lon == 0.005
+    assert point.snap_distance_meters == 0
+    assert result.allocation[0].block_point == point
+    assert reaction.contact_minutes == 30 + point.enemy_movement_seconds / 60
+    assert not any("block position" in unknown for unknown in reaction.unknowns)
+
+
+def test_a_block_point_away_from_or_outside_the_study_is_rejected() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    baseline = plan_blocks(GRAPH, [WEST], force)
+    inlet_id = baseline.inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [WEST],
+        force,
+        block_points=[
+            BlockPointInput(inlet_id=inlet_id, lon=5, lat=5),
+            BlockPointInput(inlet_id="inlet_invented", lon=0, lat=0),
+        ],
+    )
+
+    assert result.block_points == []
+    assert {rejection.inlet_id for rejection in result.rejected_block_points} == {
+        inlet_id,
+        "inlet_invented",
+    }
+
+
+def test_block_point_timing_follows_a_reverse_route_direction() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    route = CorridorOut(
+        id="cor_reverse",
+        routes=[
+            RouteOut(
+                reserve_id="res1",
+                objective_id="obj1",
+                edge_ids=["11:0"],
+                node_ids=[2, 1],
+                seconds=300,
+                length_meters=1000,
+            )
+        ],
+        choke_edge_ids=["11:0"],
+        fastest_seconds=300,
+    )
+    inlet_id = plan_blocks(GRAPH, [route], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [route],
+        force,
+        block_points=[BlockPointInput(inlet_id=inlet_id, lon=0.009, lat=0)],
+    )
+
+    point = result.block_points[0]
+    assert point.lon == 0.009
+    assert point.enemy_movement_seconds < 30
 
 
 # Candidates
@@ -478,7 +570,7 @@ def test_unimpeded_reserve_reaction_has_a_computable_objective_arrival() -> None
     assert reaction.delay_minutes == 0
     assert reaction.objective_arrival_minutes == 30 + 301 / 60 + 15
     assert reaction.objective_outcome == "reached"
-    assert reaction.unknowns == ["contact time needs an exact block position"]
+    assert reaction.unknowns == ["contact time needs an operator-set block position"]
 
 
 def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:

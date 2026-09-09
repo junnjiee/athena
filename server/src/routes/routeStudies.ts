@@ -166,8 +166,18 @@ const orbatSchema = z.object({
   units: z.array(orbatUnitSchema),
 })
 
+const blockPointSchema = z.object({
+  inlet_id: z.string().min(1).max(120),
+  lon: z.number().gte(-180).lte(180),
+  lat: z.number().gte(-85).lte(85),
+})
+
 export const blockForcesBody = z.object({
   orbat: orbatSchema,
+  blockPoints: z.array(blockPointSchema).max(128).default([]).refine(
+    (points) => new Set(points.map((point) => point.inlet_id)).size === points.length,
+    'block point inlet ids must be unique',
+  ),
 })
 
 
@@ -452,6 +462,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
           corridors: row.result.corridors,
           orbat,
           reserves: row.marks.reserves,
+          blockPoints: parsed.data.blockPoints,
         })
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {

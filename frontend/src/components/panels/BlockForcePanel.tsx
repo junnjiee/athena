@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Ban, Loader2, ShieldCheck, Users } from 'lucide-react'
+import { AlertTriangle, Ban, Loader2, MapPin, ShieldCheck, Trash2, Users } from 'lucide-react'
 import { corridorColor, corridorLabel } from '../../lib/corridors'
 import {
   allocationByInlet,
@@ -16,6 +16,7 @@ import { formatRouteDistance } from '../../lib/routeStudy'
 import type {
   BlockAllocation,
   BlockCandidate,
+  BlockPoint,
   InletBlock,
   OrbatUnit,
   RouteStudy,
@@ -29,6 +30,9 @@ interface Props {
   selectedCorridorId: string | null
   onSelectCorridor: (id: string) => void
   onRun: () => void
+  placingBlockInletId: string | null
+  onBeginBlockPoint: (inletId: string) => void
+  onClearBlockPoint: (inletId: string) => void
 }
 
 /**
@@ -45,6 +49,9 @@ export function BlockForcePanel({
   selectedCorridorId,
   onSelectCorridor,
   onRun,
+  placingBlockInletId,
+  onBeginBlockPoint,
+  onClearBlockPoint,
 }: Props) {
   const [selectedInletId, setSelectedInletId] = useState<string | null>(null)
   const plan = study.blockPlan
@@ -58,6 +65,11 @@ export function BlockForcePanel({
   const inlets = plan ? blockInlets(plan) : []
   const allocated = plan ? allocationByInlet(plan) : new Map()
   const sealing = plan ? sealingByInlet(plan) : new Map()
+  const blockPoints = new Map((plan?.block_points ?? []).map((point) => [point.inlet_id, point]))
+  const inletNames = new Map(inlets.map((block) => [
+    block.inlet_id,
+    `${corridorNames.get(block.corridor_id)?.label ?? block.corridor_id} · inlet ${block.inlet_number}`,
+  ]))
   const unblockable = plan ? unblockableByInlet(plan) : new Map<string, string>()
   const uncovered = new Set(
     (plan?.uncovered ?? []).map((entry) => entry.inlet_id ?? `legacy:${entry.corridor_id}`),
@@ -104,6 +116,16 @@ export function BlockForcePanel({
           </div>
         )}
 
+        {(plan?.rejected_block_points?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1.5 text-[10px] text-amber-300">
+            {plan!.rejected_block_points!.map((rejection) => (
+              <div key={`${rejection.inlet_id}:${rejection.reason}`}>
+                {inletNames.get(rejection.inlet_id) ?? rejection.inlet_id} · {rejection.reason}
+              </div>
+            ))}
+          </div>
+        )}
+
         {inlets.map((block) => (
           <InletBlockRow
             key={block.inlet_id}
@@ -111,6 +133,7 @@ export function BlockForcePanel({
             named={corridorNames.get(block.corridor_id)}
             allocation={allocated.get(block.inlet_id)}
             sealing={sealing.get(block.inlet_id)}
+            blockPoint={blockPoints.get(block.inlet_id)}
             units={units}
             unblockableReason={unblockable.get(block.inlet_id)}
             uncovered={uncovered.has(block.inlet_id)}
@@ -120,14 +143,18 @@ export function BlockForcePanel({
               setSelectedInletId(block.inlet_id)
               onSelectCorridor(block.corridor_id)
             }}
+            placingBlockPoint={placingBlockInletId === block.inlet_id}
+            onBeginBlockPoint={() => onBeginBlockPoint(block.inlet_id)}
+            onClearBlockPoint={() => onClearBlockPoint(block.inlet_id)}
+            blockPointControlsDisabled={running}
           />
         ))}
 
         {plan && (
           <p className="px-0.5 pt-1 text-[10px] leading-relaxed text-(--text-dim)">
             Every axis is an inlet. Coverage drives allocation; sufficiency describes the result.
-            Distances are straight-line to the inlet, not road distance or time. Nothing here says
-            a block force arrives first — timing remains a separate judgement.
+            Distances are straight-line to the inlet, not road distance or time. An operator-set
+            block point times enemy contact; own-force arrival remains a separate judgement.
           </p>
         )}
       </div>
@@ -155,23 +182,33 @@ function InletBlockRow({
   named,
   allocation,
   sealing,
+  blockPoint,
   units,
   unblockableReason,
   uncovered,
   selected,
   corridorSelected,
   onSelect,
+  placingBlockPoint,
+  onBeginBlockPoint,
+  onClearBlockPoint,
+  blockPointControlsDisabled,
 }: {
   block: InletBlock
   named: { label: string; color: string } | undefined
   allocation: BlockAllocation | undefined
   sealing: SealingAssessment | undefined
+  blockPoint: BlockPoint | undefined
   units: OrbatUnit[]
   unblockableReason: string | undefined
   uncovered: boolean
   selected: boolean
   corridorSelected: boolean
   onSelect: () => void
+  placingBlockPoint: boolean
+  onBeginBlockPoint: () => void
+  onClearBlockPoint: () => void
+  blockPointControlsDisabled: boolean
 }) {
   const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
   const assignedCandidate = allocation
@@ -272,6 +309,44 @@ function InletBlockRow({
 
       {selected && (
         <div className="mt-2 border-t border-(--border) pt-2" onClick={(event) => event.stopPropagation()}>
+          {allocation && (
+            <div className="mb-2 rounded border border-(--border) bg-black/10 px-1.5 py-1.5 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <MapPin className="h-3 w-3 text-(--accent)" />
+                <span className="min-w-0 flex-1 text-(--text)">
+                  {blockPoint
+                    ? `Enemy reaches block point ${formatOperationalOffset(blockPoint.enemy_movement_seconds / 60)} after moving`
+                    : 'No exact block point set'}
+                </span>
+                {blockPoint && (
+                  <button
+                    type="button"
+                    title="Clear block point"
+                    disabled={blockPointControlsDisabled}
+                    onClick={onClearBlockPoint}
+                    className="text-(--text-dim) hover:text-(--hostile) disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {blockPoint && blockPoint.snap_distance_meters >= 5 && (
+                <div className="mt-0.5 text-[9px] text-(--text-dim)">
+                  Snapped {Math.round(blockPoint.snap_distance_meters)} m onto the routed inlet.
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={blockPointControlsDisabled}
+                onClick={onBeginBlockPoint}
+                className={`mt-1 text-[9px] disabled:opacity-40 ${placingBlockPoint ? 'text-amber-300' : 'text-(--accent)'}`}
+              >
+                {placingBlockPoint
+                  ? 'Click the inlet on the map · Esc to cancel'
+                  : blockPoint ? 'Move block point' : 'Set block point on map'}
+              </button>
+            </div>
+          )}
           <div className="text-[10px] tracking-wide text-(--text-dim)">
             CANDIDATES ({block.candidates.length})
           </div>

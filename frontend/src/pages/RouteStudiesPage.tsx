@@ -44,6 +44,7 @@ import {
   type PlaceLookupResult,
 } from '../lib/api'
 import { courseEmphasis } from '../lib/courses'
+import { replaceBlockPoint } from '../lib/blockForces'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
 import type { RoadIdentity } from '../lib/roads'
@@ -189,6 +190,7 @@ export function RouteStudiesPage() {
   const [roadError, setRoadError] = useState<string | null>(null)
   const [breakingRoad, setBreakingRoad] = useState<RoadIdentity | null>(null)
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
+  const [placingBlockInletId, setPlacingBlockInletId] = useState<string | null>(null)
   const areaGenerationRef = useRef(0)
   const areaNameLookupRef = useRef(0)
   const areaUnsubscribeRef = useRef<(() => void) | null>(null)
@@ -526,15 +528,25 @@ export function RouteStudiesPage() {
     )
   }
 
-  function handlePlace(mode: 'place-reserve' | 'place-orbat-unit', position: LonLat) {
+  function handlePlace(
+    mode: 'place-reserve' | 'place-orbat-unit' | 'place-block-point',
+    position: LonLat,
+  ) {
     if (!area) return
     if (!insideArea(position.longitude, position.latitude)) {
-      setWorkspaceError('Place marks and units inside the black operational boundary.')
+      setWorkspaceError('Place marks, units, and block points inside the black operational boundary.')
       return
     }
     setWorkspaceError(null)
     if (mode === 'place-orbat-unit') {
       addUnit(placingEchelon, position.longitude, position.latitude)
+      return
+    }
+    if (mode === 'place-block-point') {
+      if (!placingBlockInletId) return
+      void planBlocks(replaceBlockPoint(study?.blockPlan ?? null, placingBlockInletId, position))
+      setPlacingBlockInletId(null)
+      setToolMode('navigate')
       return
     }
     const markId = addMark('reserve', position.longitude, position.latitude)
@@ -824,6 +836,8 @@ export function RouteStudiesPage() {
               ? 'Click the two ends of the broken stretch on the selected road. Esc to cancel.'
           : toolMode === 'place-orbat-unit'
             ? 'Click inside the black boundary to place a unit of your force. Esc when done.'
+            : toolMode === 'place-block-point'
+              ? 'Click on or near the selected inlet to set its block point. Esc to cancel.'
             : null
 
   /** The one control that moves the current step along, when it is not already
@@ -1222,6 +1236,14 @@ export function RouteStudiesPage() {
                   selectedCorridorId={selectedCorridorId}
                   onSelectCorridor={selectCorridor}
                   onRun={() => void planBlocks()}
+                  placingBlockInletId={toolMode === 'place-block-point' ? placingBlockInletId : null}
+                  onBeginBlockPoint={(inletId) => {
+                    setPlacingBlockInletId(inletId)
+                    setToolMode('place-block-point')
+                  }}
+                  onClearBlockPoint={(inletId) => {
+                    void planBlocks(replaceBlockPoint(study.blockPlan, inletId, null))
+                  }}
                 />
               )}
             </div>

@@ -194,6 +194,7 @@ export type OperationalToolMode =
    *  as a click and stored as a point, so a bridge is still one mark. */
   | 'draw-objective-area'
   | 'place-orbat-unit'
+  | 'place-block-point'
 
 export type StudyMarkKind = 'reserve' | 'objective'
 
@@ -291,6 +292,18 @@ export interface BlockAllocation {
   unit_id: string
   unit_name: string
   distance_meters: number
+  block_point?: BlockPoint | null
+}
+
+export interface BlockPointInput {
+  inlet_id: string
+  lon: number
+  lat: number
+}
+
+export interface BlockPoint extends BlockPointInput {
+  enemy_movement_seconds: number
+  snap_distance_meters: number
 }
 
 export interface UnblockableCorridor {
@@ -338,6 +351,8 @@ export interface BlockPlan {
   unblockable: UnblockableCorridor[]
   uncovered: { inlet_id?: string; corridor_id: string }[]
   sealing?: SealingAssessment[]
+  block_points?: BlockPoint[]
+  rejected_block_points?: { inlet_id: string; reason: string }[]
 }
 
 export interface EnemyIntent {

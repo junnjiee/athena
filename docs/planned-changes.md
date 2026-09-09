@@ -418,10 +418,13 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   carries the full doctrinal event chain: commenced → contacted by the allocated
   block force → outcome → remnant continued or stopped → reached or did not
   reach the objective. Known reserve timing produces commencement and, for an
-  unimpeded reserve, objective arrival. Contact time stays unknown until a
-  precise block point exists; delayed arrival stays unknown until delay duration
-  is assessed. Those gaps are returned and rendered explicitly instead of
-  borrowing the source example's half-hour as a universal rule.
+  unimpeded reserve, objective arrival. **Exact block points are now done** — an
+  operator selects a position on each allocated inlet, the engine grounds it to
+  that routed polyline, and known commencement plus accumulated edge travel
+  produces contact time. Unknown or distant points are rejected rather than
+  attached to invented ground. Delayed arrival stays unknown until delay
+  duration is assessed; Athena still does not borrow the source example's
+  half-hour as a universal rule.
 
 ---
 

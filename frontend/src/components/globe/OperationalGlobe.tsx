@@ -27,7 +27,7 @@ import type {
   StudyMarks,
 } from '../../types/routeStudy'
 
-type PlaceMode = 'place-reserve' | 'place-orbat-unit'
+type PlaceMode = 'place-reserve' | 'place-orbat-unit' | 'place-block-point'
 
 /** Largest objective a single drag may designate. Objectives are ground inside
  *  the study, not another study. */
@@ -58,7 +58,7 @@ interface Props {
 const hiddenCredits = document.createElement('div')
 
 function isPlaceMode(mode: OperationalToolMode): mode is PlaceMode {
-  return mode === 'place-reserve' || mode === 'place-orbat-unit'
+  return mode === 'place-reserve' || mode === 'place-orbat-unit' || mode === 'place-block-point'
 }
 
 function OperationalOverlayController({
