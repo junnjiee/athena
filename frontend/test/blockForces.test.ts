@@ -5,7 +5,9 @@ import {
   blockForceOrbat,
   blockCoverage,
   blockSummary,
+  formatExactCount,
   inletMidpoint,
+  sealingByInlet,
   unblockableByInlet,
 } from '../src/lib/blockForces'
 import type { BlockPlan, OrbatUnit, RoadGraph } from '../src/types/routeStudy'
@@ -66,6 +68,39 @@ describe('unblockableByInlet', () => {
 describe('blockSummary', () => {
   test('counts each outcome once', () => {
     expect(blockSummary(PLAN)).toEqual({ allocated: 1, uncovered: 1, unblockable: 1 })
+  })
+})
+
+describe('sealing assessments', () => {
+  test('legacy plans expose no invented assessment', () => {
+    expect(sealingByInlet(PLAN)).toEqual(new Map())
+  })
+
+  test('indexes the assessment by stable inlet identity', () => {
+    const plan: BlockPlan = {
+      ...PLAN,
+      sealing: [{
+        inlet_id: 'legacy:cor_a',
+        corridor_id: 'cor_a',
+        reserve_id: 'r1',
+        reserve_name: 'Reserve',
+        target_hardness: 'hard_skin_light',
+        target_platforms: [{ platform: 'BTR-90', count: { numerator: 10, denominator: 1 } }],
+        target_platform_count: { numerator: 10, denominator: 1 },
+        effective_weapons: [{ weapon: 'ATGM', count: 3 }],
+        effective_weapon_count: 3,
+        remaining_platform_count: { numerator: 7, denominator: 1 },
+        outcome: 'delayed_and_attrited',
+        reason: 'effective weapons leave a remnant',
+      }],
+    }
+    expect(sealingByInlet(plan).get('legacy:cor_a')?.outcome).toBe('delayed_and_attrited')
+  })
+
+  test('renders whole and fractional counts without rounding', () => {
+    expect(formatExactCount({ numerator: 10, denominator: 1 })).toBe('10')
+    expect(formatExactCount({ numerator: 1, denominator: 3 })).toBe('1/3')
+    expect(formatExactCount(null)).toBe('—')
   })
 })
 

@@ -233,6 +233,44 @@ def test_block_candidates_measure_weapon_holdings_not_personnel() -> None:
     assert "strength" not in candidate
 
 
+def test_block_force_response_assesses_sealing_against_the_reserve() -> None:
+    armed = {
+        "units": [
+            {
+                **ORBAT["units"][0],
+                "weapons": [{"id": "atgm", "weapon": "ATGM", "count": 3}],
+            }
+        ]
+    }
+    reserve = {
+        **RESERVE,
+        "task_organization": [
+            {
+                "id": "element-1",
+                "designation": "Motor Rifle Company",
+                "echelon": "company",
+                "modifier": "=",
+                "order_of_move": 1,
+                "platforms": [
+                    {"id": "platform-1", "platform": "BTR-90", "establishment_count": 10}
+                ],
+            }
+        ],
+    }
+
+    response = client.post(
+        "/v1/block-forces",
+        json=block_request(orbat=armed, reserves=[reserve]),
+    )
+
+    assert response.status_code == 200
+    assessment = response.json()["sealing"][0]
+    assert assessment["outcome"] == "delayed_and_attrited"
+    assert assessment["target_platform_count"] == {"numerator": 10, "denominator": 3}
+    assert assessment["remaining_platform_count"] == {"numerator": 1, "denominator": 3}
+    assert assessment["effective_weapons"] == [{"weapon": "ATGM", "count": 3}]
+
+
 def test_an_invalid_orbat_tree_is_rejected() -> None:
     broken = {
         "units": [

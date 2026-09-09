@@ -175,12 +175,33 @@ export interface UnblockableCorridor {
   reason: string
 }
 
+export interface ExactCount {
+  numerator: number
+  denominator: number
+}
+
+export interface SealingAssessment {
+  inlet_id: string
+  corridor_id: string
+  reserve_id: string
+  reserve_name?: string | null
+  target_hardness?: 'soft_skin' | 'hard_skin_light' | 'hard_skin_heavy' | null
+  target_platforms: { platform: string; count: ExactCount }[]
+  target_platform_count?: ExactCount | null
+  effective_weapons: BlockWeapon[]
+  effective_weapon_count: number
+  remaining_platform_count?: ExactCount | null
+  outcome: 'destroyed_at_block' | 'delayed_and_attrited' | 'passed' | 'unknown'
+  reason: string
+}
+
 export interface BlockPlan {
   inlets?: InletBlock[]
   corridors?: CorridorBlock[]
   allocation: BlockAllocation[]
   unblockable: UnblockableCorridor[]
   uncovered: { inlet_id?: string; corridor_id: string }[]
+  sealing?: SealingAssessment[]
 }
 
 /** What the operator believes the enemy is trying to do. */

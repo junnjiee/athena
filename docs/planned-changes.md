@@ -406,17 +406,20 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   weapon system; it no longer emits or displays personnel `strength` as the
   force measure. Legacy units remain valid with no invented holdings. Effective
   weapons are deliberately deferred to the matching pass below.
-- **Sealing becomes computable, and non-binary.** With F's structured
-  composition and pairing table, block force effective weapons vs reserve
-  platforms yields exactly the outcome chain from the Reaction to Ops Plan
-  overlay — destroyed at the block, delayed and attrited, or passed. See
-  [`DOCTRINE.md` §5](DOCTRINE.md). This is what makes the next item real rather
-  than decorative.
+- ~~**Sealing becomes computable, and non-binary.**~~ **Done** — after coverage
+  allocation is fixed, the engine compares each block force's unconditionally
+  effective weapons with the reserve's hardest catalogued platform class. It
+  preserves composition modifiers as exact fractions and reports destroyed at
+  the block, delayed and attrited with the exact remnant, passed, or unknown
+  with a reason. Missing classifications and conditional matches are never
+  promoted into facts, and sufficiency never reduces inlet coverage. See
+  [`DOCTRINE.md` §5](DOCTRINE.md).
 - **Reaction outcomes on the block pass.** Per the Reaction to Ops Plan overlay
   (p.63), the doctrinal output per reserve is: commenced D 2100 → contacted by
   block force D 2115 → *delayed ½ hr and attrited from 1 x RRC to 1 x RRP* →
-  remnant continued → reached objective D 2200. Today `BlockPlan` says only
-  which unit covers which corridor.
+  remnant continued → reached objective D 2200. `BlockPlan` now carries the
+  sealing outcome and remaining composition, but not yet the commenced,
+  contacted, delay-duration, continuation, and arrival timeline.
 
 ---
 

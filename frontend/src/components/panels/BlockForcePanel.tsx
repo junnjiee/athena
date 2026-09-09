@@ -6,6 +6,8 @@ import {
   blockInlets,
   blockForceOrbat,
   blockSummary,
+  formatExactCount,
+  sealingByInlet,
   unblockableByInlet,
 } from '../../lib/blockForces'
 import { ECHELON_LABEL, availabilitySummary, weaponSummary } from '../../lib/orbatTree'
@@ -16,6 +18,7 @@ import type {
   InletBlock,
   OrbatUnit,
   RouteStudy,
+  SealingAssessment,
 } from '../../types/routeStudy'
 
 interface Props {
@@ -53,6 +56,7 @@ export function BlockForcePanel({
   )
   const inlets = plan ? blockInlets(plan) : []
   const allocated = plan ? allocationByInlet(plan) : new Map()
+  const sealing = plan ? sealingByInlet(plan) : new Map()
   const unblockable = plan ? unblockableByInlet(plan) : new Map<string, string>()
   const uncovered = new Set(
     (plan?.uncovered ?? []).map((entry) => entry.inlet_id ?? `legacy:${entry.corridor_id}`),
@@ -105,6 +109,7 @@ export function BlockForcePanel({
             block={block}
             named={corridorNames.get(block.corridor_id)}
             allocation={allocated.get(block.inlet_id)}
+            sealing={sealing.get(block.inlet_id)}
             units={units}
             unblockableReason={unblockable.get(block.inlet_id)}
             uncovered={uncovered.has(block.inlet_id)}
@@ -119,10 +124,9 @@ export function BlockForcePanel({
 
         {plan && (
           <p className="px-0.5 pt-1 text-[10px] leading-relaxed text-(--text-dim)">
-            Every axis is an inlet. Distances are straight-line to that inlet, not road distance or
-            time. Nothing
-            here says a block force arrives first, or that its weapons can hold what is coming —
-            timing and weapon matching remain separate judgements.
+            Every axis is an inlet. Coverage drives allocation; sufficiency describes the result.
+            Distances are straight-line to the inlet, not road distance or time. Nothing here says
+            a block force arrives first — timing remains a separate judgement.
           </p>
         )}
       </div>
@@ -149,6 +153,7 @@ function InletBlockRow({
   block,
   named,
   allocation,
+  sealing,
   units,
   unblockableReason,
   uncovered,
@@ -159,6 +164,7 @@ function InletBlockRow({
   block: InletBlock
   named: { label: string; color: string } | undefined
   allocation: BlockAllocation | undefined
+  sealing: SealingAssessment | undefined
   units: OrbatUnit[]
   unblockableReason: string | undefined
   uncovered: boolean
@@ -213,6 +219,7 @@ function InletBlockRow({
           <div className="mt-1 text-[10px] text-(--text)">
             {candidateWeapons(assignedCandidate)}
           </div>
+          {sealing && <SealingResult assessment={sealing} />}
           {forceRows.length > 0 ? (
             <div className="mt-2 rounded-md border border-(--border) bg-black/15 px-2 py-1.5">
               <div className="mb-1 text-[9px] tracking-wide text-(--text-dim)">
@@ -289,6 +296,66 @@ function InletBlockRow({
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const HARDNESS_LABEL: Record<NonNullable<SealingAssessment['target_hardness']>, string> = {
+  soft_skin: 'soft-skin',
+  hard_skin_light: 'light armour',
+  hard_skin_heavy: 'heavy armour',
+}
+
+function SealingResult({ assessment }: { assessment: SealingAssessment }) {
+  const presentation = {
+    destroyed_at_block: {
+      label: 'Reserve destroyed at block',
+      className: 'border-(--accent-border) bg-(--accent-bg) text-(--accent)',
+    },
+    delayed_and_attrited: {
+      label: 'Reserve delayed and attrited',
+      className: 'border-amber-400/20 bg-amber-400/10 text-amber-300',
+    },
+    passed: {
+      label: 'Reserve passes the block',
+      className: 'border-(--hostile)/25 bg-(--hostile)/10 text-(--hostile)',
+    },
+    unknown: {
+      label: 'Sufficiency unknown',
+      className: 'border-(--border) bg-black/15 text-(--text-dim)',
+    },
+  }[assessment.outcome]
+
+  const target = assessment.target_platforms
+    .map(({ platform, count }) => `${formatExactCount(count)} ${platform}`)
+    .join(' · ')
+  const remaining = formatExactCount(assessment.remaining_platform_count)
+  const targetCount = formatExactCount(assessment.target_platform_count)
+
+  return (
+    <div className={`mt-2 rounded-md border px-2 py-1.5 ${presentation.className}`}>
+      <div className="text-[10px] font-medium tracking-wide">{presentation.label.toUpperCase()}</div>
+      {assessment.outcome === 'delayed_and_attrited' && (
+        <div className="mt-0.5 text-[10px]">{remaining} of {targetCount} hardest platforms remain</div>
+      )}
+      {assessment.outcome === 'passed' && (
+        <div className="mt-0.5 text-[10px]">No recorded weapon is effective against the hardest platforms</div>
+      )}
+      {assessment.outcome === 'unknown' && (
+        <div className="mt-0.5 text-[10px]">{assessment.reason}</div>
+      )}
+      {assessment.target_hardness && target && (
+        <div className="mt-1 text-[9px] text-(--text-dim)">
+          TARGET · {HARDNESS_LABEL[assessment.target_hardness]} · {target}
+        </div>
+      )}
+      {assessment.target_hardness && (
+        <div className="mt-0.5 text-[9px] text-(--text-dim)">
+          EFFECTIVE · {assessment.effective_weapon_count > 0
+            ? weaponSummary(assessment.effective_weapons)
+            : 'none recorded'}
         </div>
       )}
     </div>

@@ -12,12 +12,15 @@ judgement stays with the human. See ENGINE.md's known limits.
 
 import hashlib
 import math
+from enum import StrEnum
+from fractions import Fraction
 
 from pydantic import BaseModel, Field
 
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Orbat, Unit, WeaponSystem
-from athena.study import CorridorOut
+from athena.study import CorridorOut, Mark
+from athena.targeting import Effect, Hardness, TargetClass, lookup_platform, match_weapon
 from athena.units import Echelon
 
 
@@ -77,11 +80,48 @@ class Uncovered(BaseModel):
     corridor_id: str
 
 
+class ExactCount(BaseModel):
+    """A platform quantity retained as an exact reduced fraction."""
+
+    numerator: int = Field(ge=0)
+    denominator: int = Field(ge=1)
+
+
+class AssessedPlatform(BaseModel):
+    platform: str
+    count: ExactCount
+
+
+class SealingOutcome(StrEnum):
+    DESTROYED = "destroyed_at_block"
+    DELAYED = "delayed_and_attrited"
+    PASSED = "passed"
+    UNKNOWN = "unknown"
+
+
+class SealingAssessment(BaseModel):
+    """What one allocated force can do to the inlet's reserve composition."""
+
+    inlet_id: str
+    corridor_id: str
+    reserve_id: str
+    reserve_name: str | None = None
+    target_hardness: Hardness | None = None
+    target_platforms: list[AssessedPlatform]
+    target_platform_count: ExactCount | None = None
+    effective_weapons: list[BlockWeapon]
+    effective_weapon_count: int = Field(ge=0)
+    remaining_platform_count: ExactCount | None = None
+    outcome: SealingOutcome
+    reason: str
+
+
 class BlockPlan(BaseModel):
     inlets: list[InletBlock]
     allocation: list[Allocation]
     unblockable: list[Unblockable]
     uncovered: list[Uncovered]
+    sealing: list[SealingAssessment]
 
 
 def _inlet_id(reserve_id: str, objective_id: str, edge_ids: list[str]) -> str:
@@ -154,10 +194,117 @@ def _block_force_weapons(orbat: Orbat, unit_id: str) -> list[BlockWeapon]:
     ]
 
 
+def _exact(value: Fraction) -> ExactCount:
+    return ExactCount(numerator=value.numerator, denominator=value.denominator)
+
+
+_HARDNESS_PRIORITY = {
+    Hardness.SOFT_SKIN: 0,
+    Hardness.HARD_SKIN_LIGHT: 1,
+    Hardness.HARD_SKIN_HEAVY: 2,
+}
+
+
+def _hardest_platforms(reserve: Mark) -> tuple[Hardness, dict[str, Fraction]] | None:
+    """The reserve's hardest catalogued platform class and exact quantities."""
+    by_hardness: dict[Hardness, dict[str, Fraction]] = {}
+    for element in reserve.task_organization:
+        for count in element.platforms:
+            platform = lookup_platform(count.platform)
+            if platform is None or platform.hardness is None:
+                continue
+            numerator, denominator = count.effective_fraction(element.modifier)
+            holdings = by_hardness.setdefault(platform.hardness, {})
+            holdings[platform.name] = holdings.get(platform.name, Fraction()) + Fraction(
+                numerator, denominator
+            )
+    if not by_hardness:
+        return None
+    hardest = max(by_hardness, key=_HARDNESS_PRIORITY.__getitem__)
+    return hardest, by_hardness[hardest]
+
+
+def _assess_sealing(
+    block: InletBlock,
+    allocation: Allocation,
+    reserve: Mark | None,
+) -> SealingAssessment:
+    candidate = next(
+        (entry for entry in block.candidates if entry.unit_id == allocation.unit_id),
+        None,
+    )
+    if reserve is None:
+        return SealingAssessment(
+            inlet_id=block.inlet_id,
+            corridor_id=block.corridor_id,
+            reserve_id=block.reserve_id,
+            target_platforms=[],
+            effective_weapons=[],
+            effective_weapon_count=0,
+            outcome=SealingOutcome.UNKNOWN,
+            reason="reserve is not present in the supplied assessment",
+        )
+
+    hardest = _hardest_platforms(reserve)
+    if hardest is None:
+        return SealingAssessment(
+            inlet_id=block.inlet_id,
+            corridor_id=block.corridor_id,
+            reserve_id=reserve.id,
+            reserve_name=reserve.name,
+            target_platforms=[],
+            effective_weapons=[],
+            effective_weapon_count=0,
+            outcome=SealingOutcome.UNKNOWN,
+            reason="reserve has no catalogued platform hardness to assess",
+        )
+
+    hardness, platforms = hardest
+    target_class = TargetClass(hardness.value)
+    weapons = candidate.weapons if candidate is not None else []
+    effective = [
+        weapon
+        for weapon in weapons
+        if match_weapon(weapon.weapon, target_class, Effect.DESTROY).effective
+    ]
+    effective_count = sum(weapon.count for weapon in effective)
+    target_count = sum(platforms.values(), Fraction())
+    remaining = max(Fraction(), target_count - effective_count)
+
+    if effective_count == 0:
+        outcome = SealingOutcome.PASSED
+        reason = "no recorded weapon is unconditionally effective against the hardest platforms"
+    elif remaining == 0:
+        outcome = SealingOutcome.DESTROYED
+        reason = "effective weapons meet or exceed the hardest-platform count"
+    else:
+        outcome = SealingOutcome.DELAYED
+        reason = "effective weapons attrit the hardest platforms but leave a remnant"
+
+    return SealingAssessment(
+        inlet_id=block.inlet_id,
+        corridor_id=block.corridor_id,
+        reserve_id=reserve.id,
+        reserve_name=reserve.name,
+        target_hardness=hardness,
+        target_platforms=[
+            AssessedPlatform(platform=name, count=_exact(count))
+            for name, count in sorted(platforms.items())
+        ],
+        target_platform_count=_exact(target_count),
+        effective_weapons=effective,
+        effective_weapon_count=effective_count,
+        remaining_platform_count=_exact(remaining),
+        outcome=outcome,
+        reason=reason,
+    )
+
+
 def plan_blocks(
     graph: RoadGraph,
     corridors: list[CorridorOut],
     orbat: Orbat,
+    reserves: list[Mark] | None = None,
 ) -> BlockPlan:
     """Block options and a maximum-coverage allocation for every axis/inlet."""
     available = orbat.available()
@@ -266,9 +413,20 @@ def plan_blocks(
     blocks.sort(key=lambda block: (block.corridor_id, block.inlet_number, block.inlet_id))
     unblockable.sort(key=lambda entry: (entry.corridor_id, entry.inlet_id))
     uncovered.sort(key=lambda entry: (entry.corridor_id, entry.inlet_id))
+    blocks_by_inlet = {block.inlet_id: block for block in blocks}
+    reserves_by_id = {reserve.id: reserve for reserve in reserves or []}
+    sealing = [
+        _assess_sealing(
+            blocks_by_inlet[entry.inlet_id],
+            entry,
+            reserves_by_id.get(blocks_by_inlet[entry.inlet_id].reserve_id),
+        )
+        for entry in allocation
+    ]
     return BlockPlan(
         inlets=blocks,
         allocation=allocation,
         unblockable=unblockable,
         uncovered=uncovered,
+        sealing=sealing,
     )

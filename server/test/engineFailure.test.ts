@@ -85,8 +85,10 @@ describe('revision-pinned engine calls', () => {
       graphRevision: 4,
       corridors: [],
       orbat: { units: [] },
+      reserves: [],
     })
 
     expect(sent.graph_revision).toBe(4)
+    expect(sent.reserves).toEqual([])
   })
 })
