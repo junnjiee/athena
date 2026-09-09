@@ -461,22 +461,29 @@ Three inputs: target hardness, effect required, weapon characteristics. See
 [`DOCTRINE.md` §5](DOCTRINE.md) for the effects, hardness classes and the
 pairing table, and §6 for the platform catalogue.
 
-- **Platform catalogue** as reference data — platform name → type → hardness,
-  seeded from the aggressor ORBAT (BTR-90 hard skin light, Truck soft skin, and
-  the weapon systems: DRAGON ATGM, SPG-9, RPG-16/22, AGS-17 AGL, NSV HMG, 2B11
-  and 81mm/60mm mortars, SA-16 MANPADS, Dragunov).
-- **Hardness is a property of the platform, never typed per unit.** Looked up
-  from the catalogue.
+- ~~**Platform catalogue** as reference data — platform name → type → hardness,~~
+  **Done** — the engine now exposes 13 doctrine-backed aggressor platform
+  definitions with stable ids, types, and hardness only where the source assigns
+  one. It is seeded from the aggressor ORBAT (BTR-90 hard skin light, Truck soft
+  skin, plus DRAGON, SPG-9, RPG-16/22, AGS-17, NSV, 2B11 and 81mm/60mm mortars,
+  SA-16 MANPADS, and Dragunov). Unknown names and non-vehicle systems do not
+  receive invented hardness.
+- ~~**Hardness is a property of the platform, never typed per unit.**~~ **Done** —
+  case-insensitive catalogue lookup is the only conversion from a platform name
+  to hardness.
 - **This settles an open question under C.** Unit and reserve composition must
   be structured as `count × platform`, not free text — otherwise weapon matching
   has nothing to match on. `9xBRT` becomes `{count: 9, platform: "BTR-90"}`.
-- **Matching pass** — given a target's hardness and the effect required, return
+- ~~**Matching pass** — given a target's hardness and the effect required, return
   which of the force's weapon systems can achieve it, which are acceptable, and
-  which would be wasteful or ineffective. Natural home is the engine, alongside
-  the block-force pass, since both answer "what can I put on this".
+  which would be wasteful or ineffective.~~ **Done** — a deterministic engine
+  gate returns preferred, acceptable, conditional, ineffective, wasteful, or
+  unknown with rationale and required conditions. Conditional pairings do not
+  count as effective until their condition is known.
 - ~~Nothing in the engine models weapons or platforms today.~~ Own-force weapon
   holdings are now structured on the ORBAT and aggregated into block candidates.
-  The platform catalogue, hardness, and matching rules remain to be built.
+  The platform catalogue, hardness, and matching gate are now engine-owned; the
+  sealing calculation below is their next consumer.
 
 ### Attrition — the arithmetic downstream of matching
 

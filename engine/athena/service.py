@@ -24,7 +24,7 @@ from athena.eca import (
 )
 from athena.graph import RoadGraph
 from athena.intent import EnemyIntent
-from athena.orbat import Orbat
+from athena.orbat import Orbat, WeaponSystem
 from athena.params import (
     CORRIDOR_DETOUR_RATIO,
     CORRIDOR_MAX_HEADING_DEGREES,
@@ -41,6 +41,14 @@ from athena.preference import (
     update_weights,
 )
 from athena.study import CorridorOut, Mark, StudyResult, run_study
+from athena.targeting import (
+    Effect,
+    PLATFORM_CATALOGUE,
+    PlatformDefinition,
+    TargetClass,
+    WeaponMatch,
+    match_weapon,
+)
 
 app = FastAPI(title="Athena planning engine", version="0.1.0")
 
@@ -76,6 +84,24 @@ class StudyRequest(BaseModel):
 @app.get("/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+@app.get("/v1/platform-catalogue", response_model=list[PlatformDefinition])
+async def platform_catalogue() -> tuple[PlatformDefinition, ...]:
+    """The fixed aggressor reference data used by matching and composition."""
+    return PLATFORM_CATALOGUE
+
+
+class WeaponMatchRequest(BaseModel):
+    weapon: WeaponSystem
+    target: TargetClass
+    effect: Effect = Effect.DESTROY
+
+
+@app.post("/v1/weapon-target-match", response_model=WeaponMatch)
+async def weapon_target_match(request: WeaponMatchRequest) -> WeaponMatch:
+    """One inspectable doctrinal pairing, with no model call or inference."""
+    return match_weapon(request.weapon, request.target, request.effect)
 
 
 async def _resolve_graph(
