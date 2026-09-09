@@ -36,6 +36,7 @@ import {
   listOperationalAreas,
   listRouteStudies,
   updateOperationalRoadSettings,
+  updateOperationalRoadState,
 } from '../lib/api'
 import { courseEmphasis } from '../lib/courses'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
@@ -636,6 +637,27 @@ export function RouteStudiesPage() {
     void saveRoadSettings(area.roadTheme, roadEdits)
   }
 
+  async function setRoadDestroyed(road: RoadIdentity, destroyed: boolean) {
+    if (!area || roadSaving) return
+    setRoadSaving(true)
+    setRoadError(null)
+    try {
+      const nextArea = await updateOperationalRoadState(area.id, road.wayId, destroyed)
+      replaceArea(nextArea)
+      if (study) {
+        // Keep the historical graph on screen, then refresh the study envelope
+        // so its newly-stale state is explicit.
+        await loadStudy(study.id)
+      } else {
+        setGraph(await fetchOperationalGraph(area.id, nextArea.currentRevision))
+      }
+    } catch (error: unknown) {
+      setRoadError(error instanceof Error ? error.message : 'failed to change road state')
+    } finally {
+      setRoadSaving(false)
+    }
+  }
+
   const extentValid = selection !== null &&
     selection.stats.widthMeters >= OPERATIONAL_MIN_EXTENT_METERS &&
     selection.stats.heightMeters >= OPERATIONAL_MIN_EXTENT_METERS
@@ -869,6 +891,7 @@ export function RouteStudiesPage() {
               error={roadError}
               onSetTheme={setRoadTheme}
               onEditRoad={editRoad}
+              onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
               onLocate={locateRoad}
             />
           </div>
@@ -983,6 +1006,7 @@ export function RouteStudiesPage() {
                   error={roadError}
                   onSetTheme={setRoadTheme}
                   onEditRoad={editRoad}
+                  onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
                   onLocate={locateRoad}
                 />
               )}

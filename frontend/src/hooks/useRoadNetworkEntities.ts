@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import * as Cesium from 'cesium'
 import type { RoadGraph } from '../types/routeStudy'
 
-/** Every road the ingest picked up, drawn black over the ground.
+/** Every road the ingest picked up: intact black, destroyed red.
  *
  *  This is the operator's evidence that the graph is the ground: a road with no
  *  black line was not detected, and a corridor can never run down it. Without
@@ -26,39 +26,52 @@ export function useRoadNetworkEntities({
   useEffect(() => {
     if (!viewer || !graph) return
 
-    const instances = graph.edges.flatMap((edge) => {
-      // A degenerate edge -- one point, or the same point twice -- has no line
-      // to draw and GroundPolylineGeometry throws on it rather than ignoring it.
-      const flat = edge.points.flat()
-      if (edge.points.length < 2) return []
-      return [
-        new Cesium.GeometryInstance({
-          geometry: new Cesium.GroundPolylineGeometry({
-            positions: Cesium.Cartesian3.fromDegreesArray(flat),
-            width: 1.5,
+    const instancesFor = (destroyed: boolean, width: number) =>
+      graph.edges.flatMap((edge) => {
+        if (Boolean(edge.destroyed) !== destroyed) return []
+        // A degenerate edge -- one point, or the same point twice -- has no line
+        // to draw and GroundPolylineGeometry throws on it rather than ignoring it.
+        const flat = edge.points.flat()
+        if (edge.points.length < 2) return []
+        return [
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.GroundPolylineGeometry({
+              positions: Cesium.Cartesian3.fromDegreesArray(flat),
+              width,
+            }),
+            id: edge.id,
           }),
-          id: edge.id,
+        ]
+      })
+    const primitives = [
+      { destroyed: false, color: Cesium.Color.BLACK.withAlpha(0.8), width: 1.5 },
+      {
+        destroyed: true,
+        color: Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.95),
+        width: 3.5,
+      },
+    ].flatMap(({ destroyed, color, width }) => {
+      const instances = instancesFor(destroyed, width)
+      if (instances.length === 0) return []
+      return [
+        new Cesium.GroundPolylinePrimitive({
+          geometryInstances: instances,
+          allowPicking: false,
+          appearance: new Cesium.PolylineMaterialAppearance({
+            material: Cesium.Material.fromType('Color', { color }),
+          }),
         }),
       ]
     })
-    if (instances.length === 0) return
-
-    const primitive = new Cesium.GroundPolylinePrimitive({
-      geometryInstances: instances,
-      allowPicking: false,
-      appearance: new Cesium.PolylineMaterialAppearance({
-        material: Cesium.Material.fromType('Color', {
-          color: Cesium.Color.BLACK.withAlpha(0.8),
-        }),
-      }),
-    })
-    viewer.scene.primitives.add(primitive)
+    for (const primitive of primitives) viewer.scene.primitives.add(primitive)
 
     return () => {
       // Cesium destroys the primitive on removal; guard the double-invoke that
       // StrictMode's mount/unmount/remount would otherwise turn into a throw.
-      if (!viewer.isDestroyed() && !primitive.isDestroyed()) {
-        viewer.scene.primitives.remove(primitive)
+      if (!viewer.isDestroyed()) {
+        for (const primitive of primitives) {
+          if (!primitive.isDestroyed()) viewer.scene.primitives.remove(primitive)
+        }
       }
     }
   }, [viewer, graph])

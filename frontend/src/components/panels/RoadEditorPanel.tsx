@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Crosshair, Loader2, RotateCcw, Search } from 'lucide-react'
+import { Crosshair, Loader2, RotateCcw, Search, ShieldOff, Undo2 } from 'lucide-react'
 import { formatRoadCode, parseRoadCode, prefillRoadClassification } from '../../lib/roadCodes'
 import { ROAD_THEMES, nextRoadName } from '../../lib/roadNames'
 import { roadIdentities, type RoadIdentity } from '../../lib/roads'
@@ -19,6 +19,7 @@ interface Props {
   error: string | null
   onSetTheme: (theme: RoadTheme) => void
   onEditRoad: (roadId: string, edit: RoadEdit | null) => void
+  onSetDestroyed: (road: RoadIdentity, destroyed: boolean) => void
   onLocate: (road: RoadIdentity) => void
 }
 
@@ -29,6 +30,7 @@ export function RoadEditorPanel({
   error,
   onSetTheme,
   onEditRoad,
+  onSetDestroyed,
   onLocate,
 }: Props) {
   const [query, setQuery] = useState('')
@@ -102,16 +104,22 @@ export function RoadEditorPanel({
               onSave={(next) => onEditRoad(road.id, next)}
               onReset={() => onEditRoad(road.id, null)}
               onLocate={() => onLocate(road)}
+              onSetDestroyed={() => onSetDestroyed(road, !road.destroyed)}
             />
           ) : (
-            <div key={road.id} className="rounded-md border border-white/5 bg-black/10 px-2 py-1.5">
+            <div
+              key={road.id}
+              className={`rounded-md border px-2 py-1.5 ${road.destroyed ? 'border-red-400/30 bg-red-950/20' : 'border-white/5 bg-black/10'}`}
+            >
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs text-(--text-h)">
                     {road.osmName ?? `OSM way ${road.id}`}
                   </div>
                   <div className="text-[10px] text-(--text-dim)">
-                    {road.roadClass.replace('_', ' ')}{road.lanes ? ` · ${road.lanes} lanes` : ''}
+                    {road.destroyed ? 'DESTROYED · ' : ''}
+                    {road.roadClass.replace('_', ' ')}
+                    {road.lanes ? ` · ${road.lanes} lanes` : ''}
                   </div>
                 </div>
                 <button
@@ -121,6 +129,18 @@ export function RoadEditorPanel({
                   className="p-1 text-(--text-dim) hover:text-(--text-h)"
                 >
                   <Crosshair className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  title={road.destroyed ? 'Restore road' : 'Mark road destroyed'}
+                  aria-label={`${road.destroyed ? 'Restore' : 'Destroy'} ${road.osmName ?? `way ${road.id}`}`}
+                  onClick={() => onSetDestroyed(road, !road.destroyed)}
+                  className={`p-1 ${road.destroyed ? 'text-red-300 hover:text-white' : 'text-(--text-dim) hover:text-red-300'}`}
+                >
+                  {road.destroyed
+                    ? <Undo2 className="h-3.5 w-3.5" />
+                    : <ShieldOff className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   type="button"
@@ -155,6 +175,7 @@ function RoadCodeRow({
   onSave,
   onReset,
   onLocate,
+  onSetDestroyed,
 }: {
   road: RoadIdentity
   edit: RoadEdit
@@ -162,6 +183,7 @@ function RoadCodeRow({
   onSave: (edit: RoadEdit) => void
   onReset: () => void
   onLocate: () => void
+  onSetDestroyed: () => void
 }) {
   const formatted = formatRoadCode(edit)
   const [draft, setDraft] = useState(formatted)
@@ -180,7 +202,9 @@ function RoadCodeRow({
   }
 
   return (
-    <div className={`rounded-md border bg-black/10 px-2 py-1.5 ${invalid ? 'border-(--hostile)' : 'border-white/5'}`}>
+    <div
+      className={`rounded-md border px-2 py-1.5 ${invalid ? 'border-(--hostile)' : road.destroyed ? 'border-red-400/30 bg-red-950/20' : 'border-white/5 bg-black/10'}`}
+    >
       <div className="flex items-center gap-1">
         <input
           value={draft}
@@ -196,12 +220,26 @@ function RoadCodeRow({
         <button type="button" title="Locate road" onClick={onLocate} className="p-1 text-(--text-dim) hover:text-(--text-h)">
           <Crosshair className="h-3.5 w-3.5" />
         </button>
+        <button
+          type="button"
+          disabled={saving}
+          title={road.destroyed ? 'Restore road' : 'Mark road destroyed'}
+          aria-label={`${road.destroyed ? 'Restore' : 'Destroy'} ${road.osmName ?? `way ${road.id}`}`}
+          onClick={onSetDestroyed}
+          className={`p-1 ${road.destroyed ? 'text-red-300 hover:text-white' : 'text-(--text-dim) hover:text-red-300'}`}
+        >
+          {road.destroyed
+            ? <Undo2 className="h-3.5 w-3.5" />
+            : <ShieldOff className="h-3.5 w-3.5" />}
+        </button>
         <button type="button" title="Return to OSM prefill" disabled={saving} onClick={onReset} className="p-1 text-(--text-dim) hover:text-(--text-h)">
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
       </div>
       <div className={`text-[10px] ${invalid ? 'text-(--hostile)' : 'text-(--text-dim)'}`}>
-        {invalid ? 'Use NAME(2|4|6[//] X|Y|Z)' : `${road.osmName ?? `OSM way ${road.id}`} · ${road.roadClass.replace('_', ' ')}`}
+        {invalid
+          ? 'Use NAME(2|4|6[//] X|Y|Z)'
+          : `${road.destroyed ? 'DESTROYED · ' : ''}${road.osmName ?? `OSM way ${road.id}`} · ${road.roadClass.replace('_', ' ')}`}
       </div>
     </div>
   )

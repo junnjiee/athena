@@ -53,6 +53,9 @@ class Edge(BaseModel):
     # not use either field, and old stored graphs legitimately omit them.
     name: str | None = None
     lanes: str | None = None
+    # A destroyed axis stays in the snapshot for display, naming and revision
+    # comparison, but adjacency omits it so no route can traverse it.
+    destroyed: bool = False
     nodes: tuple[int, ...]
     points: tuple[tuple[float, float], ...]
     length_meters: float = Field(alias="lengthMeters")
@@ -92,6 +95,8 @@ class RoadGraph(BaseModel):
         """
         links: dict[int, list[tuple[int, Edge, bool]]] = {node.id: [] for node in self.nodes}
         for edge in self.edges:
+            if edge.destroyed:
+                continue
             links[edge.from_node].append((edge.to_node, edge, False))
             if edge.to_node != edge.from_node:
                 links[edge.to_node].append((edge.from_node, edge, True))
@@ -112,7 +117,12 @@ def nearest_node(graph: RoadGraph, lon: float, lat: float) -> Node | None:
     latitude -- exact enough at operational scale to pick the same node any
     other method would.
     """
-    if not graph.nodes:
+    # Destroyed edges retain their nodes for display and revision comparison.
+    # Snapping to a node with no live adjacency would strand the mark on a road
+    # the operator explicitly removed from movement.
+    links = graph.adjacency()
+    candidates = [node for node in graph.nodes if links.get(node.id)]
+    if not candidates:
         return None
 
     import math
@@ -126,4 +136,4 @@ def nearest_node(graph: RoadGraph, lon: float, lat: float) -> Node | None:
 
     # Ties break on node id so a mark equidistant from two junctions always
     # snaps to the same one.
-    return min(graph.nodes, key=lambda node: (offset(node), node.id))
+    return min(candidates, key=lambda node: (offset(node), node.id))

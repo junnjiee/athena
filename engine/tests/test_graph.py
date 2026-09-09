@@ -1,7 +1,7 @@
 import gzip
 import json
 
-from athena.graph import RoadClass, decode_graph
+from athena.graph import RoadClass, decode_graph, nearest_node
 
 from .conftest import edge, node
 
@@ -58,6 +58,19 @@ def test_edges_are_walkable_in_both_directions() -> None:
     assert [n for n, _, _ in links[2]] == [1]
     # the reverse traversal is flagged, so the caller can ask for the right slope
     assert links[2][0][2] is True
+
+
+def test_a_destroyed_axis_remains_in_the_graph_but_is_not_walkable() -> None:
+    raw = {
+        **RAW,
+        "edges": [{**RAW["edges"][0], "destroyed": True}],
+    }
+    graph = decode_graph(gzip.compress(json.dumps(raw).encode()))
+
+    assert len(graph.edges) == 1
+    assert graph.edges[0].destroyed is True
+    assert graph.adjacency() == {1: [], 2: []}
+    assert nearest_node(graph, 0.0, 0.0) is None
 
 
 def test_a_self_loop_is_not_listed_twice() -> None:

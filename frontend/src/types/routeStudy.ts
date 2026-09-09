@@ -41,6 +41,8 @@ export interface GraphEdge {
   /** OSM source metadata. Older stored graphs legitimately omit both. */
   name?: string | null
   lanes?: string | null
+  /** Terrain fact retained for comparison/display but excluded from routing. */
+  destroyed?: boolean
   nodes: number[]
   points: [number, number][]
   lengthMeters: number
