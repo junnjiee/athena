@@ -97,6 +97,8 @@ export function buildRoadGraph(ways: OverpassWay[]): RoadGraph {
         from: way.nodes[start],
         to: way.nodes[end],
         roadClass,
+        name: way.tags?.name?.trim() || null,
+        lanes: way.tags?.lanes?.trim() || null,
         nodes: way.nodes.slice(start, end + 1),
         points,
         lengthMeters,

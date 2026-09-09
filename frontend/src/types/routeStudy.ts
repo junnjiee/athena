@@ -23,6 +23,9 @@ export interface GraphEdge {
   from: number
   to: number
   roadClass: string
+  /** OSM source metadata. Older stored graphs legitimately omit both. */
+  name?: string | null
+  lanes?: string | null
   nodes: number[]
   points: [number, number][]
   lengthMeters: number

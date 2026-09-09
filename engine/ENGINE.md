@@ -51,7 +51,9 @@ contract reads the same from either side.
 - A **node** is a junction or the free end of a road. Interior shape points are
   not nodes; an edge keeps its shape between them.
 - An **edge** is one stretch of road between two nodes, carrying road class,
-  true length, and its geometry.
+  true length, its geometry, and the source OSM name and lane count when they
+  exist. Name and lanes are operator-facing prefill metadata; the engine does
+  not use either in routing.
 - Elevation lives on the **node**, so an edge's gradient is derived and signed.
 
 ### Modelling assumptions

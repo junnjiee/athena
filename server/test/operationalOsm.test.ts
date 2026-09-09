@@ -94,6 +94,15 @@ describe('parseOverpassWays', () => {
     ])
   })
 
+  test('keeps the name and lanes tags needed for road coding', () => {
+    const tagged = {
+      ...way,
+      tags: { highway: 'primary', name: 'Kranji Road', lanes: '4' },
+    }
+
+    expect(parseOverpassWays([tagged])[0].tags).toEqual(tagged.tags)
+  })
+
   test('drops nodes and relations', () => {
     const others = [
       { type: 'node', id: 1, lat: 0, lon: 0 },

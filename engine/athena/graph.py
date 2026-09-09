@@ -49,6 +49,10 @@ class Edge(BaseModel):
     from_node: int = Field(alias="from")
     to_node: int = Field(alias="to")
     road_class: RoadClass = Field(alias="roadClass")
+    # Source metadata for the operator-facing code. Routing deliberately does
+    # not use either field, and old stored graphs legitimately omit them.
+    name: str | None = None
+    lanes: str | None = None
     nodes: tuple[int, ...]
     points: tuple[tuple[float, float], ...]
     length_meters: float = Field(alias="lengthMeters")

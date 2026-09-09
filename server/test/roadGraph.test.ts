@@ -77,6 +77,21 @@ describe('buildRoadGraph', () => {
     expect(graph.nodes.map((n) => n.id)).toEqual([1, 3])
   })
 
+  test('keeps OSM name and lanes on every segment of the road identity', () => {
+    const named = eastWestRoad()
+    named.tags = { highway: 'primary', name: 'Mandai Road', lanes: '4' }
+    const spur = way(2, [2, 4], [[0, 0], [0, STEP]], { highway: 'service' })
+
+    const graph = buildRoadGraph([named, spur])
+    const segments = graph.edges.filter((edge) => edge.wayId === named.id)
+
+    expect(segments).toHaveLength(2)
+    expect(segments.every((edge) => edge.name === 'Mandai Road')).toBe(true)
+    expect(segments.every((edge) => edge.lanes === '4')).toBe(true)
+    expect(graph.edges.find((edge) => edge.wayId === spur.id)?.name).toBeNull()
+    expect(graph.edges.find((edge) => edge.wayId === spur.id)?.lanes).toBeNull()
+  })
+
   test('edge length sums its segments rather than measuring end to end', () => {
     const graph = buildRoadGraph([eastWestRoad()])
 
