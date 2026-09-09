@@ -273,6 +273,8 @@ export interface BlockCandidate {
   strength?: number
   /** Straight-line metres to the inlet — not road distance, not time. */
   distance_meters: number
+  /** Exact inlet point against which distance_meters was measured. */
+  nearest_point?: { lon: number; lat: number }
 }
 
 export interface InletBlock {
@@ -300,6 +302,8 @@ export interface BlockAllocation {
   unit_id: string
   unit_name: string
   distance_meters: number
+  /** Exact inlet point against which distance_meters was measured. */
+  nearest_point?: { lon: number; lat: number }
   block_point?: BlockPoint | null
 }
 

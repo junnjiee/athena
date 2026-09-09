@@ -408,6 +408,8 @@ def test_candidate_distance_projects_to_the_middle_of_a_long_road_segment() -> N
     ]
     assert candidates[0].distance_meters == pytest.approx(111.32, rel=0.001)
     assert candidates[1].distance_meters == pytest.approx(5_566, rel=0.001)
+    assert candidates[0].nearest_point.model_dump() == {"lon": 5.0, "lat": 0.0}
+    assert plan.allocation[0].nearest_point == candidates[0].nearest_point
 
 
 def test_candidate_distance_takes_the_short_segment_across_the_antimeridian() -> None:
@@ -440,6 +442,7 @@ def test_candidate_distance_takes_the_short_segment_across_the_antimeridian() ->
     assert [candidate.unit_id for candidate in candidates] == ["dateline", "greenwich"]
     assert candidates[0].distance_meters == pytest.approx(11_132, rel=0.001)
     assert candidates[1].distance_meters > 10_000_000
+    assert candidates[0].nearest_point.model_dump() == {"lon": 180.0, "lat": 0.0}
 
 
 def test_a_committed_unit_is_never_offered() -> None:

@@ -48,6 +48,13 @@ class BlockPoint(BaseModel):
     snap_distance_meters: float = Field(ge=0)
 
 
+class NearestInletPoint(BaseModel):
+    """Ground point used by a straight-line candidate distance."""
+
+    lon: float = Field(ge=-180, le=180)
+    lat: float = Field(ge=-85, le=85)
+
+
 class BlockCandidate(BaseModel):
     """One force that could be put on one inlet."""
 
@@ -58,6 +65,7 @@ class BlockCandidate(BaseModel):
     """Straight-line metres from the unit to the inlet, not road distance
     and not travel time."""
     distance_meters: float
+    nearest_point: NearestInletPoint
 
 
 class InletBlock(BaseModel):
@@ -81,6 +89,7 @@ class Allocation(BaseModel):
     unit_id: str
     unit_name: str
     distance_meters: float
+    nearest_point: NearestInletPoint
     block_point: BlockPoint | None = None
 
 
@@ -408,20 +417,33 @@ def _locate_block_point(
     return best
 
 
-def _distance_meters(unit: Unit, points: list[tuple[float, float]]) -> float:
-    """Straight-line metres to the nearest point on the inlet polyline.
+def _nearest_inlet_point(
+    unit: Unit, points: list[tuple[float, float]]
+) -> tuple[float, NearestInletPoint]:
+    """Distance and exact nearest point on the inlet polyline.
 
     Equirectangular at the unit's own latitude: exact enough to order candidates
     over an operational box, and never presented as anything finer.
     """
     if not points:
-        return math.inf
+        return math.inf, NearestInletPoint(lon=unit.lon, lat=unit.lat)
     if len(points) == 1:
-        return _segment_meters((unit.lon, unit.lat), points[0])
-    return min(
-        _project_onto_segment(unit.lon, unit.lat, start, end)[3]
-        for start, end in zip(points, points[1:])
+        return (
+            _segment_meters((unit.lon, unit.lat), points[0]),
+            NearestInletPoint(lon=points[0][0], lat=points[0][1]),
+        )
+    lon, lat, _, distance = min(
+        (
+            _project_onto_segment(unit.lon, unit.lat, start, end)
+            for start, end in zip(points, points[1:])
+        ),
+        key=lambda projection: projection[3],
     )
+    if lon > 180:
+        lon -= 360
+    elif lon < -180:
+        lon += 360
+    return distance, NearestInletPoint(lon=lon, lat=lat)
 
 
 def _remaining_capacity(orbat: Orbat, available: list[Unit], spent: set[str]) -> int:
@@ -795,16 +817,18 @@ def plan_blocks(
                     )
                 )
             else:
-                candidates = [
-                    BlockCandidate(
-                        unit_id=unit.unit_id,
-                        unit_name=unit.name,
-                        echelon=unit.echelon,
-                        weapons=_block_force_weapons(orbat, unit.unit_id),
-                        distance_meters=_distance_meters(unit, points),
+                for unit in available:
+                    distance, nearest_point = _nearest_inlet_point(unit, points)
+                    candidates.append(
+                        BlockCandidate(
+                            unit_id=unit.unit_id,
+                            unit_name=unit.name,
+                            echelon=unit.echelon,
+                            weapons=_block_force_weapons(orbat, unit.unit_id),
+                            distance_meters=distance,
+                            nearest_point=nearest_point,
+                        )
                     )
-                    for unit in available
-                ]
                 # Ties break on unit id, so the same ORBAT always proposes the same force.
                 candidates.sort(key=lambda c: (c.distance_meters, c.unit_id))
             blocks.append(
@@ -865,6 +889,7 @@ def plan_blocks(
                 unit_id=taken.unit_id,
                 unit_name=taken.unit_name,
                 distance_meters=taken.distance_meters,
+                nearest_point=taken.nearest_point,
                 block_point=located_points.get(block.inlet_id),
             )
         )

@@ -186,3 +186,16 @@ export function inletMidpoint(graph: RoadGraph, edgeIds: string[]): [number, num
   )
   return points[Math.floor(points.length / 2)] ?? null
 }
+
+/** Ground the dashed tasking link to the same point as its reported distance.
+ *  An operator-selected block position takes precedence; old saved plans that
+ *  predate nearest-point output retain the representative midpoint fallback. */
+export function inletTaskPoint(
+  graph: RoadGraph,
+  edgeIds: string[],
+  nearestPoint?: { lon: number; lat: number } | null,
+  blockPoint?: { lon: number; lat: number } | null,
+): [number, number] | null {
+  const point = blockPoint ?? nearestPoint
+  return point ? [point.lon, point.lat] : inletMidpoint(graph, edgeIds)
+}

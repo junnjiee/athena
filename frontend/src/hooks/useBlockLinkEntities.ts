@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { syncEntities } from '../lib/entitySync'
-import { blockInlets, inletMidpoint } from '../lib/blockForces'
+import { blockInlets, inletTaskPoint } from '../lib/blockForces'
 import type { BlockPlan, OrbatUnit, RoadGraph } from '../types/routeStudy'
 
 interface BlockLink {
@@ -41,9 +41,12 @@ export function useBlockLinkEntities({
       const unit = byId.get(entry.unit_id)
       const inletId = entry.inlet_id ?? `legacy:${entry.corridor_id}`
       const fixed = points.get(inletId) ?? entry.block_point ?? null
-      const target = fixed
-        ? [fixed.lon, fixed.lat] as [number, number]
-        : inletMidpoint(graph, inlets.get(inletId) ?? [])
+      const target = inletTaskPoint(
+        graph,
+        inlets.get(inletId) ?? [],
+        entry.nearest_point,
+        fixed,
+      )
       if (!unit || !target) return []
       return [
         {
