@@ -40,6 +40,11 @@ describe('placing marks', () => {
       level: 'K3',
       owning_formation: '1/903',
       intelligence_status: 'confirmed',
+      intelligence_evidence: [{
+        source_document_id: 'sitrep',
+        source_document_name: 'SITREP.txt',
+        excerpt: 'Reserve IVO TOMA 1b',
+      }],
       locality: 'TOMA 1b',
     })
     expect(store().draftMarks.reserves[0]).toMatchObject({
@@ -48,6 +53,7 @@ describe('placing marks', () => {
       level: 'K3',
       owning_formation: '1/903',
       intelligence_status: 'confirmed',
+      intelligence_evidence: [{ source_document_name: 'SITREP.txt' }],
       locality: 'TOMA 1b',
     })
   })

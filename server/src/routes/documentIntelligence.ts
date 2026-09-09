@@ -77,7 +77,18 @@ export function registerDocumentIntelligenceRoutes(
           }
           documents.push(document)
         }
-        return await run(documents)
+        const intelligence = await run(documents)
+        const names = new Map(documents.map((document) => [document.id, document.name]))
+        return {
+          ...intelligence,
+          proposals: intelligence.proposals.map((proposal) => ({
+            ...proposal,
+            claims: proposal.claims.map((claim) => ({
+              ...claim,
+              source_document_name: names.get(claim.source_document_id) ?? claim.source_document_id,
+            })),
+          })),
+        }
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {
           return reply.status(502).send({ error: error.message })

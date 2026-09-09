@@ -9,7 +9,17 @@ describe('POST /api/document-intelligence', () => {
     registerDocumentIntelligenceRoutes(app, {
       run: async (documents) => {
         forwarded = documents
-        return { proposals: [], rejected: [] }
+        return {
+          proposals: [{
+            name: 'Reserve 1', locality: 'Kranji', intelligence_status: 'assessed',
+            source_document_ids: ['sitrep'],
+            claims: [{
+              source_document_id: 'sitrep', name: 'Reserve 1', locality: 'Kranji',
+              task_organization: [], evidence: 'Reserve 1 IVO Kranji',
+            }],
+          }],
+          rejected: [],
+        }
       },
     })
 
@@ -26,6 +36,7 @@ describe('POST /api/document-intelligence', () => {
 
     expect(response.statusCode).toBe(200)
     expect(forwarded).toEqual([{ id: 'sitrep', name: 'sitrep.txt', text: 'Reserve 1 IVO Kranji' }])
+    expect(response.json().proposals[0].claims[0].source_document_name).toBe('sitrep.txt')
   })
 
   test('rejects malformed base64 and unsupported files', async () => {

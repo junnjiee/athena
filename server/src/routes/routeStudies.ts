@@ -63,12 +63,24 @@ const reserveTimingSchema = z.object({
   deployment_minutes: z.number().nonnegative().max(10_080).optional(),
 })
 
+const intelligenceEvidenceSchema = z.object({
+  source_document_id: z.string().trim().min(1).max(120),
+  source_document_name: z.string().trim().min(1).max(240),
+  excerpt: z.string().trim().min(1).max(500),
+})
+
+const intelligenceEvidenceListSchema = z.array(intelligenceEvidenceSchema).max(20).refine(
+  (evidence) => new Set(evidence.map((item) => item.source_document_id)).size === evidence.length,
+  'intelligence evidence source ids must be unique',
+)
+
 export const reserveMarkSchema = markSchema.extend({
   level: z.enum(['K', 'K1', 'K2', 'K3', 'K4']).optional(),
   owning_formation: z.string().trim().min(1).max(80).optional(),
   /** Confirmed is an operator assertion backed by the two-source rule. New and
    *  legacy reserve marks therefore enter as assessed unless explicitly set. */
   intelligence_status: z.enum(['assessed', 'confirmed']).default('assessed'),
+  intelligence_evidence: intelligenceEvidenceListSchema.optional(),
   task_organization: z.array(taskOrganizationElementSchema).max(100).optional(),
   timing: reserveTimingSchema.optional(),
 })

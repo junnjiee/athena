@@ -41,6 +41,11 @@ describe('needsResearch', () => {
         level: 'K4',
         owning_formation: '301 Div',
         intelligence_status: 'confirmed',
+        intelligence_evidence: [{
+          source_document_id: 'sitrep',
+          source_document_name: 'SITREP.txt',
+          excerpt: '302 Div Res 1 remains IVO TOMA 1b',
+        }],
         locality: 'TOMA 1b',
       }],
     }
@@ -98,6 +103,11 @@ describe('reserve deployment intelligence', () => {
       level: 'K4',
       owning_formation: '301 Div',
       intelligence_status: 'confirmed',
+      intelligence_evidence: [{
+        source_document_id: 'sitrep',
+        source_document_name: 'SITREP.txt',
+        excerpt: '302 Div Res 1 remains IVO TOMA 1b',
+      }],
       locality: 'TOMA 1b',
       task_organization: [{
         id: 'drc',
@@ -108,12 +118,26 @@ describe('reserve deployment intelligence', () => {
         platforms: [{ id: 'btr', platform: 'BTR-90', establishment_count: 10 }],
       }],
       timing: { decision_minutes: 5, readiness_minutes: 10.5, deployment_minutes: 15 },
-    })).toMatchObject({ level: 'K4', intelligence_status: 'confirmed' })
+    })).toMatchObject({
+      level: 'K4',
+      intelligence_status: 'confirmed',
+      intelligence_evidence: [{ source_document_name: 'SITREP.txt' }],
+    })
   })
 
   test('legacy and new unconfirmed marks default to assessed', () => {
     expect(reserveMarkSchema.parse({ id: 'r1', name: 'Reserve 1', lon: 0, lat: 0 }))
       .toMatchObject({ intelligence_status: 'assessed' })
+  })
+
+  test('rejects duplicate evidence identities on a saved reserve', () => {
+    const evidence = {
+      source_document_id: 'sitrep', source_document_name: 'SITREP.txt', excerpt: 'Reserve seen',
+    }
+    expect(reserveMarkSchema.safeParse({
+      id: 'r1', name: 'Reserve 1', lon: 0, lat: 0,
+      intelligence_evidence: [evidence, { ...evidence, excerpt: 'Repeated' }],
+    }).success).toBe(false)
   })
 
   test('rejects invented levels and intelligence states', () => {

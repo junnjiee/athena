@@ -1507,6 +1507,11 @@ function MarkGroup({
                 <div className="col-span-2">
                   <ReserveCompositionEditor mark={mark} onUpdate={(patch) => onUpdate(kind, mark.id, patch)} />
                 </div>
+                {(mark.intelligence_evidence?.length ?? 0) > 0 && (
+                  <div className="col-span-2">
+                    <ReserveEvidence mark={mark} />
+                  </div>
+                )}
               </div>
             )}
             {kind === 'objective' && (
@@ -1525,6 +1530,27 @@ function MarkGroup({
         ))}
       </div>
     </div>
+  )
+}
+
+function ReserveEvidence({ mark }: { mark: StudyMark }) {
+  const evidence = mark.intelligence_evidence ?? []
+  return (
+    <details className="rounded border border-(--border) bg-black/10 px-1.5 py-1">
+      <summary className="cursor-pointer text-[9px] tracking-wide text-(--text-dim)">
+        EVIDENCE · {evidence.length} SOURCE{evidence.length === 1 ? '' : 'S'}
+      </summary>
+      <div className="mt-1 space-y-1 border-l border-(--border) pl-1.5 text-[9px] text-(--text-dim)">
+        {evidence.map((item, index) => (
+          <div key={`${item.source_document_id}:${index}`}>
+            <div className="truncate text-(--text)" title={item.source_document_name}>
+              {item.source_document_name}
+            </div>
+            <div>“{item.excerpt}”</div>
+          </div>
+        ))}
+      </div>
+    </details>
   )
 }
 
