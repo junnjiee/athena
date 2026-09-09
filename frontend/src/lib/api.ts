@@ -3,6 +3,7 @@ import type { BattlegroundMeta, BBoxDeg, GridData, OsmFeatures } from '../types/
 import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities'
 import type { PlanSummary, SavedPlan } from '../types/plan'
 import type { Forecast } from '../types/forecast'
+import type { DocumentIntelligence } from '../types/documentIntelligence'
 import type {
   BlockPlan,
   CorridorEdit,
@@ -28,6 +29,39 @@ async function readError(res: Response): Promise<string> {
   } catch {
     return `HTTP ${res.status}`
   }
+}
+
+function fileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`))
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function extractDocumentIntelligence(files: File[]): Promise<DocumentIntelligence> {
+  const maxFileBytes = 10 * 1024 * 1024
+  const maxTotalBytes = 40 * 1024 * 1024
+  if (files.length === 0 || files.length > 20) throw new Error('Choose between 1 and 20 documents')
+  const oversized = files.find((file) => file.size > maxFileBytes)
+  if (oversized) throw new Error(`${oversized.name} is larger than 10 MB`)
+  if (files.reduce((sum, file) => sum + file.size, 0) > maxTotalBytes) {
+    throw new Error('Documents exceed the 40 MB combined limit')
+  }
+  const documents = await Promise.all(files.map(async (file) => ({
+    id: crypto.randomUUID(),
+    name: file.name,
+    mediaType: file.type || 'application/octet-stream',
+    dataBase64: await fileBase64(file),
+  })))
+  const res = await fetch('/api/document-intelligence', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documents }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as DocumentIntelligence
 }
 
 export async function createBattleground(bbox: BBoxDeg, name: string): Promise<string> {
@@ -186,6 +220,19 @@ export async function lookupNearestPlace(
     radiusMeters: String(Math.round(radiusMeters)),
   })
   const res = await fetch(`/api/places/nearest?${query}`)
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { place: PlaceLookupResult | null }
+  return body.place
+}
+
+export async function resolveNamedPlace(
+  name: string,
+  bbox: BBoxDeg,
+): Promise<PlaceLookupResult | null> {
+  const query = new URLSearchParams({ name, ...Object.fromEntries(
+    Object.entries(bbox).map(([key, value]) => [key, String(value)]),
+  ) })
+  const res = await fetch(`/api/places/resolve?${query}`)
   if (!res.ok) throw new Error(await readError(res))
   const body = (await res.json()) as { place: PlaceLookupResult | null }
   return body.place

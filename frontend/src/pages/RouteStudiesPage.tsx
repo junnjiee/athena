@@ -25,6 +25,7 @@ import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
 import { OrbatPanel } from '../components/panels/OrbatPanel'
 import { RoadEditorPanel } from '../components/panels/RoadEditorPanel'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
+import { DocumentIntelligencePanel } from '../components/panels/DocumentIntelligencePanel'
 import { useMapControls } from '../hooks/useMapControls'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import {
@@ -40,12 +41,14 @@ import {
   lookupNearestPlace,
   updateOperationalRoadSettings,
   updateOperationalRoadState,
+  type PlaceLookupResult,
 } from '../lib/api'
 import { courseEmphasis } from '../lib/courses'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
 import type { RoadIdentity } from '../lib/roads'
 import { nextRoadName } from '../lib/roadNames'
+import { proposalMarkPatch } from '../lib/documentIntelligence'
 import {
   MODIFIER_LABEL,
   formatEffectiveCount,
@@ -58,6 +61,7 @@ import { useRouteStudy } from '../state/routeStudy'
 import type { LonLat } from '../types/entities'
 import type { SelectionResult } from '../types/selection'
 import type { ProgressEvent, ReasoningStep } from '../types/terrain'
+import type { ReserveProposal } from '../types/documentIntelligence'
 import type {
   Corridor,
   CompositionModifier,
@@ -1058,6 +1062,12 @@ export function RouteStudiesPage() {
             onRemoveMark={removeMark}
             onRun={() => void submitStudy()}
             onLocate={(mark) => flyToPositions([{ longitude: mark.lon, latitude: mark.lat }])}
+            onAcceptDocumentReserve={(proposal, place) => {
+              const markId = addMark('reserve', place.longitude, place.latitude)
+              useRouteStudy.getState().renameMark('reserve', markId, proposal.name)
+              useRouteStudy.getState().updateMark('reserve', markId, proposalMarkPatch(proposal))
+              flyToPositions([{ longitude: place.longitude, latitude: place.latitude }])
+            }}
           />
         )}
 
@@ -1300,6 +1310,7 @@ function MarksPanel({
   onRemoveMark,
   onRun,
   onLocate,
+  onAcceptDocumentReserve,
 }: {
   area: OperationalAreaMeta
   studyName: string
@@ -1316,6 +1327,7 @@ function MarksPanel({
   onRemoveMark: (kind: StudyMarkKind, id: string) => void
   onRun: () => void
   onLocate: (mark: StudyMark) => void
+  onAcceptDocumentReserve: (proposal: ReserveProposal, place: PlaceLookupResult) => void
 }) {
   const ready = marks.reserves.length > 0 && marks.objectives.length > 0
   return (
@@ -1331,6 +1343,7 @@ function MarksPanel({
         aria-label="Terrain study name"
         className="mb-2 w-full border-b border-(--border) bg-transparent pb-1 text-sm text-(--text-h) focus:border-(--accent) focus:outline-none"
       />
+      <DocumentIntelligencePanel bbox={area.bbox} onAccept={onAcceptDocumentReserve} />
       <MarkGroup
         label="ENEMY RESERVES"
         kind="reserve"

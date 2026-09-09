@@ -99,3 +99,46 @@ export async function lookupPlace(
   )
   return nearestPlace(elements, longitude, latitude)
 }
+
+function overpassRegexLiteral(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function normalizedPlaceName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+export function buildPlaceNameQuery(
+  name: string,
+  bbox: { west: number; south: number; east: number; north: number },
+): string {
+  const wanted = overpassRegexLiteral(normalizedPlaceName(name))
+  return `[out:json][timeout:${Math.floor(config.placeLookupTimeoutMs / 1000)}];
+(
+  nwr(${bbox.south},${bbox.west},${bbox.north},${bbox.east})["place"~"^(${PLACE_PATTERN})$"]["name"~"^${wanted}$",i];
+);
+out tags center;`
+}
+
+export async function resolvePlaceName(
+  name: string,
+  bbox: { west: number; south: number; east: number; north: number },
+  runQuery: typeof runOverpassQuery = runOverpassQuery,
+): Promise<PlaceLookupResult | null> {
+  const elements = await runQuery(buildPlaceNameQuery(name, bbox), config.placeLookupTimeoutMs)
+  const centerLongitude = (bbox.west + bbox.east) / 2
+  const centerLatitude = (bbox.south + bbox.north) / 2
+  const wanted = normalizedPlaceName(name)
+  const exact = elements.filter((element) => {
+    const point = pointOf(element)
+    return normalizedPlaceName(element.tags?.name ?? '').localeCompare(
+      wanted, undefined, { sensitivity: 'accent' },
+    ) === 0 && point != null &&
+      point.longitude >= bbox.west && point.longitude <= bbox.east &&
+      point.latitude >= bbox.south && point.latitude <= bbox.north
+  })
+  return nearestPlace(exact, centerLongitude, centerLatitude)
+}

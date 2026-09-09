@@ -624,6 +624,15 @@ source document once, and applies the two-source rule: two independent documents
 confirm a matching position; one document leaves it assessed. The response is a
 proposal for operator review, not a mutation of study marks.
 
+The terrain service converts PDF, DOCX, Markdown, and text uploads in memory;
+raw source bytes are neither stored nor forwarded. It enforces 10 MB and
+100,000-character per-document limits, a 40 MB combined byte limit, and a
+500,000-character combined text limit. The engine independently enforces the
+same aggregate text ceiling. The S2 review surface discloses that extracted
+plain text leaves the machine for the configured model provider, shows every
+cited excerpt, and requires an exact named-place match inside the AO before an
+operator can accept a proposal as a mark.
+
 ## Platform catalogue and weapon matching
 
 The aggressor catalogue is fixed reference data from doctrine: 13 named
