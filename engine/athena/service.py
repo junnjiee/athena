@@ -11,7 +11,7 @@ import os
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from athena.blocking import BlockPlan, plan_blocks
+from athena.blocking import BlockPlan, plan_blocks
 from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
@@ -20,11 +20,19 @@ from athena.eca import (
     anthropic_generator,
     generate_courses,
 )
+from athena.eca import CourseOfAction
 from athena.intent import EnemyIntent
+from athena.preference import (
+    Features,
+    Verdict,
+    Weights,
+    extract_features,
+    update_weights,
+)
 from athena.graph import RoadGraph
 from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
-from athena.orbat import Orbat
-from athena.study import CorridorOut, Mark, StudyResult, run_study
+from athena.orbat import Orbat
+from athena.study import CorridorOut, Mark, StudyResult, run_study
 from athena.units import Echelon
 
 app = FastAPI(title="Athena planning engine", version="0.1.0")
@@ -134,6 +142,8 @@ class CoursesRequest(BaseModel):
     reserves: list[Mark]
     objectives: list[Mark]
     intent: EnemyIntent = EnemyIntent()
+    weights: Weights | None = None
+    """Learned ranking weights. Omitted means purely doctrinal ordering."""
 
 
 def get_course_generator() -> CourseGenerator:
@@ -153,8 +163,38 @@ async def enemy_courses(
             request.objectives,
             request.intent,
             generator,
+            weights=request.weights,
         )
     except RefusedError as error:
         # Never an empty list of courses: "the enemy has no options" and "we did
         # not get an answer" are opposite findings.
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+class FeedbackRequest(BaseModel):
+    """One verdict on one course, and the weights it should move.
+
+    The engine holds no state, so the caller supplies the current weights and
+    stores what comes back. Keeping the rule here rather than in the terrain
+    service means ranking behaviour lives in one place and is documented once.
+    """
+
+    weights: Weights
+    course: CourseOfAction
+    corridors: list[CorridorOut]
+    verdict: Verdict
+
+
+class FeedbackResponse(BaseModel):
+    weights: Weights
+    features: Features
+    """What the judged course looked like — why the weights moved as they did."""
+
+
+@app.post("/v1/preference/feedback", response_model=FeedbackResponse)
+async def preference_feedback(request: FeedbackRequest) -> FeedbackResponse:
+    features = extract_features(request.course, request.corridors)
+    return FeedbackResponse(
+        weights=update_weights(request.weights, features, request.verdict),
+        features=features,
+    )

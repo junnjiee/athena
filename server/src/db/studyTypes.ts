@@ -146,3 +146,20 @@ export interface RankedCourses {
   most_dangerous: CourseOfAction | null
   rejected: RejectedReference[]
 }
+
+/** How much this operator has shown they care about each axis of a course.
+ *
+ *  Learned from what they accept and reject, kept visible and resettable: a
+ *  ranking that drifts for reasons nobody can see is worse than no ranking. */
+export interface RankingWeights {
+  speed: number
+  blockable: number
+  complexity: number
+  likelihood: number
+  danger: number
+}
+
+/** What a judged course looked like — the record of why weights moved. */
+export interface CourseFeatures extends RankingWeights {}
+
+export type Verdict = 'accepted' | 'rejected'

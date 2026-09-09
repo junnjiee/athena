@@ -4,12 +4,15 @@ import type { PlacedUnit, PlacedObjective, PlacedRoute } from './planTypes'
 import type {
   BlockPlan,
   CorridorEdit,
+  CourseFeatures,
   Echelon,
   EnemyIntent,
   Orbat,
   RankedCourses,
+  RankingWeights,
   StudyMarks,
   StudyResult,
+  Verdict,
 } from './studyTypes'
 
 const bytea = customType<{ data: Buffer }>({
@@ -105,4 +108,27 @@ export const routeStudies = pgTable('route_studies', {
   courses: jsonb('courses').$type<RankedCourses | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Learned ranking weights. One row: this service has no user model, so
+ *  preference is per deployment rather than per operator. */
+export const rankingWeights = pgTable('ranking_weights', {
+  id: text('id').primaryKey(),
+  weights: jsonb('weights').$type<RankingWeights>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Every verdict that moved the weights, kept so the drift can be audited and
+ *  explained rather than merely undone. */
+export const courseFeedback = pgTable('course_feedback', {
+  id: text('id').primaryKey(),
+  studyId: text('study_id')
+    .notNull()
+    .references(() => routeStudies.id),
+  courseName: text('course_name').notNull(),
+  verdict: text('verdict').$type<Verdict>().notNull(),
+  /** The course's feature vector at the time — why this verdict moved the
+   *  weights as it did. Courses have no identity across runs; features do. */
+  features: jsonb('features').$type<CourseFeatures>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

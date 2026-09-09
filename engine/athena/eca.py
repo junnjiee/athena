@@ -225,6 +225,7 @@ def generate_courses(
     objectives: list[Mark],
     intent: EnemyIntent,
     generator: CourseGenerator,
+    weights: "Weights | None" = None,
 ) -> RankedCourses:
     """Ask the model, check what it said, then rank it."""
     if not corridors:
@@ -235,10 +236,19 @@ def generate_courses(
     prompt = build_prompt(corridors, reserves, objectives, intent)
     draft = generator(system=ECA_SYSTEM_PROMPT, prompt=prompt)
     accepted, rejected = ground_courses(draft, corridors, reserves)
+    # The doctrinal pair is chosen before any learned weighting touches the
+    # list. Most likely and most dangerous are not preferences to be learned
+    # away.
     most_likely, most_dangerous = rank_courses(accepted)
 
+    ordered = sorted(accepted, key=lambda c: (-c.likelihood, c.name))
+    if weights is not None:
+        from athena.preference import order_by_relevance
+
+        ordered = order_by_relevance(ordered, corridors, weights)
+
     return RankedCourses(
-        courses=sorted(accepted, key=lambda c: (-c.likelihood, c.name)),
+        courses=ordered,
         most_likely=most_likely,
         most_dangerous=most_dangerous,
         rejected=rejected,

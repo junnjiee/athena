@@ -97,3 +97,21 @@ dangerous one are different questions, and a course can be both.
 Write the narrative as you would for a commander who has to act on it: what the \
 enemy does, in what order, and what would tell us early that this is the one \
 they chose."""
+
+
+# --- Learned ranking ---------------------------------------------------------
+
+PREFERENCE_NEUTRAL = 0.5
+"""Where every weight starts, and what reset returns it to.
+
+Neutral means the ranking is purely doctrinal: nothing has been learned, so
+nothing reorders.
+"""
+
+PREFERENCE_LEARNING_RATE = 0.1
+"""How far one verdict moves a weight.
+
+Low on purpose. A commander should not find the ranking transformed because
+they dismissed one course on a Tuesday, and a slow drift stays legible to
+whoever reads the weights later.
+"""

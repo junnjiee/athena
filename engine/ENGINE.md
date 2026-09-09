@@ -12,8 +12,8 @@ The engine does not fight battles. It complements battle procedure: on the S2
 side it finds the routes an enemy reserve can reinforce along, and on the S3
 side it finds the block forces a unit can deploy against them. This document
 covers what is built: the route substrate, the enemy courses-of-action
-assessment, and the block-force pass. Only the courses-of-action pass uses a
-model; everything else is deterministic.
+assessment, the learned ranking over it, and the block-force pass. Only the
+courses-of-action pass uses a model; everything else is deterministic.
 
 Three kinds of value appear below:
 
@@ -31,9 +31,14 @@ assumption, not a measurement.
 - A study names an area; the engine **pulls** its graph, computes, and discards
   it. Pulling rather than being handed the graph keeps request bodies small —
   a real area is tens of thousands of edges.
-- The engine is **deterministic**: no RNG, ties broken on stable ids. The same
-  request always answers the same way. Corridor identity depends on this, and
-  so will the operator-feedback loop that learns from it.
+- The engine is **deterministic everywhere except the courses-of-action pass**:
+  no RNG, ties broken on stable ids, the same request answering the same way.
+  Corridor identity depends on this, and so does the operator-feedback loop that
+  learns from it.
+- The engine **learns nothing on its own**. Ranking weights are supplied with a
+  request and returned changed; the terrain service stores them. A second
+  deployment reading the same ground with neutral weights gets the doctrinal
+  answer.
 
 ## The road graph
 
@@ -241,6 +246,66 @@ today* in `athena/params.py`, along with the system prompt.
   deliberately not enabled: a decline should surface rather than be silently
   re-run on another model.
 
+## Learned ranking
+
+Two commanders reading the same study reasonably attend to different things:
+one to speed, another to what can actually be blocked. The engine learns which,
+from what the operator accepts and rejects.
+
+### What is learned, and what is not
+
+**The doctrinal pair is not learnable.** Most likely and most dangerous are
+selected from the model's scores *before* any weighting is applied, and nothing
+here can move them. Learning decides only the order of the remaining list.
+*Hardcoded rule.*
+
+### Learning is over features, not courses
+
+A course of action has no identity across runs — the model rewrites it every
+time. But "fast", "blockable" and "multi-pronged" are properties of the ground
+and the scheme, and they mean the same thing next week. Feedback therefore
+attaches to a **feature vector**, which is what makes it attachable at all.
+
+Five features, each 0-1, each named for something a commander would say aloud:
+
+| Feature | Meaning |
+| --- | --- |
+| `speed` | How fast the main effort's corridor is, against the fastest in the study |
+| `blockable` | Share of the corridors used that have a choke point |
+| `complexity` | How many efforts the scheme has; a single thrust is 0 |
+| `likelihood` | The model's own score |
+| `danger` | The model's own score |
+
+`speed` is relative to the study rather than absolute, so "fast" means the same
+thing whether the ground spans five minutes or five hours. `complexity`
+saturates at three efforts — beyond that the difference stops being one a
+commander would act on.
+
+### The update rule
+
+Weights start neutral at `0.5`, and neutral means the ranking is purely
+doctrinal. On a verdict, each weight moves by
+`rate x (feature - 0.5)`, positive on accept and negative on reject, clamped to
+`[0, 1]`.
+
+In words: **accepting a course that was strong on a feature raises that
+feature's weight; rejecting it lowers it.** A course that was unremarkable on a
+feature barely moves that weight, which is what stops one verdict from dragging
+the whole vector. `PREFERENCE_LEARNING_RATE` is `0.1` — deliberately low, so a
+commander does not find the ranking transformed because they dismissed one
+course on a Tuesday. Both values are *configurable today*.
+
+Accepting and then rejecting the same course returns the weights exactly where
+they started.
+
+### Visible and resettable
+
+The rule is arithmetic an operator can follow, the weights are readable, and
+they can be reset to neutral. A ranking that drifts for reasons nobody can see
+is worse than no ranking at all — which is also why the terrain service keeps
+every verdict and the feature vector that produced it, rather than only the
+current weights.
+
 ## Order of battle
 
 The force a commander has to block with. This is the force *available for this
@@ -343,8 +408,11 @@ POST /v1/route-study     { area_id | graph, reserves[], objectives[], ...params 
 POST /v1/block-forces    { area_id | graph, corridors[], orbat, ceiling }
                          -> { corridors[], allocation[], unblockable[], uncovered[] }
 POST /v1/enemy-courses-of-action
-                         { corridors[], reserves[], objectives[], intent }
+                         { corridors[], reserves[], objectives[], intent, weights? }
                          -> { courses[], most_likely, most_dangerous, rejected[] }
+POST /v1/preference/feedback
+                         { weights, course, corridors[], verdict }
+                         -> { weights, features }
 ```
 
 The courses endpoint takes no graph: it reasons about which approaches an enemy
@@ -379,6 +447,10 @@ answer.
 - **The model's scores are judgement, not measurement.** Likelihood and danger
   are its opinion on a scale, not probabilities derived from anything. They
   order courses; they do not quantify risk.
+- **Learned weights are one deployment's taste, not doctrine.** They reflect
+  whoever has been giving verdicts on this instance. Reset them when the
+  operator changes, or read them and decide whether they still describe the
+  commander being served.
 - **A rejected reference means the assessment was incomplete.** Courses that
   named ground which does not exist were dropped, so what remains is a subset of
   what the model proposed — read `rejected` before treating the list as the

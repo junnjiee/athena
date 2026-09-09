@@ -1,12 +1,16 @@
 import { config } from '../config'
 import type {
   BlockPlan,
+  CourseFeatures,
+  CourseOfAction,
   Echelon,
   EnemyIntent,
   Orbat,
   RankedCourses,
+  RankingWeights,
   StudyMarks,
   StudyResult,
+  Verdict,
 } from '../db/studyTypes'
 
 /**
@@ -97,6 +101,9 @@ export interface CoursesRequest {
   reserves: StudyMarks['reserves']
   objectives: StudyMarks['objectives']
   intent: EnemyIntent
+  /** Learned ranking weights. Reorders the list only — the doctrinal pair is
+   *  selected before these are applied and cannot be learned away. */
+  weights: RankingWeights
 }
 
 /** Asks the engine to assess how the enemy would use these corridors.
@@ -124,4 +131,43 @@ export async function runEnemyCourses(request: CoursesRequest): Promise<RankedCo
   }
 
   return (await response.json()) as RankedCourses
+}
+
+export const NEUTRAL_WEIGHTS: RankingWeights = {
+  speed: 0.5,
+  blockable: 0.5,
+  complexity: 0.5,
+  likelihood: 0.5,
+  danger: 0.5,
+}
+
+/** Sends one verdict to the engine and gets back the moved weights.
+ *
+ *  The rule lives in the engine so ranking behaviour is in one place and
+ *  documented once; this service only stores the result. */
+export async function runPreferenceFeedback(request: {
+  weights: RankingWeights
+  course: CourseOfAction
+  corridors: StudyResult['corridors']
+  verdict: Verdict
+}): Promise<{ weights: RankingWeights; features: CourseFeatures }> {
+  if (!config.engineUrl) {
+    throw new EngineUnavailableError('ENGINE_URL is not set')
+  }
+
+  const response = await fetch(`${config.engineUrl}/v1/preference/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(config.engineTimeoutMs),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new EngineUnavailableError(
+      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
+    )
+  }
+
+  return (await response.json()) as { weights: RankingWeights; features: CourseFeatures }
 }
