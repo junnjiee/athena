@@ -35,3 +35,6 @@ payload.txt
 
 # Claude Code local tooling
 .claude/launch.json
+
+# Restricted training material - never commit
+*.pdf

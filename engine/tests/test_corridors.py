@@ -1,92 +1,116 @@
-"""Grouping routes into the approaches a commander would name."""
+"""Grouping axes into the corridors a commander would name.
 
-from athena.corridors import cluster_into_corridors, route_similarity
+A corridor is a bundle of axes: the set that together forms one approach. Axes
+belong together when they run close, point the same way, and can be crossed
+between along their length. Shared tarmac is emphatically not the test.
+"""
+
+from athena.corridors import cluster_into_corridors, lateral_detour_ratio
 from athena.graph import RoadGraph
 from athena.routing import Route, find_diverse_routes
 
-from .conftest import edge, node
 
-
-def route_of(*edges) -> Route:
+def route_over(graph: RoadGraph, edge_ids: list[str]) -> Route:
+    """A route down named edges of a fixture graph, in the order given."""
+    by_id = {e.id: e for e in graph.edges}
+    edges = tuple(by_id[edge_id] for edge_id in edge_ids)
+    nodes = (edges[0].from_node,) + tuple(e.to_node for e in edges)
     return Route(
-        edges=tuple(edges),
-        nodes=(),
+        edges=edges,
+        nodes=nodes,
         seconds=sum(e.length_meters for e in edges) / 10,
         length_meters=sum(e.length_meters for e in edges),
     )
 
 
-A = edge("1:0", 1, 2, 1000)
-B = edge("1:1", 2, 3, 1000)
-C = edge("2:0", 1, 4, 1000)
-D = edge("2:1", 4, 3, 1000)
+NORTH = ["10:0", "10:1", "10:2"]
+SOUTH = ["20:0", "20:1", "20:2"]
 
 
-# Similarity
+# Grouping
 
 
-def test_identical_routes_are_wholly_similar() -> None:
-    assert route_similarity(route_of(A, B), route_of(A, B)) == 1.0
+def test_parallel_axes_sharing_no_edges_are_one_corridor(parallel_axes) -> None:
+    north = route_over(parallel_axes, NORTH)
+    south = route_over(parallel_axes, SOUTH)
 
-
-def test_disjoint_routes_share_nothing() -> None:
-    assert route_similarity(route_of(A, B), route_of(C, D)) == 0.0
-
-
-def test_similarity_does_not_depend_on_argument_order() -> None:
-    one, two = route_of(A, B), route_of(A, C, D)
-
-    assert route_similarity(one, two) == route_similarity(two, one)
-
-
-# Clustering
-
-
-def test_routes_down_the_same_ground_form_one_corridor() -> None:
-    corridors = cluster_into_corridors([route_of(A, B), route_of(A, D)], similarity=0.4)
+    corridors = cluster_into_corridors([north, south], parallel_axes)
 
     assert len(corridors) == 1
-    assert len(corridors[0].routes) == 2
 
 
-def test_separate_approaches_stay_separate() -> None:
-    corridors = cluster_into_corridors([route_of(A, B), route_of(C, D)], similarity=0.4)
+def test_axes_that_only_meet_far_away_are_separate_corridors(severed_axes) -> None:
+    north = route_over(severed_axes, ["10:0", "10:1", "10:2", "10:3"])
+    south = route_over(severed_axes, ["20:0", "20:1", "20:2", "20:3"])
+
+    corridors = cluster_into_corridors([north, south], severed_axes)
 
     assert len(corridors) == 2
 
 
-def test_no_routes_makes_no_corridors() -> None:
-    assert cluster_into_corridors([]) == []
+def test_axes_far_apart_are_separate_however_well_connected(corridor_pair) -> None:
+    routes = find_diverse_routes(corridor_pair, 1, 9, k=8, max_stretch=10.0)
+
+    corridors = cluster_into_corridors(routes, corridor_pair)
+
+    # The two arms are 200 km apart -- connectivity cannot rescue that.
+    assert len(corridors) == 2
 
 
-def test_corridors_come_back_fastest_first() -> None:
-    slow = route_of(A, B, C, D)
-    fast = route_of(A)
-    corridors = cluster_into_corridors([slow, fast], similarity=0.9)
+def test_no_routes_makes_no_corridors(parallel_axes) -> None:
+    assert cluster_into_corridors([], parallel_axes) == []
+
+
+def test_corridors_come_back_fastest_first(severed_axes) -> None:
+    north = route_over(severed_axes, ["10:0", "10:1", "10:2", "10:3"])
+    slow_south = route_over(severed_axes, ["20:0", "20:1", "20:2", "20:3"])
+    object.__setattr__(slow_south, "seconds", north.seconds * 2)
+
+    corridors = cluster_into_corridors([slow_south, north], severed_axes)
 
     assert corridors[0].fastest_seconds < corridors[1].fastest_seconds
+
+
+# The obstacle test
+
+
+def test_a_rung_between_two_roads_is_a_short_way_round(parallel_axes) -> None:
+    north = route_over(parallel_axes, NORTH)
+    south = route_over(parallel_axes, SOUTH)
+
+    assert lateral_detour_ratio(north, south, parallel_axes) < 2.0
+
+
+def test_water_with_no_road_across_it_is_a_long_way_round(severed_axes) -> None:
+    north = route_over(severed_axes, ["10:0", "10:1", "10:2", "10:3"])
+    south = route_over(severed_axes, ["20:0", "20:1", "20:2", "20:3"])
+
+    assert lateral_detour_ratio(north, south, severed_axes) > 10.0
 
 
 # Identity
 
 
-def test_a_corridor_id_is_derived_from_the_ground_it_covers() -> None:
-    first = cluster_into_corridors([route_of(A, B)])
-    second = cluster_into_corridors([route_of(A, B)])
+def test_a_corridor_id_is_derived_from_the_ground_it_covers(parallel_axes) -> None:
+    first = cluster_into_corridors([route_over(parallel_axes, NORTH)], parallel_axes)
+    second = cluster_into_corridors([route_over(parallel_axes, NORTH)], parallel_axes)
 
     assert first[0].id == second[0].id
 
 
-def test_different_ground_gets_a_different_id() -> None:
-    one = cluster_into_corridors([route_of(A, B)])
-    two = cluster_into_corridors([route_of(C, D)])
+def test_different_ground_gets_a_different_id(parallel_axes) -> None:
+    one = cluster_into_corridors([route_over(parallel_axes, NORTH)], parallel_axes)
+    two = cluster_into_corridors([route_over(parallel_axes, SOUTH)], parallel_axes)
 
     assert one[0].id != two[0].id
 
 
-def test_identity_survives_the_routes_arriving_in_another_order() -> None:
-    forward = cluster_into_corridors([route_of(A, B), route_of(A, D)], similarity=0.4)
-    backward = cluster_into_corridors([route_of(A, D), route_of(A, B)], similarity=0.4)
+def test_identity_survives_the_routes_arriving_in_another_order(parallel_axes) -> None:
+    north = route_over(parallel_axes, NORTH)
+    south = route_over(parallel_axes, SOUTH)
+
+    forward = cluster_into_corridors([north, south], parallel_axes)
+    backward = cluster_into_corridors([south, north], parallel_axes)
 
     assert forward[0].id == backward[0].id
 
@@ -94,32 +118,32 @@ def test_identity_survives_the_routes_arriving_in_another_order() -> None:
 # Choke points
 
 
-def test_the_choke_point_is_the_ground_every_route_must_cross() -> None:
-    corridors = cluster_into_corridors([route_of(A, B), route_of(A, D)], similarity=0.4)
+def test_the_choke_point_is_the_ground_every_axis_must_cross(parallel_axes) -> None:
+    straight = route_over(parallel_axes, ["10:0", "10:1", "10:2"])
+    crossing = route_over(parallel_axes, ["10:0", "30:0", "20:1", "20:2"])
 
-    # both routes run down A; only A is unavoidable
-    assert corridors[0].choke_edge_ids == ("1:0",)
+    corridors = cluster_into_corridors([straight, crossing], parallel_axes)
 
-
-def test_a_corridor_of_one_route_is_wholly_its_own_choke_point() -> None:
-    corridors = cluster_into_corridors([route_of(A, B)])
-
-    assert set(corridors[0].choke_edge_ids) == {"1:0", "1:1"}
+    assert len(corridors) == 1
+    # both leave down 10:0; only that is unavoidable
+    assert corridors[0].choke_edge_ids == ("10:0",)
 
 
-def test_routes_sharing_nothing_but_a_corridor_have_no_choke_point() -> None:
-    # forced into one corridor by a permissive threshold despite no shared edge
-    corridors = cluster_into_corridors([route_of(A, B), route_of(C, D)], similarity=0.0)
+def test_a_corridor_of_one_axis_is_wholly_its_own_choke_point(parallel_axes) -> None:
+    corridors = cluster_into_corridors([route_over(parallel_axes, NORTH)], parallel_axes)
+
+    assert set(corridors[0].choke_edge_ids) == set(NORTH)
+
+
+def test_axes_in_one_corridor_sharing_no_ground_have_no_choke_point(parallel_axes) -> None:
+    """The case that motivates coverage over concentration.
+
+    Two roads through the same gap are one corridor, but there is nowhere a
+    single block sits astride both. Reported empty rather than invented.
+    """
+    north = route_over(parallel_axes, NORTH)
+    south = route_over(parallel_axes, SOUTH)
+
+    corridors = cluster_into_corridors([north, south], parallel_axes)
 
     assert corridors[0].choke_edge_ids == ()
-
-
-# Over a real search
-
-
-def test_clusters_the_two_arms_of_a_real_graph(corridor_pair: RoadGraph) -> None:
-    routes = find_diverse_routes(corridor_pair, 1, 9, k=8, max_stretch=10.0)
-    corridors = cluster_into_corridors(routes)
-
-    assert len(corridors) == 2
-    assert all(len(c.routes) == 1 for c in corridors)
