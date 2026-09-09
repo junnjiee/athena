@@ -327,6 +327,8 @@ Two halves, because a staff officer works in both:
   named objectives means every objective is in play, stated as such in the
   prompt. Posture is deliberately absent: control of the designated objective
   is the scenario assumption, not another field for the operator to guess.
+  Selections must be unique objectives in the current study; blank, duplicate,
+  or stale ids are rejected before the model is called.
 - **Prose** — free text as an S2 would write it, passed to the model unedited.
   It is the half no schema holds.
 

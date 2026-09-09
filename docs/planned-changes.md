@@ -346,7 +346,9 @@ whatever objective the operator designates. Touches:
 
 **`objective_ids` stays as-is.** Only `posture` is removed. The operator keeps
 the ability to say which objectives the enemy contests (`toggleIntentObjective`),
-so `EnemyIntent` becomes `{ objective_ids, narrative }`.
+so `EnemyIntent` becomes `{ objective_ids, narrative }`. Those ids are now
+bounded, unique, and validated against the current study before any model call;
+an empty list still deliberately means every objective is in play.
 
 ### Overlay mapping
 

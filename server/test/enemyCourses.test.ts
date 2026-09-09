@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { enemyCoursesBody } from '../src/routes/routeStudies'
+import { enemyCoursesBody, unknownIntentObjectiveIds } from '../src/routes/routeStudies'
 
 const body = (intent: Record<string, unknown> = {}) => ({ intent })
 
@@ -31,7 +31,35 @@ describe('enemyCoursesBody', () => {
     expect(enemyCoursesBody.safeParse(body({ narrative: 'x'.repeat(4001) })).success).toBe(false)
   })
 
+  test('rejects blank, duplicate, and oversized objective selections', () => {
+    expect(enemyCoursesBody.safeParse(body({ objective_ids: [''] })).success).toBe(false)
+    expect(enemyCoursesBody.safeParse(body({ objective_ids: ['obj1', 'obj1'] })).success).toBe(false)
+    expect(enemyCoursesBody.safeParse(body({
+      objective_ids: Array.from({ length: 101 }, (_, index) => `obj${index}`),
+    })).success)
+      .toBe(false)
+  })
+
   test('requires an intent object at all', () => {
     expect(enemyCoursesBody.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('unknownIntentObjectiveIds', () => {
+  const objectives = [
+    { id: 'obj1', name: 'Bridge', lon: 1, lat: 2 },
+    { id: 'obj2', name: 'Depot', lon: 2, lat: 3 },
+  ]
+
+  test('accepts selected objectives belonging to the study', () => {
+    expect(unknownIntentObjectiveIds({ objective_ids: ['obj2'], narrative: '' }, objectives))
+      .toEqual([])
+  })
+
+  test('returns unknown objective ids once and deterministically', () => {
+    expect(unknownIntentObjectiveIds(
+      { objective_ids: ['z', 'obj1', 'a', 'z'], narrative: '' },
+      objectives,
+    )).toEqual(['a', 'z'])
   })
 })
