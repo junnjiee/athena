@@ -16,7 +16,7 @@ const request = {
   corridors: [],
   reserves: [],
   objectives: [],
-  intent: { posture: 'unknown' as const, objective_ids: [], narrative: '' },
+  intent: { objective_ids: [], narrative: '' },
   weights: { speed: 0.5, blockable: 0.5, complexity: 0.5, likelihood: 0.5, danger: 0.5 },
 }
 

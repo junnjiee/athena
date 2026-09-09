@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  POSTURE_LABEL,
   WEIGHT_LABEL,
   courseEmphasis,
   courseTags,
@@ -88,19 +87,8 @@ describe('formatScore', () => {
 describe('intent', () => {
   test('an empty intent leaves the model nothing but geography', () => {
     expect(intentIsEmpty(emptyIntent())).toBe(true)
-    expect(intentIsEmpty({ posture: 'attacking', objective_ids: [], narrative: '' })).toBe(false)
-    expect(intentIsEmpty({ posture: 'unknown', objective_ids: [], narrative: 'Probing.' })).toBe(false)
-    expect(intentIsEmpty({ posture: 'unknown', objective_ids: ['obj1'], narrative: '' })).toBe(false)
-  })
-
-  test('every posture the engine accepts has a label', () => {
-    expect(Object.keys(POSTURE_LABEL)).toEqual([
-      'attacking',
-      'defending',
-      'delaying',
-      'withdrawing',
-      'unknown',
-    ])
+    expect(intentIsEmpty({ objective_ids: [], narrative: 'Probing.' })).toBe(false)
+    expect(intentIsEmpty({ objective_ids: ['obj1'], narrative: '' })).toBe(false)
   })
 })
 

@@ -204,10 +204,7 @@ export interface BlockPlan {
   uncovered: { corridor_id: string }[]
 }
 
-export type Posture = 'attacking' | 'defending' | 'delaying' | 'withdrawing' | 'unknown'
-
 export interface EnemyIntent {
-  posture: Posture
   objective_ids: string[]
   /** Free text as an S2 would write it; reaches the model unedited. */
   narrative: string

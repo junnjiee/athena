@@ -297,9 +297,9 @@ doctrine defines.
   Time units differ by level in the source: Coy Res in minutes, Bn Res in
   fractions of an hour.
 
-### Drop posture
+### Drop posture — done
 
-Remove `posture` from `EnemyIntent`. The enemy is assumed to have control over
+~~Remove `posture` from `EnemyIntent`.~~ The enemy is assumed to have control over
 whatever objective the operator designates. Touches:
 
 - `engine/athena/intent.py` — `Posture` enum and the `posture` field

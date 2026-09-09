@@ -84,9 +84,6 @@ export const blockForcesBody = z.object({
 
 export const enemyCoursesBody = z.object({
   intent: z.object({
-    posture: z
-      .enum(['attacking', 'defending', 'delaying', 'withdrawing', 'unknown'])
-      .default('unknown'),
     objective_ids: z.array(z.string()).default([]),
     /** Free text, as an S2 would write it. Reaches the model unedited. */
     narrative: z.string().max(4000).default(''),

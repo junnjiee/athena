@@ -113,7 +113,6 @@ export interface BlockPlan {
 
 /** What the operator believes the enemy is trying to do. */
 export interface EnemyIntent {
-  posture: 'attacking' | 'defending' | 'delaying' | 'withdrawing' | 'unknown'
   objective_ids: string[]
   /** Free text as an S2 would write it; reaches the model unedited. */
   narrative: string
