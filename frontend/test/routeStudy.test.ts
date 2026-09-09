@@ -161,6 +161,17 @@ describe('corridor selection', () => {
   })
 })
 
+describe('own-force readiness', () => {
+  test('new units start with REDCON unreported and it edits independently of availability', () => {
+    store().addUnit('section', 103.8, 1.35)
+    const unit = store().orbatUnits[0]
+    expect(unit).toMatchObject({ redcon: null, availability: 'uncommitted' })
+
+    store().updateUnit(unit.unit_id, { redcon: 4 })
+    expect(store().orbatUnits[0]).toMatchObject({ redcon: 4, availability: 'uncommitted' })
+  })
+})
+
 describe('reset', () => {
   test('returns the store to idle', () => {
     store().addMark('reserve', 0, 0)

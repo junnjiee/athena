@@ -10,7 +10,7 @@ import {
   orbatRows,
   validParents,
 } from '../../lib/orbatTree'
-import type { Availability, Echelon, OrbatUnit } from '../../types/routeStudy'
+import type { Availability, Echelon, OrbatUnit, Redcon } from '../../types/routeStudy'
 
 interface Props {
   units: OrbatUnit[]
@@ -154,6 +154,7 @@ export function OrbatPanel({
 }
 
 const AVAILABILITY_ORDER: Availability[] = ['uncommitted', 'committed', 'reserve']
+const REDCON_ORDER: Redcon[] = [1, 2, 3, 4, 5]
 
 function UnitRow({
   unit,
@@ -242,6 +243,10 @@ function UnitRow({
         <span className={free ? 'text-(--friendly)' : ''}>
           {AVAILABILITY_LABEL[unit.availability]}
         </span>
+        <span>·</span>
+        <span className={unit.redcon != null ? 'text-(--accent)' : ''}>
+          REDCON {unit.redcon ?? '—'}
+        </span>
       </div>
 
       {selected && (
@@ -317,6 +322,27 @@ function UnitRow({
                 : ''}
             </div>
           </div>
+
+          <label className="block text-[10px] tracking-wide text-(--text-dim)">
+            REDCON · READINESS
+            <select
+              value={unit.redcon ?? ''}
+              onChange={(event) => onUpdate({
+                redcon: event.target.value === '' ? null : Number(event.target.value) as Redcon,
+              })}
+              className="mt-1 w-full rounded-md border border-(--border) bg-(--panel-bg-solid) px-2 py-1 text-[11px] text-(--text-h) focus:outline-none"
+            >
+              <option value="">Not reported</option>
+              {REDCON_ORDER.map((redcon) => (
+                <option key={redcon} value={redcon}>
+                  REDCON {redcon}{redcon === 1 ? ' · highest readiness' : redcon === 5 ? ' · lowest readiness' : ''}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block normal-case tracking-normal">
+              Display only. Availability still decides whether this unit can be tasked.
+            </span>
+          </label>
         </div>
       )}
     </div>

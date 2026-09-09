@@ -464,7 +464,11 @@ input*.
 
 Athena models organisation down from a company — company, platoon, section,
 group. Nothing above a company exists, so a company is always the root of a tree.
-Each unit carries its location, strength and availability.
+Each unit carries its location, strength, availability and optional REDCON.
+Availability answers whether the unit is free to receive the task. REDCON 1–5
+answers how ready it is to move (1 highest, 5 lowest); it is display-only and
+does not constrain allocation or feed the timing model. Missing REDCON remains
+unreported rather than being guessed.
 
 ### Role follows the echelon commanded
 

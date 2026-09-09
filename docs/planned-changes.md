@@ -365,7 +365,9 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   `lib/orbatTree.ts`, mirrored by the engine's validated `Orbat`. Today
   `OrbatPanel` spends that structure on a `parent_id` dropdown rather than
   drawing the tree. Presentation work over existing machinery.
-- **REDCON status** per unit. New field — orthogonal to `availability`
+- ~~**REDCON status** per unit.~~ **Done** — an optional validated 1–5 readiness
+  condition is shown and edited independently on every ORBAT row. It remains
+  orthogonal to `availability`
   (`uncommitted` / `committed` / `reserve`), which is a *commitment* axis where
   REDCON is a *readiness* axis. A unit can be uncommitted and REDCON 4. Touches
   frontend type, server `studyTypes`, engine `Unit` (adding an optional field

@@ -41,6 +41,8 @@ class Unit(BaseModel):
     lat: float
     strength: int = Field(ge=1)
     availability: Availability = Availability.UNCOMMITTED
+    redcon: int | None = Field(default=None, ge=1, le=5)
+    """Readiness condition. Display-only and orthogonal to availability."""
 
     @property
     def role(self) -> Role:

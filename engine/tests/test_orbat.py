@@ -109,6 +109,23 @@ def test_only_uncommitted_units_are_offered() -> None:
     assert [u.unit_id for u in orbat.available()] == ["free"]
 
 
+def test_redcon_is_optional_display_only_readiness() -> None:
+    ready = Unit(
+        unit_id="ready",
+        name="Ready",
+        echelon=Echelon.SECTION,
+        lon=0,
+        lat=0,
+        strength=7,
+        availability=Availability.UNCOMMITTED,
+        redcon=1,
+    )
+    assert ready.redcon == 1
+    assert Orbat(units=(ready,)).available() == [ready]
+    with pytest.raises(ValueError):
+        Unit(**{**ready.model_dump(), "redcon": 6})
+
+
 def test_available_offers_the_formed_body_before_its_parts() -> None:
     assert [u.unit_id for u in rifle_company().available()] == [
         "coy",

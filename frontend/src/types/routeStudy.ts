@@ -202,6 +202,7 @@ export type MarkKind = StudyMarkKind
 export type Echelon = 'company' | 'platoon' | 'section' | 'group'
 
 export type Availability = 'uncommitted' | 'committed' | 'reserve'
+export type Redcon = 1 | 2 | 3 | 4 | 5
 
 export interface OrbatUnit {
   unit_id: string
@@ -212,6 +213,8 @@ export interface OrbatUnit {
   lat: number
   strength: number
   availability: Availability
+  /** Readiness only; does not determine whether the unit is available. */
+  redcon?: Redcon | null
 }
 
 export interface Orbat {
