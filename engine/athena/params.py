@@ -66,6 +66,14 @@ CORRIDOR_SEPARATION_METERS = 5_000.0
 Lateral separation, not shared length: two roads through the same gap share no
 segment at all and are plainly one approach."""
 
+CORRIDOR_MAX_HEADING_DEGREES = 45.0
+"""Largest difference in overall travel heading for axes in one corridor.
+
+Closeness alone must not bundle a crossing road into the same approach. Route
+direction is retained: axes moving over the same ground in opposite directions
+are different operational approaches.
+"""
+
 CORRIDOR_DETOUR_RATIO = 3.0
 """How far round you may drive to cross between two axes, as a multiple of how
 far apart they are, before they count as separate approaches.

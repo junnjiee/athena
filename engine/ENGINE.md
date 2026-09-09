@@ -174,6 +174,10 @@ Two axes are one corridor when all three hold:
   the median taken. Median rather than minimum, because two approaches that merely
   touch at a shared objective are not thereby close along their length.
   *Configurable today.*
+- **Directionally aligned** — their start-to-finish travel headings differ by
+  no more than `CORRIDOR_MAX_HEADING_DEGREES` (45°). Direction is retained, so
+  a crossing axis or traffic moving the opposite way is a different approach.
+  *Configurable today.*
 - **Laterally connected** — the way round from the middle of one axis to the
   middle of the other is at most `CORRIDOR_DETOUR_RATIO` (3.0) times their
   straight-line separation. *Configurable today.*

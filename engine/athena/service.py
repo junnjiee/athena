@@ -27,6 +27,7 @@ from athena.intent import EnemyIntent
 from athena.orbat import Orbat
 from athena.params import (
     CORRIDOR_DETOUR_RATIO,
+    CORRIDOR_MAX_HEADING_DEGREES,
     CORRIDOR_SEPARATION_METERS,
     MAX_SHARING,
     MAX_STRETCH,
@@ -64,6 +65,9 @@ class StudyRequest(BaseModel):
     max_stretch: float = Field(default=MAX_STRETCH, gt=1.0)
     max_sharing: float = Field(default=MAX_SHARING, gt=0.0, le=1.0)
     corridor_separation_meters: float = Field(default=CORRIDOR_SEPARATION_METERS, gt=0.0)
+    corridor_max_heading_degrees: float = Field(
+        default=CORRIDOR_MAX_HEADING_DEGREES, ge=0.0, le=180.0
+    )
     corridor_detour_ratio: float = Field(default=CORRIDOR_DETOUR_RATIO, ge=1.0)
     excluded_edge_ids: list[str] = Field(default_factory=list)
     """Edges the operator has marked impassable -- a dropped bridge, a flooded
@@ -116,6 +120,7 @@ async def route_study(request: StudyRequest) -> StudyResult:
         max_stretch=request.max_stretch,
         max_sharing=request.max_sharing,
         separation_meters=request.corridor_separation_meters,
+        max_heading_degrees=request.corridor_max_heading_degrees,
         detour_ratio=request.corridor_detour_ratio,
         excluded_edge_ids=frozenset(request.excluded_edge_ids),
     )

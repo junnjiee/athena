@@ -22,7 +22,11 @@ import statistics
 from dataclasses import dataclass
 
 from athena.graph import Node, RoadGraph
-from athena.params import CORRIDOR_DETOUR_RATIO, CORRIDOR_SEPARATION_METERS
+from athena.params import (
+    CORRIDOR_DETOUR_RATIO,
+    CORRIDOR_MAX_HEADING_DEGREES,
+    CORRIDOR_SEPARATION_METERS,
+)
 from athena.routing import Route
 
 
@@ -71,6 +75,40 @@ def axis_separation_meters(
     nearest = [min(_meters_between(a, b) for b in there) for a in here]
     nearest += [min(_meters_between(b, a) for a in here) for b in there]
     return statistics.median(nearest)
+
+
+def axis_heading_difference_degrees(
+    one: Route,
+    other: Route,
+    nodes: dict[int, Node],
+) -> float:
+    """Difference between the axes' start-to-finish travel headings.
+
+    Direction is intentional. Two routes using the same road in opposite
+    directions are not the same enemy approach, and two close roads crossing
+    at right angles are not a parallel bundle. A route without spatial extent
+    has no defensible heading and therefore aligns with nothing else.
+    """
+
+    def vector(route: Route) -> tuple[float, float] | None:
+        if not route.nodes:
+            return None
+        start = nodes.get(route.nodes[0])
+        end = nodes.get(route.nodes[-1])
+        if start is None or end is None:
+            return None
+        lat_scale = math.cos(math.radians((start.lat + end.lat) / 2))
+        dx = (end.lon - start.lon) * lat_scale
+        dy = end.lat - start.lat
+        length = math.hypot(dx, dy)
+        return None if length == 0 else (dx / length, dy / length)
+
+    first = vector(one)
+    second = vector(other)
+    if first is None or second is None:
+        return math.inf
+    cosine = max(-1.0, min(1.0, first[0] * second[0] + first[1] * second[1]))
+    return math.degrees(math.acos(cosine))
 
 
 def _network_meters(graph: RoadGraph, start: int, goal: int) -> float:
@@ -138,6 +176,7 @@ def cluster_into_corridors(
     routes: list[Route],
     graph: RoadGraph,
     separation_meters: float = CORRIDOR_SEPARATION_METERS,
+    max_heading_degrees: float = CORRIDOR_MAX_HEADING_DEGREES,
     detour_ratio: float = CORRIDOR_DETOUR_RATIO,
 ) -> list[Corridor]:
     """Bundles axes into corridors.
@@ -161,6 +200,8 @@ def cluster_into_corridors(
 
     def same_corridor(one: Route, other: Route) -> bool:
         if axis_separation_meters(one, other, nodes) > separation_meters:
+            return False
+        if axis_heading_difference_degrees(one, other, nodes) > max_heading_degrees:
             return False
         return lateral_detour_ratio(one, other, graph) <= detour_ratio
 
