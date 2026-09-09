@@ -79,6 +79,16 @@ contract reads the same from either side.
   a per-segment slope would mostly measure sampling noise. A short edge over a
   real cliff is understated. *Hardcoded rule.*
 
+## Reserve timing
+
+Reserve timing keeps the four doctrinal stages distinct. Decision, readiness
+and deployment time are scenario inputs normalized to minutes; movement time is
+the route cost computed by the engine. A reserve commences movement after
+decision + readiness, and completes its task after commencement + movement +
+deployment. Missing operator inputs remain unknown, so Athena never treats an
+unassessed stage as zero. The courses-of-action prompt receives both the source
+stages and the corridor-specific completion time.
+
 ## Cost model
 
 Cost is **travel time, not distance**: four kilometres of trunk road beats two

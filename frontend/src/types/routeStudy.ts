@@ -66,6 +66,7 @@ export interface StudyMark {
   intelligence_status?: IntelligenceStatus
   locality?: string
   task_organization?: TaskOrganizationElement[]
+  timing?: ReserveTiming
   /** Objectives are usually ground, not a pin. When the operator dragged an
    *  area, its bounds ride along and lon/lat is the centre — the engine still
    *  routes to the centre, so this only changes what is drawn. */
@@ -74,6 +75,13 @@ export interface StudyMark {
 
 export type ReserveLevel = 'K' | 'K1' | 'K2' | 'K3' | 'K4'
 export type IntelligenceStatus = 'assessed' | 'confirmed'
+
+export interface ReserveTiming {
+  /** Doctrinal stages normalized to minutes; missing means not yet assessed. */
+  decision_minutes?: number
+  readiness_minutes?: number
+  deployment_minutes?: number
+}
 
 export type AggressorEchelon = 'division' | 'regiment' | 'battalion' | 'company' | 'platoon' | 'section'
 export type CompositionModifier = '=' | '-' | 'full' | '+'

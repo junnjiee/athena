@@ -128,13 +128,40 @@ def describe_corridors(corridors: list[CorridorOut], reserves: list[Mark]) -> st
                     f"[{element.echelon.value}]{suffix}"
                 )
             details.append("order of move " + "; ".join(convoy))
+        if mark.timing:
+            stages = [
+                f"decision {mark.timing.decision_minutes:g} min"
+                if mark.timing.decision_minutes is not None else "decision unknown",
+                f"readiness {mark.timing.readiness_minutes:g} min"
+                if mark.timing.readiness_minutes is not None else "readiness unknown",
+                f"deployment {mark.timing.deployment_minutes:g} min"
+                if mark.timing.deployment_minutes is not None else "deployment unknown",
+            ]
+            commencement = mark.timing.commencement_minutes()
+            if commencement is not None:
+                stages.append(f"commences move +{commencement:g} min")
+            details.append("timing " + ", ".join(stages))
         return ", ".join(details)
 
+    reserve_by_id = {mark.id: mark for mark in reserves}
     names = {mark.id: describe_reserve(mark) for mark in reserves}
     lines: list[str] = []
     for corridor in corridors:
         serving = sorted({route.reserve_id for route in corridor.routes})
-        described = ", ".join(f"{names.get(r, r)} ({r})" for r in serving)
+        described_reserves = []
+        for reserve_id in serving:
+            description = f"{names.get(reserve_id, reserve_id)} ({reserve_id})"
+            reserve = reserve_by_id.get(reserve_id)
+            if reserve and reserve.timing:
+                movement_seconds = min(
+                    route.seconds for route in corridor.routes
+                    if route.reserve_id == reserve_id
+                )
+                task_complete = reserve.timing.task_complete_minutes(movement_seconds)
+                if task_complete is not None:
+                    description += f", task complete +{task_complete:g} min on this corridor"
+            described_reserves.append(description)
+        described = ", ".join(described_reserves)
         choke = (
             f"{len(corridor.choke_edge_ids)} segment(s)"
             if corridor.choke_edge_ids

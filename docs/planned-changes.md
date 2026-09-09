@@ -290,7 +290,12 @@ doctrine defines.
 - ~~**Location as a named terrain reference**~~ **Done for reserves** — reserves
   carry an operator-editable IVO/locality field, auto-suggested from the shared
   place lookup. Objectives at `MATO 1b` remain to be wired.
-- **Timing model** (p.62), the largest single gap:
+- ~~**Timing model** (p.62), the largest single gap:~~ **Done** — reserve
+  records accept operator-supplied decision, readiness and deployment stages,
+  normalized to minutes without invented level defaults. Athena calculates
+  commencement from decision + readiness and task completion from commencement
+  + routed movement + deployment for every reserve/corridor pairing. Incomplete
+  intelligence remains visibly incomplete rather than silently becoming zero.
 
   > K2 is commencement of movement *(inclusive of Decision Time and Readiness Time)*
   > K2+½ is completion of the Reserve Task *(inclusive of Movement Time and Deployment Time)*

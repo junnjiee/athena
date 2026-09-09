@@ -19,6 +19,13 @@ export interface Mark {
     order_of_move: number
     platforms: { id: string; platform: string; establishment_count: number }[]
   }[]
+  /** Operator-supplied doctrinal stages, normalized to minutes. Unknown stages
+   *  stay absent rather than being treated as zero. */
+  timing?: {
+    decision_minutes?: number
+    readiness_minutes?: number
+    deployment_minutes?: number
+  }
   /** Objectives are ground, not pins: when the operator dragged an area rather
    *  than clicking a point, its bounds ride along and lon/lat is the centre.
    *  The engine still routes to the centre, so this is display only. */

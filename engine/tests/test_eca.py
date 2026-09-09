@@ -30,6 +30,7 @@ from athena.study import (
     Mark,
     PlatformCount,
     ReserveLevel,
+    ReserveTiming,
     RouteOut,
     TaskOrganizationElement,
 )
@@ -142,6 +143,28 @@ def test_reserve_intelligence_fields_reach_the_assessment() -> None:
 
     assert "302 Div Res 1, K4, owned by 301 Div, confirmed, IVO TOMA 1b" in described
     assert "order of move 1. DRC [company]: 10 x BTR-90 establishment; 2. ABG(-) [battalion]" in described
+
+
+def test_reserve_timing_reaches_the_assessment_with_corridor_completion() -> None:
+    reserves = [
+        Mark(
+            id="res1",
+            name="Coy Res",
+            lon=0,
+            lat=0,
+            timing=ReserveTiming(
+                decision_minutes=5,
+                readiness_minutes=10,
+                deployment_minutes=15,
+            ),
+        )
+    ]
+
+    described = describe_corridors(CORRIDORS[:1], reserves)
+
+    assert "decision 5 min, readiness 10 min, deployment 15 min" in described
+    assert "commences move +15 min" in described
+    assert "task complete +40 min on this corridor" in described
 
 
 def test_the_prompt_carries_the_intent_narrative_unedited() -> None:

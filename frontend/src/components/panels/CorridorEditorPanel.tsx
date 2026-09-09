@@ -8,6 +8,7 @@ import {
   unreachableSummary,
 } from '../../lib/corridors'
 import { corridorDistance, formatRouteDistance } from '../../lib/routeStudy'
+import { formatOperationalOffset, reserveCommencementMinutes, reserveTaskCompleteMinutes } from '../../lib/reserveTiming'
 import type { Corridor, RouteStudy } from '../../types/routeStudy'
 
 interface Props {
@@ -119,6 +120,16 @@ function CorridorRow({
 
   const blocked = isChokeBlocked(corridor, study.edgeOverrides)
   const canBlock = corridor.choke_edge_ids.length > 0
+  const timedReserves = [...new Set(corridor.routes.map((route) => route.reserve_id))].flatMap((reserveId) => {
+    const reserve = study.marks.reserves.find((mark) => mark.id === reserveId)
+    const routes = corridor.routes.filter((route) => route.reserve_id === reserveId)
+    const fastestMovement = Math.min(...routes.map((route) => route.seconds))
+    const commencement = reserveCommencementMinutes(reserve?.timing)
+    const complete = reserveTaskCompleteMinutes(reserve?.timing, fastestMovement)
+    return reserve && (commencement !== null || complete !== null)
+      ? [{ reserve, commencement, complete }]
+      : []
+  })
 
   function commitName() {
     const trimmed = name.trim()
@@ -185,6 +196,18 @@ function CorridorRow({
         <span>·</span>
         <span>{corridorMinutes(corridor)} min fastest</span>
       </div>
+
+      {timedReserves.length > 0 && (
+        <div className="mt-1 space-y-0.5 text-[10px] text-(--text-dim)">
+          {timedReserves.map(({ reserve, commencement, complete }) => (
+            <div key={reserve.id}>
+              {reserve.name}: {commencement === null ? 'move time unknown' : `move ${formatOperationalOffset(commencement)}`}
+              {' · '}
+              {complete === null ? 'task time incomplete' : `task ${formatOperationalOffset(complete)}`}
+            </div>
+          ))}
+        </div>
+      )}
 
       {selected && (
         <div className="mt-2 border-t border-(--border) pt-2" onClick={(event) => event.stopPropagation()}>
