@@ -3,11 +3,13 @@
 import pytest
 
 from athena.graph import RoadGraph, nearest_node
+from athena.routing import edge_travel_seconds
 from athena.study import (
     AggressorEchelon,
     CompositionModifier,
     IntelligenceStatus,
     Mark,
+    MarkBounds,
     PlatformCount,
     ReserveLevel,
     ReserveTiming,
@@ -216,6 +218,61 @@ def test_an_area_objective_routes_to_reachable_ground_inside_its_bounds() -> Non
     assert area_result.corridors[0].routes[0].node_ids[-1] == 2
 
 
+def test_an_area_objective_stops_where_a_long_edge_enters_its_bounds() -> None:
+    road = edge("9:0", 1, 2, 1000)
+    road = road.model_copy(update={"points": ((0.0, 0.0), (10.0, 0.0))})
+    graph = RoadGraph(nodes=(node(1, 0), node(2, 10)), edges=(road,))
+
+    result = run_study(
+        graph,
+        reserves=[Mark(id="res1", name="Assembly", lon=0, lat=0)],
+        objectives=[
+            Mark(
+                id="obj1",
+                name="Area",
+                lon=5,
+                lat=0,
+                bbox={"west": 4, "south": -1, "east": 6, "north": 1},
+            )
+        ],
+    )
+
+    route = result.corridors[0].routes[0]
+    assert route.edge_ids == ["9:0"]
+    assert route.node_ids == [1]
+    assert route.terminal is not None
+    assert route.terminal.model_dump() == {
+        "edge_id": "9:0",
+        "lon": 4.0,
+        "lat": 0.0,
+        "edge_fraction": pytest.approx(0.4),
+    }
+    assert route.length_meters == pytest.approx(400)
+    full_seconds = edge_travel_seconds(road, graph.nodes_by_id())
+    assert full_seconds is not None
+    assert route.seconds == pytest.approx(full_seconds * 0.4)
+
+    reverse_result = run_study(
+        graph,
+        reserves=[Mark(id="res2", name="Other side", lon=10, lat=0)],
+        objectives=[
+            Mark(
+                id="obj1",
+                name="Area",
+                lon=5,
+                lat=0,
+                bbox={"west": 4, "south": -1, "east": 6, "north": 1},
+            )
+        ],
+    )
+    reverse_route = reverse_result.corridors[0].routes[0]
+    assert reverse_route.node_ids == [2]
+    assert reverse_route.terminal is not None
+    assert reverse_route.terminal.lon == pytest.approx(6)
+    assert reverse_route.terminal.edge_fraction == pytest.approx(0.6)
+    assert reverse_route.length_meters == pytest.approx(400)
+
+
 def test_objective_bounds_must_have_positive_latitude_and_longitude_extent() -> None:
     with pytest.raises(ValueError, match="north must be above south"):
         Mark(
@@ -233,6 +290,12 @@ def test_objective_bounds_must_have_positive_latitude_and_longitude_extent() -> 
             lat=0,
             bbox={"west": 1, "south": 0, "east": 1, "north": 2},
         )
+
+
+def test_objective_bounds_clip_the_short_way_across_the_antimeridian() -> None:
+    bounds = MarkBounds(west=179.5, south=-1, east=-179.5, north=1)
+
+    assert bounds.clip_segment((179, 0), (-179, 0)) == pytest.approx((0.25, 0.75))
 
 
 def test_two_reserves_into_one_valley_share_a_corridor(corridor_pair: RoadGraph) -> None:

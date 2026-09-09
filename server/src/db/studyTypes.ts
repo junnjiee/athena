@@ -33,9 +33,9 @@ export interface Mark {
     readiness_minutes?: number
     deployment_minutes?: number
   }
-  /** Objectives are ground, not pins: when the operator dragged an area rather
-   *  than clicking a point, routing stops at the first live junction reached
-   *  inside these bounds. lon/lat remains the centre and fallback snap. */
+  /** Objectives are ground, not pins: routing stops at the first live road
+   *  point reached inside these bounds, including midway along an edge.
+   *  lon/lat remains the centre and fallback snap. */
   bbox?: { west: number; south: number; east: number; north: number }
 }
 
@@ -54,6 +54,14 @@ export interface Corridor {
     node_ids: number[]
     seconds: number
     length_meters: number
+    /** Exact area boundary reached part-way along the final graph edge. */
+    terminal?: {
+      edge_id: string
+      lon: number
+      lat: number
+      /** Fraction of stored edge geometry measured from its `from` node. */
+      edge_fraction: number
+    } | null
   }[]
   choke_edge_ids: string[]
   fastest_seconds: number

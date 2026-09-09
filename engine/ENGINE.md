@@ -238,10 +238,12 @@ An operator marks a reserve location or point objective on the map, not on a
 junction, so those marks are snapped to the **nearest node**. Distance is
 equirectangular at the mark's own latitude; ties break on node id, so a mark
 equidistant from two junctions always snaps to the same one. An area objective
-instead supplies every live junction inside its bounds as a goal, and one
-multi-goal search stops at the fastest ground reached. Diverse searches may
-reach different junctions in the same objective. If no live junction lies
-inside, the centre snap preserves point behavior. Marks are *scenario input*.
+instead supplies every live junction and every road-entry point inside its
+bounds as goals. One search stops at the fastest ground reached, including
+part-way along a long edge; the route's exact terminal, distance, timing and
+display geometry all stop at that boundary. Diverse searches may enter the
+same objective by different roads. If no live road intersects the area, the
+centre snap preserves point behavior. Marks are *scenario input*.
 
 Every mark may carry an IVO locality: a named terrain reference suggested by
 the terrain service and editable by the operator. Reserve marks additionally
@@ -261,9 +263,9 @@ thirds rather than being silently rounded. Order of move is explicit and is
 passed to the enemy-course assessment in that order.
 
 A mark may carry a bounding box — an objective the operator drew as ground
-rather than clicked as a point. The engine ignores it: `lon`/`lat` is the centre,
-and routing goes to the node nearest that centre. The footprint is for the
-operator's map, not for the search. *Hardcoded rule.*
+rather than clicked as a point. The footprint participates in routing; `lon`/
+`lat` remains its display centre and deterministic fallback when no live road
+intersects it. *Hardcoded rule.*
 
 ## Reporting absence
 
@@ -783,9 +785,9 @@ Under Docker the variables are passed in by compose, so no file is read.
 - **The model's scores are judgement, not measurement.** Likelihood and danger
   are its opinion on a scale, not probabilities derived from anything. They order
   courses; they do not quantify risk.
-- **Area-objective reach is road-junction based.** Routing can stop at any live
-  junction inside the bounds, but it does not terminate mid-edge or model
-  off-road movement across the rest of the objective polygon.
+- **Area-objective reach remains road based.** Routing stops at the first live
+  road point inside the bounds, including a mid-edge boundary intersection,
+  but does not model off-road movement across the rest of the objective.
 - **Learned weights are one deployment's taste, not doctrine.** They reflect
   whoever has been giving verdicts on this instance. Reset them when the operator
   changes, or read them and decide whether they still describe the commander
