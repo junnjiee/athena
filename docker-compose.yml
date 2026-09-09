@@ -28,9 +28,16 @@ services:
       context: ./engine
     environment:
       TERRAIN_SERVICE_URL: http://server:8787
-      # Only the courses-of-action pass needs this; routes and block forces
-      # are deterministic and run without it.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # The model that reasons about enemy intent, as provider:name. Only the
+      # courses-of-action pass needs it; routes and block forces are
+      # deterministic and run without it.
+      ATHENA_ECA_MODEL: ${ATHENA_ECA_MODEL:-openai:gpt-5.6-sol}
+    # Whichever key that provider wants -- OPENAI_API_KEY, ANTHROPIC_API_KEY,
+    # GEMINI_API_KEY. Compose names no vendor so changing provider is a change
+    # of .env alone.
+    env_file:
+      - path: .env
+        required: false
     ports:
       - '8000:8000'
     volumes:

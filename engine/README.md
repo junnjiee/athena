@@ -24,8 +24,13 @@ uv run uvicorn athena.service:app --port 8000
 `TERRAIN_SERVICE_URL` points at the terrain service (default
 `http://localhost:8787`).
 
-`ANTHROPIC_API_KEY` is needed only for the enemy courses-of-action pass. Route
-studies and block forces run without it.
+`ATHENA_ECA_MODEL` names the model that reasons about enemy intent, as
+`provider:name` — `openai:gpt-5.6-sol` (the default), `anthropic:claude-opus-5`,
+`google:gemini-2.5-pro`, `ollama:llama3.3`, or anything else pydantic-ai
+resolves. Set that provider's own API key alongside it.
+
+Both are needed only for the enemy courses-of-action pass. Route studies and
+block forces are deterministic and run without either.
 
 ## Tests
 

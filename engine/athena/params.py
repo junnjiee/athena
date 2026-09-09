@@ -67,12 +67,19 @@ corridor. The single knob deciding how coarse a corridor is."""
 
 # --- Enemy courses of action -------------------------------------------------
 
-ECA_MODEL = "claude-opus-5"
-"""The model that reasons about enemy intent.
+ECA_MODEL_ENV_VAR = "ATHENA_ECA_MODEL"
+"""Environment variable naming the model, overriding ``ECA_MODEL`` below."""
+
+ECA_MODEL = "openai:gpt-5.6-sol"
+"""The model that reasons about enemy intent, as ``provider:name``.
 
 Judgement about how a force would actually fight is the hardest thing the
 engine asks of anything, and it is asked once per study rather than per route,
 so this is not a place to economise.
+
+The engine takes no position on which provider supplies that judgement: this is
+a default, not a requirement, and any model reachable through pydantic-ai
+serves. Swapping one for another is a change of environment, not of code.
 """
 
 ECA_MAX_TOKENS = 16_000

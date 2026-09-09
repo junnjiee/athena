@@ -18,8 +18,8 @@ from athena.eca import (
     CourseOfAction,
     RankedCourses,
     RefusedError,
-    anthropic_generator,
     generate_courses,
+    model_generator,
 )
 from athena.graph import RoadGraph
 from athena.intent import EnemyIntent
@@ -148,7 +148,7 @@ class CoursesRequest(BaseModel):
 
 def get_course_generator() -> CourseGenerator:
     """The model call, injectable so tests never reach the API."""
-    return anthropic_generator()
+    return model_generator()
 
 
 @app.post("/v1/enemy-courses-of-action", response_model=RankedCourses)

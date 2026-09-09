@@ -234,17 +234,29 @@ context without changing any judgement being asked for.
 
 ### Model and failure
 
-`claude-opus-5` with adaptive thinking and structured output. *Configurable
-today* in `athena/params.py`, along with the system prompt.
+**The engine takes no position on which model reasons.** It asks for a schema
+and is given one back; nothing about the call is shaped around a particular
+provider, and no vendor SDK is a dependency. The model is named as
+`provider:name` — `openai:gpt-5.6-sol` by default, overridden by
+`ATHENA_ECA_MODEL` — and resolved by pydantic-ai. Changing provider is a change
+of environment, not of code. *Configurable today* in `athena/params.py`, along
+with the token ceiling and the system prompt.
+
+Nothing is asked of the model that only one provider offers. Reasoning effort in
+particular is not set: models that reason do so on their own terms, and a knob
+that exists on one vendor's API is not a modelling assumption this engine makes.
 
 - **With no corridors the model is not called at all.** Given nothing to reason
   over it would fill the silence, which is the failure the grounding check
   exists for.
-- **A refusal raises rather than returning an empty list.** "The enemy has no
-  options" and "we did not get an answer" are opposite findings, and the second
-  must never be rendered as the first. Server-side refusal fallbacks are
-  deliberately not enabled: a decline should surface rather than be silently
-  re-run on another model.
+- **Anything that is not an assessment raises rather than returning an empty
+  list.** A decline, a truncated response and a wall of prose are one case here:
+  no courses came back. "The enemy has no options" and "we did not get an
+  answer" are opposite findings, and the second must never be rendered as the
+  first. The engine deliberately does not read a provider's own refusal
+  vocabulary to tell these apart — it would be reading one vendor's stop codes,
+  and the distinction changes nothing an operator does. *Hardcoded rule.*
+- **A transport or API failure is not a refusal** and propagates as itself.
 
 ## Learned ranking
 
