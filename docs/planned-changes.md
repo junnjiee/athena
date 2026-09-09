@@ -381,10 +381,11 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   their REDCON. Ancestors remain availability dependencies rather than being
   misreported as members of the block force. This is a derived view over the
   existing `BlockPlan.allocation`; no engine response change was required.
-- **Remove the echelon ceiling entirely.** There is no largest-formation-per-route
-  rule. This is the one change so far that needs a **database migration** —
-  `ceiling` is a real `text` column on `route_studies` (`db/schema.ts:102`), not
-  a jsonb field. Impact is wide but shallow:
+- ~~**Remove the echelon ceiling entirely.**~~ **Done.** There is no
+  largest-formation-per-route rule. The `route_studies.ceiling` column and the
+  field across all three wire contracts are removed; older clients may still
+  send it and the server strips it. The migration is intentionally destructive
+  only to that retired policy input. Impact was wide but shallow:
   - engine — `blocking.py:102,106,109,148`, `service.py:124,131`; `fits_within`
     in `units.py:59` becomes dead
   - server — `db/schema.ts:102`, `routes/routeStudies.ts:80,207,265,296,304,315,318`,

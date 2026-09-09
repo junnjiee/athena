@@ -221,13 +221,11 @@ export function RouteStudiesPage() {
   const loadPreferences = useRouteStudy((state) => state.loadPreferences)
 
   const orbatUnits = useRouteStudy((state) => state.orbatUnits)
-  const ceiling = useRouteStudy((state) => state.ceiling)
   const selectedUnitId = useRouteStudy((state) => state.selectedUnitId)
   const addUnit = useRouteStudy((state) => state.addUnit)
   const updateUnit = useRouteStudy((state) => state.updateUnit)
   const removeUnit = useRouteStudy((state) => state.removeUnit)
   const selectUnit = useRouteStudy((state) => state.selectUnit)
-  const setCeiling = useRouteStudy((state) => state.setCeiling)
 
   const blockPhase = useRouteStudy((state) => state.blockPhase)
   const planBlocks = useRouteStudy((state) => state.planBlocks)
@@ -1210,10 +1208,8 @@ export function RouteStudiesPage() {
                 <BlockForcePanel
                   study={study}
                   units={orbatUnits}
-                  ceiling={ceiling}
                   running={blockPhase === 'running'}
                   selectedCorridorId={selectedCorridorId}
-                  onSetCeiling={setCeiling}
                   onSelectCorridor={selectCorridor}
                   onRun={() => void planBlocks()}
                 />

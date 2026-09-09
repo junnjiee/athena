@@ -85,7 +85,6 @@ describe('revision-pinned engine calls', () => {
       graphRevision: 4,
       corridors: [],
       orbat: { units: [] },
-      ceiling: 'company',
     })
 
     expect(sent.graph_revision).toBe(4)

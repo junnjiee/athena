@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from athena.graph import RoadGraph
 from athena.orbat import Orbat, Unit
 from athena.study import CorridorOut
-from athena.units import Echelon, fits_within
+from athena.units import Echelon
 
 
 class BlockCandidate(BaseModel):
@@ -99,14 +99,10 @@ def plan_blocks(
     graph: RoadGraph,
     corridors: list[CorridorOut],
     orbat: Orbat,
-    ceiling: Echelon,
 ) -> BlockPlan:
     """Block options per corridor, plus one allocation that spends nothing twice.
-
-    ``ceiling`` is the largest formation the operator will commit to any single
-    corridor — the establishment on the map is rarely what may actually be used.
     """
-    available = [u for u in orbat.available() if fits_within(u.echelon, ceiling)]
+    available = orbat.available()
 
     blocks: list[CorridorBlock] = []
     unblockable: list[Unblockable] = []
@@ -145,7 +141,7 @@ def plan_blocks(
             unblockable.append(
                 Unblockable(
                     corridor_id=corridor.id,
-                    reason=f"no uncommitted unit at or below {ceiling}",
+                    reason="no uncommitted unit",
                 )
             )
             continue

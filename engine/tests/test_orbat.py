@@ -3,7 +3,7 @@
 import pytest
 
 from athena.orbat import Availability, Orbat, Unit
-from athena.units import Echelon, Role, fits_within
+from athena.units import Echelon, Role
 
 
 def unit(
@@ -79,19 +79,6 @@ def test_a_unit_cannot_be_its_own_parent() -> None:
 def test_role_follows_the_echelon_commanded(echelon: Echelon, expected: Role) -> None:
     """A group is led by a man holding an appointment, not by a sergeant."""
     assert unit("u", echelon).role is expected
-
-
-# The size ceiling
-
-
-def test_a_ceiling_admits_its_own_echelon_and_smaller() -> None:
-    assert fits_within(Echelon.PLATOON, Echelon.PLATOON)
-    assert fits_within(Echelon.SECTION, Echelon.PLATOON)
-    assert fits_within(Echelon.GROUP, Echelon.PLATOON)
-
-
-def test_a_ceiling_refuses_anything_larger() -> None:
-    assert not fits_within(Echelon.COMPANY, Echelon.PLATOON)
 
 
 # Availability

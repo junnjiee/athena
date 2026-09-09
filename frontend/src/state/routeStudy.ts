@@ -85,14 +85,12 @@ interface RouteStudyState {
 
   // --- Order of battle (S3 input) ---
   orbatUnits: OrbatUnit[]
-  ceiling: Echelon
   selectedUnitId: string | null
   addUnit: (echelon: Echelon, lon: number, lat: number) => void
   updateUnit: (unitId: string, patch: Partial<OrbatUnit>) => void
   removeUnit: (unitId: string) => void
   setUnitAvailability: (unitId: string, availability: Availability) => void
   selectUnit: (unitId: string | null) => void
-  setCeiling: (ceiling: Echelon) => void
 
   // --- Block forces (S3) ---
   blockPhase: PassPhase
@@ -123,7 +121,6 @@ function adopt(study: RouteStudy) {
   return {
     intent: study.intent ?? emptyIntent(),
     orbatUnits: study.orbat?.units ?? [],
-    ceiling: study.ceiling ?? ('company' as Echelon),
     selectedCourseName: study.courses?.most_likely?.name ?? study.courses?.courses[0]?.name ?? null,
     selectedUnitId: null,
     coursesPhase: 'idle' as const,
@@ -142,7 +139,6 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
   coursesPhase: 'idle',
   selectedCourseName: null,
   orbatUnits: [],
-  ceiling: 'company',
   selectedUnitId: null,
   blockPhase: 'idle',
   preferences: null,
@@ -289,7 +285,6 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       coursesPhase: 'idle',
       selectedCourseName: null,
       orbatUnits: [],
-      ceiling: 'company',
       selectedUnitId: null,
       blockPhase: 'idle',
     }),
@@ -387,8 +382,6 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
 
   selectUnit: (unitId) => set({ selectedUnitId: unitId }),
 
-  setCeiling: (ceiling) => set({ ceiling }),
-
   // --- Block forces -----------------------------------------------------------
 
   planBlocks: async () => {
@@ -404,12 +397,11 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
     }
     set({ blockPhase: 'running', error: null })
     try {
-      const { orbat, ceiling, blockPlan } = await runBlockForces(study.id, { units }, get().ceiling)
+      const { orbat, blockPlan } = await runBlockForces(study.id, { units })
       set({
         blockPhase: 'idle',
-        ceiling,
         orbatUnits: orbat.units,
-        study: { ...study, orbat, ceiling, blockPlan },
+        study: { ...study, orbat, blockPlan },
       })
     } catch (error: unknown) {
       set({ blockPhase: 'idle', error: message(error) })

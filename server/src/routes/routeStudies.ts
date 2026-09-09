@@ -124,8 +124,6 @@ const orbatSchema = z.object({
 
 export const blockForcesBody = z.object({
   orbat: orbatSchema,
-  /** Largest formation the operator will commit to any one corridor. */
-  ceiling: echelonSchema,
 })
 
 
@@ -291,7 +289,6 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       // because a study reopened tomorrow has to show the assessment and the
       // allocation the commander is reading, not just the ground.
       orbat: row.orbat,
-      ceiling: row.ceiling,
       blockPlan: row.blockPlan,
       intent: row.intent,
       courses: row.courses,
@@ -372,7 +369,6 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       // study with the response does not lose an assessment or an allocation
       // to a rename.
       orbat: row.orbat,
-      ceiling: row.ceiling,
       blockPlan: row.blockPlan,
       intent: row.intent,
       courses: row.courses,
@@ -403,7 +399,6 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       if (!row) return reply.status(404).send({ error: 'unknown route study' })
 
       const orbat = parsed.data.orbat as Orbat
-      const { ceiling } = parsed.data
 
       let blockPlan
       try {
@@ -412,7 +407,6 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
           graphRevision: row.graphRevision,
           corridors: row.result.corridors,
           orbat,
-          ceiling,
         })
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {
@@ -423,10 +417,10 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
 
       await db
         .update(routeStudies)
-        .set({ orbat, ceiling, blockPlan, updatedAt: new Date() })
+        .set({ orbat, blockPlan, updatedAt: new Date() })
         .where(eq(routeStudies.id, req.params.id))
 
-      return { orbat, ceiling, blockPlan }
+      return { orbat, blockPlan }
     },
   )
 

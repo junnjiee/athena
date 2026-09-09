@@ -54,13 +54,3 @@ COMMAND_ROLES: dict[Echelon, Role] = {
     Echelon.GROUP: Role.MAN,
 }
 """Who commands each echelon."""
-
-
-def fits_within(echelon: Echelon, ceiling: Echelon) -> bool:
-    """Whether committing this echelon stays inside the operator's ceiling.
-
-    A ceiling of platoon admits a platoon, a section or a group, but not a
-    company. Expressed on depth rather than a rank order so it cannot disagree
-    with the tree rule above.
-    """
-    return ECHELON_DEPTH[echelon] >= ECHELON_DEPTH[ceiling]

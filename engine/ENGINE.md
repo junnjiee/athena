@@ -515,13 +515,6 @@ could block what. The corridors are **passed in rather than re-derived**, so the
 answer is against the operator's current picture — including corridors they have
 already blocked — rather than a possibly different set.
 
-### The size ceiling
-
-The operator states the largest formation that may be committed to any one
-corridor. A ceiling of platoon admits a platoon, a section or a group, but not a
-company. Expressed on echelon depth so it cannot disagree with the tree rule.
-*Scenario input.*
-
 ### Distance is not time
 
 The engine **does not model arrival**. Candidates for a corridor are ordered by
@@ -547,7 +540,7 @@ deterministic.
 
 - **unblockable** — nothing can be put on this corridor. Either it has no choke
   point (its routes share no ground to stand on), its choke point is not in the
-  area's road graph, or no uncommitted unit fits the ceiling.
+  area's road graph, or no uncommitted unit exists.
 - **uncovered** — the corridor could have been blocked, but the force ran out
   before reaching it.
 
@@ -566,7 +559,7 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
                           excluded_edge_ids? }
                         -> { corridors[], unreachable[] }
 
-POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat, ceiling }
+POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat }
                         -> { corridors[], allocation[], unblockable[], uncovered[] }
 
 POST /v1/enemy-courses-of-action
@@ -625,7 +618,7 @@ Under Docker the variables are passed in by compose, so no file is read.
   is an option set for a human to time, not a plan.
 - **A block force is never sized against the threat.** The engine does not ask
   whether a section can actually hold what is coming down the corridor, only
-  whether it is free and within the ceiling.
+  whether it is uncommitted.
 - **No dismounted movement**, and therefore no cross-country approach — for the
   enemy or for a block force moving to its position.
 - **Completeness is scoped to marked pairs** (see above).

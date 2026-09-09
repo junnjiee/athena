@@ -7,7 +7,6 @@ import type {
   BlockPlan,
   CorridorEdit,
   CourseFeedbackResult,
-  Echelon,
   EnemyIntent,
   OperationalAreaMeta,
   Orbat,
@@ -341,7 +340,6 @@ export async function createRouteStudy(payload: {
     // A new study has had neither pass run over it yet. Explicit nulls rather
     // than absent fields, so "not assessed" never reads as "nothing found".
     orbat: null,
-    ceiling: null,
     blockPlan: null,
     intent: null,
     courses: null,
@@ -423,15 +421,14 @@ export async function sendCourseFeedback(
 export async function runBlockForces(
   studyId: string,
   orbat: Orbat,
-  ceiling: Echelon,
-): Promise<{ orbat: Orbat; ceiling: Echelon; blockPlan: BlockPlan }> {
+): Promise<{ orbat: Orbat; blockPlan: BlockPlan }> {
   const res = await fetch(`/api/route-study/${studyId}/block-forces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orbat, ceiling }),
+    body: JSON.stringify({ orbat }),
   })
   if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()) as { orbat: Orbat; ceiling: Echelon; blockPlan: BlockPlan }
+  return (await res.json()) as { orbat: Orbat; blockPlan: BlockPlan }
 }
 
 /** The learned ranking weights, and how many verdicts produced them. */

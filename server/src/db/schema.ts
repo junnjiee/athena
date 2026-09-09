@@ -5,7 +5,6 @@ import type {
   BlockPlan,
   CorridorEdit,
   CourseFeatures,
-  Echelon,
   EnemyIntent,
   Orbat,
   RankedCourses,
@@ -112,10 +111,8 @@ export const routeStudies = pgTable('route_studies', {
   result: jsonb('result').$type<StudyResult>().notNull(),
   /** Operator renames and categories, keyed by corridor id. */
   corridorEdits: jsonb('corridor_edits').$type<Record<string, CorridorEdit>>().notNull(),
-  /** Force available for blocking, and the largest formation that may be
-   *  committed to any one corridor. Null until an S3 pass has been run. */
+  /** Force available for blocking. Null until an S3 pass has been run. */
   orbat: jsonb('orbat').$type<Orbat | null>(),
-  ceiling: text('ceiling').$type<Echelon | null>(),
   /** Last block-force result, cached like the corridor result above. */
   blockPlan: jsonb('block_plan').$type<BlockPlan | null>(),
   /** What the operator believes the enemy wants, and the courses of action the
