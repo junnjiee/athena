@@ -79,6 +79,11 @@ export function orbatIssues(units: OrbatUnit[]): string[] {
 export interface OrbatRow {
   unit: OrbatUnit
   depth: number
+  isLast: boolean
+  /** Whether each ancestor branch continues below this row. There is one
+   * entry for every guide level above the row's own elbow. */
+  ancestorHasNext: boolean[]
+  hasChildren: boolean
 }
 
 /** The tree flattened for display, parents before their children.
@@ -105,17 +110,29 @@ export function orbatRows(units: OrbatUnit[]): OrbatRow[] {
   const rows: OrbatRow[] = []
   const seen = new Set<string>()
 
-  function walk(unit: OrbatUnit, depth: number): void {
+  function walk(
+    unit: OrbatUnit,
+    depth: number,
+    ancestorHasNext: boolean[],
+    isLast: boolean,
+  ): void {
     if (seen.has(unit.unit_id)) return
     seen.add(unit.unit_id)
-    rows.push({ unit, depth })
-    for (const child of children.get(unit.unit_id) ?? []) walk(child, depth + 1)
+    const unitChildren = (children.get(unit.unit_id) ?? [])
+      .filter((child) => !seen.has(child.unit_id))
+    rows.push({ unit, depth, isLast, ancestorHasNext, hasChildren: unitChildren.length > 0 })
+    const childAncestors = depth === 0 ? [] : [...ancestorHasNext, !isLast]
+    unitChildren.forEach((child, index) => {
+      walk(child, depth + 1, childAncestors, index === unitChildren.length - 1)
+    })
   }
 
-  for (const root of roots) walk(root, 0)
+  roots.forEach((root, index) => walk(root, 0, [], index === roots.length - 1))
   // A parent cycle leaves its members out of every root's subtree. Listing them
   // flat is what makes the cycle fixable.
-  for (const unit of units) walk(unit, 0)
+  for (const unit of units) {
+    if (!seen.has(unit.unit_id)) walk(unit, 0, [], true)
+  }
   return rows
 }
 

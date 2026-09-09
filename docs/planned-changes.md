@@ -355,7 +355,11 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
 
 ## D. S3 — the force model
 
-- **A clear ORBAT of the current unit.** The model is already correct —
+- ~~**A clear ORBAT of the current unit.**~~ **Done** — the panel now renders
+  explicit command-tree connectors, nested depth and command-bearing formation
+  labels while retaining the existing inline editor for reassignment. S3 owns
+  the full lower sidebar instead of being squeezed beneath the S2 marks editor.
+  The model was already correct —
   `parent_id` hierarchy, `orbatRows()` flattening the tree into depth-ordered
   rows, plus `descendants`, `ancestors`, `validParents`, `commitsWith` in
   `lib/orbatTree.ts`, mirrored by the engine's validated `Orbat`. Today
