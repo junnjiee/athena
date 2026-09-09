@@ -30,6 +30,27 @@ export interface StudyRequest {
 
 export class EngineUnavailableError extends Error {}
 
+/** What the engine said, as a sentence rather than as its wire format.
+ *
+ *  FastAPI reports every failure as `{"detail": "..."}`, and that detail is
+ *  written for the operator -- "set ATHENA_MODEL and PROVIDER_API_KEY" is the
+ *  whole fix for the courses pass. Passing the raw body through instead buries
+ *  that sentence in JSON in a toast, which is how a one-line configuration fix
+ *  reads as the engine being broken. */
+async function engineFailure(response: Response): Promise<EngineUnavailableError> {
+  const body = await response.text().catch(() => '')
+  let detail = body
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    if (typeof parsed.detail === 'string') detail = parsed.detail
+  } catch {
+    // Not JSON -- an unhandled error renders as plain text. Use it as it came.
+  }
+  return new EngineUnavailableError(
+    detail.trim() ? detail.slice(0, 400) : `engine returned HTTP ${response.status}`,
+  )
+}
+
 export async function runRouteStudy(request: StudyRequest): Promise<StudyResult> {
   if (!config.engineUrl) {
     throw new EngineUnavailableError('ENGINE_URL is not set')
@@ -50,8 +71,7 @@ export async function runRouteStudy(request: StudyRequest): Promise<StudyResult>
   if (!response.ok) {
     // Never degraded into an empty study: no corridors reads as "no approaches
     // exist", which is the opposite of "we could not look".
-    const detail = await response.text().catch(() => '')
-    throw new EngineUnavailableError(`engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`)
+    throw await engineFailure(response)
   }
 
   return (await response.json()) as StudyResult
@@ -87,10 +107,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new EngineUnavailableError(
-      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
-    )
+    throw await engineFailure(response)
   }
 
   return (await response.json()) as BlockPlan
@@ -124,10 +141,7 @@ export async function runEnemyCourses(request: CoursesRequest): Promise<RankedCo
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new EngineUnavailableError(
-      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
-    )
+    throw await engineFailure(response)
   }
 
   return (await response.json()) as RankedCourses
@@ -163,10 +177,7 @@ export async function runPreferenceFeedback(request: {
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new EngineUnavailableError(
-      `engine returned HTTP ${response.status}: ${detail.slice(0, 200)}`,
-    )
+    throw await engineFailure(response)
   }
 
   return (await response.json()) as { weights: RankingWeights; features: CourseFeatures }

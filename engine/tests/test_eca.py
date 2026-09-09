@@ -1,6 +1,7 @@
 """Enemy courses of action: what the model is given, and what it is allowed back."""
 
 import pytest
+from pydantic_ai.exceptions import ModelHTTPError, UserError
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
@@ -9,6 +10,7 @@ from athena.eca import (
     CourseOfAction,
     DraftCourses,
     Effort,
+    NotConfiguredError,
     RefusedError,
     build_prompt,
     describe_corridors,
@@ -16,7 +18,9 @@ from athena.eca import (
     ground_courses,
     model_generator,
     rank_courses,
+    resolve_model,
 )
+from athena.params import ECA_API_KEY_ENV_VAR, ECA_MODEL, ECA_MODEL_ENV_VAR
 from athena.intent import EnemyIntent, Posture
 from athena.study import CorridorOut, Mark, RouteOut
 
@@ -285,3 +289,111 @@ def test_output_that_is_not_an_assessment_is_a_refusal() -> None:
     generate = model_generator(FunctionModel(declines))
     with pytest.raises(RefusedError):
         generate(system="assess", prompt="the ground")
+
+
+def test_a_missing_key_is_a_configuration_fault_not_a_refusal(monkeypatch) -> None:
+    """The one failure an operator can fix must say so.
+
+    Left uncaught this escapes as an unhandled error and reaches the app as a
+    bare 500, which is indistinguishable from the engine being broken.
+    """
+    monkeypatch.delenv(ECA_API_KEY_ENV_VAR, raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv(ECA_MODEL_ENV_VAR, "openai:gpt-5.6-sol")
+
+    generate = model_generator()
+    with pytest.raises(NotConfiguredError) as raised:
+        generate(system="assess", prompt="the ground")
+
+    # Naming both variables is the whole point: the message is what the
+    # operator reads, and it has to be actionable without the source.
+    assert ECA_MODEL_ENV_VAR in str(raised.value)
+    assert ECA_API_KEY_ENV_VAR in str(raised.value)
+
+
+def test_a_provider_that_cannot_be_resolved_is_a_configuration_fault(monkeypatch) -> None:
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.setenv(ECA_MODEL_ENV_VAR, "ollama:llama3.3")
+    monkeypatch.setenv(ECA_API_KEY_ENV_VAR, "sentinel-key")
+
+    generate = model_generator()
+    with pytest.raises(NotConfiguredError):
+        generate(system="assess", prompt="the ground")
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_a_key_or_model_the_provider_rejects_is_configuration(status: int) -> None:
+    """401, 403 and 404 are one operator action: fix the deployment."""
+
+    def rejects(messages: object, info: object) -> ModelResponse:
+        raise ModelHTTPError(status_code=status, model_name="test")
+
+    generate = model_generator(FunctionModel(rejects))
+    with pytest.raises(NotConfiguredError):
+        generate(system="assess", prompt="the ground")
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_a_rate_limit_or_an_outage_is_not_configuration(status: int) -> None:
+    """Retrying is the answer here, so it must not read as a broken .env."""
+
+    def unavailable(messages: object, info: object) -> ModelResponse:
+        raise ModelHTTPError(status_code=status, model_name="test")
+
+    generate = model_generator(FunctionModel(unavailable))
+    with pytest.raises(RefusedError):
+        generate(system="assess", prompt="the ground")
+
+
+class TestResolveModel:
+    """One variable names the model, one carries the key, and neither names a
+    provider. The engine takes no position on who supplies the judgement."""
+
+    def test_the_model_variable_is_the_only_thing_naming_a_model(self, monkeypatch):
+        monkeypatch.delenv(ECA_API_KEY_ENV_VAR, raising=False)
+        monkeypatch.setenv(ECA_MODEL_ENV_VAR, "anthropic:claude-opus-5")
+        assert resolve_model() == "anthropic:claude-opus-5"
+
+    def test_falls_back_to_the_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv(ECA_MODEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(ECA_API_KEY_ENV_VAR, raising=False)
+        assert resolve_model() == ECA_MODEL
+
+    def test_one_key_serves_whichever_provider_was_named(self, monkeypatch):
+        # The same variable reaches a different vendor's client each time, which
+        # is the whole point: swapping provider is a change of one other line.
+        monkeypatch.setenv(ECA_API_KEY_ENV_VAR, "sentinel-key")
+        for spec in ("anthropic:claude-opus-5", "openai:gpt-5.6-sol"):
+            monkeypatch.setenv(ECA_MODEL_ENV_VAR, spec)
+            model = resolve_model()
+            assert not isinstance(model, str)
+            assert "sentinel-key" in repr_api_key(model)
+
+    def test_without_a_key_resolution_is_left_entirely_to_pydantic_ai(self, monkeypatch):
+        # Deployments that already export a provider's own conventional variable
+        # keep working untouched: the engine only intervenes when asked to.
+        monkeypatch.setenv(ECA_MODEL_ENV_VAR, "anthropic:claude-opus-5")
+        monkeypatch.delenv(ECA_API_KEY_ENV_VAR, raising=False)
+        assert resolve_model() == "anthropic:claude-opus-5"
+
+    def test_an_explicit_model_object_is_never_overridden(self, monkeypatch):
+        # How the tests above drive this layer without a network, and how a
+        # caller pins a model the environment knows nothing about.
+        monkeypatch.setenv(ECA_API_KEY_ENV_VAR, "sentinel-key")
+        pinned = TestModel()
+        assert resolve_model(pinned) is pinned
+
+    def test_a_provider_that_cannot_be_resolved_is_reported(self, monkeypatch):
+        # Ollama needs a base URL, key or no key. Reported rather than quietly
+        # swapped for a provider that does resolve: an assessment from a vendor
+        # nobody chose is worse than no assessment.
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.setenv(ECA_MODEL_ENV_VAR, "ollama:llama3.3")
+        monkeypatch.setenv(ECA_API_KEY_ENV_VAR, "sentinel-key")
+        with pytest.raises(UserError):
+            resolve_model()
+
+
+def repr_api_key(model: object) -> str:
+    """The key as the provider's own client holds it."""
+    return str(getattr(getattr(model, "client", None), "api_key", ""))

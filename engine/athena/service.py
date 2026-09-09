@@ -16,6 +16,7 @@ from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
     CourseOfAction,
+    NotConfiguredError,
     RankedCourses,
     RefusedError,
     generate_courses,
@@ -151,8 +152,15 @@ def get_course_generator() -> CourseGenerator:
     return model_generator()
 
 
+# Sync on purpose, and the one endpoint here that is. The model call is
+# blocking -- pydantic-ai's `run_sync` drives its own event loop -- and calling
+# that from an `async def` handler raises "this event loop is already running",
+# which is a 500 on every request. Declared with plain `def`, FastAPI runs it in
+# a threadpool where there is no loop to collide with. Nothing in this endpoint
+# awaits: unlike the other two it needs no graph, so there is nothing to gain by
+# making it a coroutine and a working endpoint to lose.
 @app.post("/v1/enemy-courses-of-action", response_model=RankedCourses)
-async def enemy_courses(
+def enemy_courses(
     request: CoursesRequest,
     generator: CourseGenerator = Depends(get_course_generator),
 ) -> RankedCourses:
@@ -165,6 +173,11 @@ async def enemy_courses(
             generator,
             weights=request.weights,
         )
+    except NotConfiguredError as error:
+        # 503, not 502: nothing upstream failed, this deployment was never given
+        # a model to ask. The distinction is what tells an operator to edit the
+        # environment rather than retry.
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except RefusedError as error:
         # Never an empty list of courses: "the enemy has no options" and "we did
         # not get an answer" are opposite findings.

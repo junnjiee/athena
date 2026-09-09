@@ -1,19 +1,21 @@
 # Athena Engine
 
-TO AGENTS:
+> **To agents:** obtain explicit approval before writing to this file. Document
+> the behaviour of new features here, and raise any disagreement between this
+> document and the implementation rather than resolving it silently.
 
-- THIS IS A READ-ONLY FILE FOR AGENTS. YOU MUST OBTAIN EXPLICIT APPROVAL BEFORE WRITING TO THIS FILE
-- Always document the behaviour of new features here
-- If this document disagrees with actual implementation, it should always be brought up
+This document records what the Athena engine does and the modelling assumptions
+it does it under. It is the reference for the engine's behaviour; where it and
+the code disagree, that is a defect in one of them and worth raising rather than
+quietly working around.
 
-This doc records the Athena engine's behaviour and its modelling assumptions.
+The engine does not fight battles. It complements battle procedure. On the S2
+side it finds the routes an enemy reserve can reinforce along and assesses how
+that enemy would use them; on the S3 side it finds the block forces a unit could
+put against them. Everything here is deterministic except the courses-of-action
+pass, which is the only place a model reasons.
 
-The engine does not fight battles. It complements battle procedure: on the S2
-side it finds the routes an enemy reserve can reinforce along, and on the S3
-side it finds the block forces a unit can deploy against them. This document
-covers what is built: the route substrate, the enemy courses-of-action
-assessment, the learned ranking over it, and the block-force pass. Only the
-courses-of-action pass uses a model; everything else is deterministic.
+## How to read this document
 
 Three kinds of value appear below:
 
@@ -27,23 +29,24 @@ assumption, not a measurement.
 ## Authority and information boundaries
 
 - The **terrain service owns all state**: operational areas, marks, operator
-  edits. The engine stores nothing.
+  edits, learned weights. The engine stores nothing.
 - A study names an area; the engine **pulls** its graph, computes, and discards
-  it. Pulling rather than being handed the graph keeps request bodies small —
-  a real area is tens of thousands of edges.
+  it. Pulling rather than being handed the graph keeps request bodies small — a
+  real area is tens of thousands of edges.
 - The engine is **deterministic everywhere except the courses-of-action pass**:
   no RNG, ties broken on stable ids, the same request answering the same way.
-  Corridor identity depends on this, and so does the operator-feedback loop that
-  learns from it.
-- The engine **learns nothing on its own**. Ranking weights are supplied with a
-  request and returned changed; the terrain service stores them. A second
+  Corridor identity depends on this, and so does the feedback loop that learns
+  from it.
+- The engine **learns nothing on its own**. Ranking weights arrive with a
+  request and are returned changed; the terrain service stores them. A second
   deployment reading the same ground with neutral weights gets the doctrinal
   answer.
 
 ## The road graph
 
 Built by the terrain service (`server/src/services/roadGraph.ts`) and delivered
-as gzipped JSON.
+as gzipped JSON. Field names mirror the server's `RoadGraph` exactly, so the
+contract reads the same from either side.
 
 - A **node** is a junction or the free end of a road. Interior shape points are
   not nodes; an edge keeps its shape between them.
@@ -53,11 +56,12 @@ as gzipped JSON.
 
 ### Modelling assumptions
 
-- **`oneway` is ignored.** Every edge is traversable both ways. A reinforcing
-  enemy does not respect traffic direction. *Hardcoded rule.*
+- **`oneway` is ignored.** Every edge is traversable both ways; only the sign of
+  the gradient changes with direction. A reinforcing enemy does not respect
+  traffic direction. *Hardcoded rule.*
 - **Bridges and tunnels are ordinary edges.** No structural or demolition
-  modelling. A dropped bridge is an operator override, not engine knowledge.
-  *Hardcoded rule.*
+  modelling. A dropped bridge is an operator override — an excluded edge — not
+  engine knowledge. *Hardcoded rule.*
 - **Only drivable ways exist.** Routing is mounted-only; footways, paths,
   cycleways, bridleways and steps are never fetched. The engine is therefore
   blind to dismounted infiltration. *Hardcoded rule.*
@@ -84,7 +88,7 @@ column moves at the speed of its slowest vehicle and does not overtake.
 *Configurable today.*
 
 - **Climbing costs time.** Effective speed is divided by
-  `1 + GRADIENT_SPEED_PENALTY × gradient`. At the default of `2.0`, a 10% climb
+  `1 + GRADIENT_SPEED_PENALTY x gradient`. At the default of `2.0`, a 10% climb
   costs about 20% of the speed. *Configurable today.*
 - **Descending is not credited.** A loaded vehicle brakes downhill rather than
   making up time, so a descent costs the same as flat ground. *Hardcoded rule.*
@@ -95,23 +99,32 @@ column moves at the speed of its slowest vehicle and does not overtake.
 ## Route enumeration
 
 Yen's k-shortest paths is deliberately **not** used: its k routes differ by a
-block or two, which describes one approach k times. The goal is distinct
-avenues of approach.
+block or two, which describes one approach k times. The goal is distinct avenues
+of approach.
 
-**Iterative penalty search.** Take the quickest route, multiply its edges'
-costs by `PENALTY_FACTOR`, search again. A candidate is admitted only if:
+**Iterative penalty search.** Take the quickest route, multiply its edges' costs
+by `PENALTY_FACTOR` (1.6), search again. A candidate is admitted only if:
 
 - **Stretch** — within `MAX_STRETCH` (1.6) of the fastest route. An approach
   twice as slow is not a course of action.
 - **Sharing** — overlaps every accepted route by less than `MAX_SHARING` (0.7)
-  of its length.
+  of its own length.
+- **Not a repeat** — its exact edge set has not already been accepted.
 
-The search stops at `ROUTES_PER_PAIR` (8) accepted routes or
-`MAX_SEARCH_ITERATIONS` (40) attempts, so a graph that cannot supply K diverse
-routes terminates rather than grinding. All four are *configurable today*.
+The search stops at `ROUTES_PER_PAIR` (8) accepted routes, at
+`MAX_SEARCH_ITERATIONS` (40) attempts, or as soon as the cheapest remaining
+option exceeds the stretch limit — penalties only ever push the search further
+out, so nothing better follows. A graph that cannot supply K diverse routes
+terminates rather than grinding.
+
+`ROUTES_PER_PAIR`, `MAX_STRETCH` and `MAX_SHARING` are *configurable today* per
+request; `PENALTY_FACTOR` and `MAX_SEARCH_ITERATIONS` are function parameters
+with no request field, so they are *configurable today* in code only.
 
 Penalties steer the search only; a route's **reported** cost is always its true
-travel time.
+travel time. The underlying search is Dijkstra over travel time with ties broken
+on node id, so the same graph always yields the same route — corridor identity
+downstream depends on that.
 
 ### What "bounded exhaustive" guarantees
 
@@ -120,24 +133,26 @@ travel time.
 
 The engine is **complete within marked reserve–objective pairs and silent
 outside them**. It does not find approaches from ground nobody marked. This is
-the central limitation of the S2 output and should be stated wherever the
-result is shown.
+the central limitation of the S2 output and should be stated wherever the result
+is shown.
 
 ## Corridors
 
 A corridor is never asked of the graph directly — "mobility corridor" has no
-clean definition as a graph query. It is derived: routes running down much of
-the same ground *are* one approach.
+clean definition as a graph query. It is derived: routes running down much of the
+same ground *are* one approach.
 
 - Routes cluster **single-link agglomerative** on shared length, joining when
   similarity reaches `CORRIDOR_SIMILARITY` (0.4). Single-link suits an approach
   that bends: the two ends of a long corridor may share little with each other
   while both clearly belong to the middle. *Configurable today.*
-- Similarity is **symmetric** (shared length over the two routes' combined
-  length). A short route running inside a long one is not thereby the same
-  approach.
+- Similarity is **symmetric** — shared length counted on both routes, over the
+  two routes' combined length. A short route running entirely inside a long one
+  is not thereby the same approach, and an asymmetric measure would say it was.
 - Clustering runs **across all pairs**, not per pair: two reserves feeding the
   same valley are using one approach, and blocking it blocks both.
+- Corridors are returned **fastest first**, ties broken on corridor id. Routes
+  within a corridor are ordered by time, then by edge ids.
 
 ### Choke points
 
@@ -154,11 +169,12 @@ sited, and it is derived from terrain rather than asserted by an agent.
 
 ### Corridor identity
 
-Corridor ids are **derived from the ground covered** — a SHA-256 over the sorted
-union of member edge ids — never generated. Re-running over unchanged ground
-reproduces them exactly. Two things depend on this: operator renaming and
-categorisation survive re-enumeration, and the feedback loop has something
-stable to attach to across runs. *Hardcoded rule.*
+Corridor ids are **derived from the ground covered** — `cor_` plus the first 16
+hex characters of a SHA-256 over the sorted union of member edge ids — never
+generated. Re-running over unchanged ground reproduces them exactly. Two things
+depend on this: operator renaming and categorisation survive re-enumeration, and
+the feedback loop has something stable to attach to across runs. *Hardcoded
+rule.*
 
 ## Marks and snapping
 
@@ -167,15 +183,23 @@ so every mark is snapped to the **nearest node**. Distance is equirectangular at
 the mark's own latitude; ties break on node id, so a mark equidistant from two
 junctions always snaps to the same one. Marks are *scenario input*.
 
+A mark may carry a bounding box — an objective the operator drew as ground
+rather than clicked as a point. The engine ignores it: `lon`/`lat` is the centre,
+and routing goes to the node nearest that centre. The footprint is for the
+operator's map, not for the search. *Hardcoded rule.*
+
 ## Reporting absence
 
-A reserve–objective pair with no route is **reported, not dropped**. "We found
-no way in" is a finding; silently omitting the pair reads as "no threat". Two
-reasons are distinguished: no road network near the mark, and no drivable route
-between the marks.
+A reserve–objective pair with no route is **reported, not dropped**. "We found no
+way in" is a finding; silently omitting the pair reads as "no threat". Two
+reasons are distinguished:
 
-Likewise, an area whose graph cannot be fetched is a `502`, never an empty
-study — a study on ground nobody read would be a confident answer about nothing.
+- `no road network near this mark` — the graph has no nodes to snap to.
+- `no drivable route between these marks` — snapped, but nothing connects them
+  within the search's bounds.
+
+Likewise, an area whose graph cannot be fetched is a `502`, never an empty study
+— a study on ground nobody read would be a confident answer about nothing.
 
 ## Enemy courses of action
 
@@ -185,30 +209,34 @@ corridors, routes and ground are the route substrate's output, and the model
 supplies judgement over them rather than facts of its own.
 
 A course of action is a **scheme**, not a single move: exactly one main effort
-plus any supporting efforts. An assessment that could only ever name one
-corridor would describe a simpler enemy than the one being planned against.
+plus any supporting efforts. An assessment that could only ever name one corridor
+would describe a simpler enemy than the one being planned against.
+
+**With no corridors the model is not called at all.** Given nothing to reason
+over it would fill the silence, which is the failure the grounding check exists
+for. An empty corridor list returns an empty assessment without a model call.
 
 ### The model may not invent ground
 
 Every effort names a corridor id and a reserve id from the study. Anything else
 is rejected and **reported** in `rejected`, never rendered as a real approach. A
-model inventing a corridor is the failure this whole boundary exists to catch,
-so suppressing it would destroy the only evidence that it happened.
+model inventing a corridor is the failure this whole boundary exists to catch, so
+suppressing it would destroy the only evidence that it happened.
 
 A course failing the check is **dropped whole, not repaired**. Removing one
 effort leaves a scheme the model never proposed and nobody has judged.
 
-Two further rules are enforced on shape: a course must have at least one
-effort, and exactly one main effort. *Hardcoded rules.*
+Two further rules are enforced on shape: a course must have at least one effort,
+and exactly one main effort. *Hardcoded rules.*
 
 ### The model judges; the code ranks
 
 The model scores each course on **likelihood** (given the stated intent) and
 **danger** (cost to us if it happens) independently. The doctrinal pair — most
 likely and most dangerous — is then selected **in code** from those scores, not
-chosen by the model. One course can be both, and when it is, that is the finding
-rather than a fault. Ties break on name, so the same scores always name the same
-course. *Hardcoded rule.*
+chosen by the model, and before any learned weighting is applied. One course can
+be both, and when it is, that is the finding rather than a fault. Ties break on
+name, so the same scores always name the same course. *Hardcoded rule.*
 
 ### Intent
 
@@ -223,8 +251,11 @@ Two halves, because a staff officer works in both:
   It is the half no schema holds.
 
 Intent is *scenario input*. The posture set is deliberately short: it steers
-judgement rather than parameterising a calculation, and a longer list would
-imply a precision the engine has not got.
+judgement rather than parameterising a calculation, and a longer list would imply
+a precision the engine has not got.
+
+Intent is **empty** when the posture is unknown and the narrative blank. The
+engine names that condition and still answers; it does not refuse.
 
 ### What the model is shown
 
@@ -232,37 +263,68 @@ Corridor id, fastest time, how many routes, which reserves can use it, and
 whether it has a choke point. **Route geometry is withheld** — it would fill the
 context without changing any judgement being asked for.
 
-### Model and failure
+### Which model, and how it is configured
 
-**The engine takes no position on which model reasons.** It asks for a schema
-and is given one back; nothing about the call is shaped around a particular
-provider, and no vendor SDK is a dependency. The model is named as
-`provider:name` — `openai:gpt-5.6-sol` by default, overridden by
-`ATHENA_ECA_MODEL` — and resolved by pydantic-ai. Changing provider is a change
-of environment, not of code. *Configurable today* in `athena/params.py`, along
-with the token ceiling and the system prompt.
+**The engine takes no position on which model reasons.** It asks for a schema and
+is given one back; nothing about the call is shaped around a particular provider,
+and no vendor SDK is a dependency. The model is named as `provider:name` —
+`openai:gpt-5.6-sol` by default, overridden by `ATHENA_MODEL` — and resolved by
+pydantic-ai. Its key comes from a single `PROVIDER_API_KEY` rather than a
+vendor-specific variable, handed to whichever provider class pydantic-ai maps
+that prefix to; the engine holds no table of providers and names none. Changing
+provider is a change of environment, not of code. *Configurable today* in
+`athena/params.py`, along with the token ceiling (`ECA_MAX_TOKENS`, 16000) and
+the system prompt.
+
+With `PROVIDER_API_KEY` unset the model name is passed through untouched and key
+resolution falls entirely to pydantic-ai, which reads whichever conventional
+variable that provider expects. A deployment already exporting one keeps working
+untouched.
+
+A provider that cannot be resolved **raises rather than being swapped** for one
+that can. Everywhere else in the engine an unanswerable question is reported
+instead of answered badly, and a silent fallback to a different vendor's
+judgement would be the worst instance of it.
 
 Nothing is asked of the model that only one provider offers. Reasoning effort in
 particular is not set: models that reason do so on their own terms, and a knob
 that exists on one vendor's API is not a modelling assumption this engine makes.
 
-- **With no corridors the model is not called at all.** Given nothing to reason
-  over it would fill the silence, which is the failure the grounding check
-  exists for.
-- **Anything that is not an assessment raises rather than returning an empty
-  list.** A decline, a truncated response and a wall of prose are one case here:
-  no courses came back. "The enemy has no options" and "we did not get an
-  answer" are opposite findings, and the second must never be rendered as the
-  first. The engine deliberately does not read a provider's own refusal
-  vocabulary to tell these apart — it would be reading one vendor's stop codes,
-  and the distinction changes nothing an operator does. *Hardcoded rule.*
-- **A transport or API failure is not a refusal** and propagates as itself.
+### Three ways this pass fails, kept apart
+
+An empty list of courses must never be how a failure reaches an operator: "the
+enemy has no options" and "we did not get an answer" are opposite findings. The
+three failures are distinguished because each is a different action.
+
+| Failure | Raised as | HTTP | What the operator does |
+| --- | --- | --: | --- |
+| No model configured to ask | `NotConfiguredError` | `503` | Set `ATHENA_MODEL` and `PROVIDER_API_KEY` in the engine's environment |
+| Model reached, no assessment came back | `RefusedError` | `502` | Read the message; retry, or reconsider the intent |
+| Model unreachable — rate limit, outage | `RefusedError` | `502` | Try again |
+
+- **Not configured** covers a missing key, a provider that cannot be resolved,
+  and a provider rejecting the key or the model name (`401`, `403`, `404` from
+  upstream). All three are one operator action — fix the deployment — and none is
+  a finding about the enemy. It is a `503` rather than a `502` because nothing
+  upstream failed: this deployment was never given a model to ask. The message
+  names both environment variables, because it is read in the app rather than in
+  a stack trace. *Hardcoded rule.*
+- **Refusal** covers a decline, a truncation and a wall of prose alike. The
+  engine deliberately does not read a provider's own refusal vocabulary to tell
+  these apart — it would be reading one vendor's stop codes, and the distinction
+  changes nothing an operator does. *Hardcoded rule.*
+- **Upstream unavailability** (any other provider HTTP status) is not
+  configuration: the answer is to retry, not to edit anything.
+
+The terrain service surfaces the engine's own sentence rather than its wire
+format, so a one-line configuration fix does not reach the operator as an opaque
+failure.
 
 ## Learned ranking
 
-Two commanders reading the same study reasonably attend to different things:
-one to speed, another to what can actually be blocked. The engine learns which,
-from what the operator accepts and rejects.
+Two commanders reading the same study reasonably attend to different things: one
+to speed, another to what can actually be blocked. The engine learns which, from
+what the operator accepts and rejects.
 
 ### What is learned, and what is not
 
@@ -289,34 +351,39 @@ Five features, each 0-1, each named for something a commander would say aloud:
 | `danger` | The model's own score |
 
 `speed` is relative to the study rather than absolute, so "fast" means the same
-thing whether the ground spans five minutes or five hours. `complexity`
-saturates at three efforts — beyond that the difference stops being one a
-commander would act on.
+thing whether the ground spans five minutes or five hours. `complexity` saturates
+at three efforts — beyond that the difference stops being one a commander would
+act on. A course whose efforts name no corridor in the study scores zero on
+`speed` and `blockable`.
 
 ### The update rule
 
-Weights start neutral at `0.5`, and neutral means the ranking is purely
-doctrinal. On a verdict, each weight moves by
+Weights start neutral at `PREFERENCE_NEUTRAL` (0.5), and neutral means the
+ranking is purely doctrinal. On a verdict, each weight moves by
 `rate x (feature - 0.5)`, positive on accept and negative on reject, clamped to
 `[0, 1]`.
 
-In words: **accepting a course that was strong on a feature raises that
-feature's weight; rejecting it lowers it.** A course that was unremarkable on a
-feature barely moves that weight, which is what stops one verdict from dragging
-the whole vector. `PREFERENCE_LEARNING_RATE` is `0.1` — deliberately low, so a
-commander does not find the ranking transformed because they dismissed one
-course on a Tuesday. Both values are *configurable today*.
+In words: **accepting a course that was strong on a feature raises that feature's
+weight; rejecting it lowers it.** A course that was unremarkable on a feature
+barely moves that weight, which is what stops one verdict from dragging the whole
+vector. `PREFERENCE_LEARNING_RATE` is `0.1` — deliberately low, so a commander
+does not find the ranking transformed because they dismissed one course on a
+Tuesday. Both values are *configurable today*.
 
 Accepting and then rejecting the same course returns the weights exactly where
 they started.
 
+Ordering scores each course as its features weighted by the weight vector,
+normalised by the weights' sum, highest first with ties broken on name. While the
+weights are neutral the list is returned in doctrinal order untouched.
+
 ### Visible and resettable
 
-The rule is arithmetic an operator can follow, the weights are readable, and
-they can be reset to neutral. A ranking that drifts for reasons nobody can see
-is worse than no ranking at all — which is also why the terrain service keeps
-every verdict and the feature vector that produced it, rather than only the
-current weights.
+The rule is arithmetic an operator can follow, the weights are readable, and they
+can be reset to neutral. A ranking that drifts for reasons nobody can see is
+worse than no ranking at all — which is also why the terrain service keeps every
+verdict and the feature vector that produced it, rather than only the current
+weights.
 
 ## Order of battle
 
@@ -326,31 +393,33 @@ requirement, so the operator supplies it per study. The ORBAT is *scenario
 input*.
 
 Athena models organisation down from a company — company, platoon, section,
-group. Nothing above a company exists, so a company is always the root of a
-tree. Each unit carries its location, strength and availability.
+group. Nothing above a company exists, so a company is always the root of a tree.
+Each unit carries its location, strength and availability.
 
 ### Role follows the echelon commanded
 
-Role is not stored on a unit. It is derived from the echelon that unit
-commands: a company or platoon is commanded by an officer, a section by a
-sergeant, a group by a man. That keeps one fact in one place — promote a unit by
-giving it command of a larger formation, not by editing two fields that can
-disagree. A group being led by a man holding an appointment rather than by a
-sergeant is doctrine, not an approximation. *Hardcoded rule.*
+Role is not stored on a unit. It is derived from the echelon that unit commands:
+a company or platoon is commanded by an officer, a section by a sergeant, a group
+by a man. That keeps one fact in one place — promote a unit by giving it command
+of a larger formation, not by editing two fields that can disagree. A group being
+led by a man holding an appointment rather than by a sergeant is doctrine, not an
+approximation. *Hardcoded rule.*
 
 ### The tree rule, and why there is no cycle check
 
 A unit's parent must sit at a **strictly higher echelon**. Because echelon depth
-strictly decreases on every step upward and is bounded below by zero, that
-single rule also makes parent cycles impossible. The engine therefore has no
-separate cycle check, and does not need one. Ids must be unique and every named
-parent must exist. *Hardcoded rule.*
+strictly decreases on every step upward and is bounded below by zero, that single
+rule also makes parent cycles impossible. The engine therefore has no separate
+cycle check, and does not need one. Ids must be unique and every named parent
+must exist. *Hardcoded rule.*
 
 ### Availability
 
 Only an **uncommitted** unit is offered as a block force. A `committed` unit is
 already doing something the commander decided mattered more, and offering it as
 free would quietly propose breaking that. A `reserve` unit is likewise withheld.
+Available units are offered **largest echelon first**, so a commander sees the
+formed body before its parts — a force is offered up rather than broken up.
 Availability is *scenario input*.
 
 ### Committing spends the tree in both directions
@@ -382,15 +451,16 @@ company. Expressed on echelon depth so it cannot disagree with the tree rule.
 ### Distance is not time
 
 The engine **does not model arrival**. Candidates for a corridor are ordered by
-straight-line distance from the unit to the choke point, and the allocation
-serves the quickest corridor first on the grounds that it is the one the enemy
-reaches soonest.
+straight-line distance from the unit to the nearest vertex of the choke point —
+equirectangular at the unit's own latitude — and the allocation serves the
+quickest corridor first on the grounds that it is the one the enemy reaches
+soonest.
 
-Neither is a claim about who arrives first. Distance is not road distance and
-not travel time; it exists because with arrival time excluded nothing else
+Neither is a claim about who arrives first. Distance is not road distance and not
+travel time; it exists because with arrival time excluded nothing else
 distinguishes which unit blocks which corridor, and the alternative output is
-every unit against every approach. **The race remains the commander's
-judgement.** *Hardcoded rule.*
+every unit against every approach. **The race remains the commander's judgement.**
+*Hardcoded rule.*
 
 ### Allocation
 
@@ -414,27 +484,59 @@ resourcing problem while the first is not.
 ## HTTP surface
 
 ```
-GET  /health
-POST /v1/route-study     { area_id | graph, reserves[], objectives[], ...params }
-                         -> { corridors[], unreachable[] }
-POST /v1/block-forces    { area_id | graph, corridors[], orbat, ceiling }
-                         -> { corridors[], allocation[], unblockable[], uncovered[] }
+GET  /health            -> { ok }
+
+POST /v1/route-study    { area_id | graph, reserves[], objectives[],
+                          routes_per_pair?, max_stretch?, max_sharing?,
+                          corridor_similarity?, excluded_edge_ids? }
+                        -> { corridors[], unreachable[] }
+
+POST /v1/block-forces   { area_id | graph, corridors[], orbat, ceiling }
+                        -> { corridors[], allocation[], unblockable[], uncovered[] }
+
 POST /v1/enemy-courses-of-action
-                         { corridors[], reserves[], objectives[], intent, weights? }
-                         -> { courses[], most_likely, most_dangerous, rejected[] }
+                        { corridors[], reserves[], objectives[], intent, weights? }
+                        -> { courses[], most_likely, most_dangerous, rejected[] }
+
 POST /v1/preference/feedback
-                         { weights, course, corridors[], verdict }
-                         -> { weights, features }
+                        { weights, course, corridors[], verdict }
+                        -> { weights, features }
 ```
+
+Request bounds on `/v1/route-study`: `routes_per_pair` 1–32, `max_stretch` above
+1.0, `max_sharing` above 0 and at most 1.0, `corridor_similarity` 0–1.
+
+`excluded_edge_ids` carries the operator's own knowledge of the ground — a
+dropped bridge, a flooded ford — which the engine has no way of knowing on its
+own.
 
 The courses endpoint takes no graph: it reasons about which approaches an enemy
 would use, not about the ground beneath them, and the corridors already carry
 everything that judgement rests on.
 
-`area_id` is resolved against `TERRAIN_SERVICE_URL`. `graph` is accepted
-directly so the engine can be exercised without a terrain service running. A
-graph that cannot be fetched is a `502` on either endpoint, never an empty
+`area_id` is resolved against `TERRAIN_SERVICE_URL`. `graph` is accepted directly
+so the engine can be exercised without a terrain service running.
+
+| Status | Meaning |
+| --: | --- |
+| `400` | Neither `area_id` nor `graph` given; or a study with no reserves or no objectives |
+| `502` | The area's graph could not be fetched; or the model was reached and no assessment came back |
+| `503` | No model is configured for the courses-of-action pass |
+
+A graph that cannot be fetched is a `502` on either endpoint, never an empty
 answer.
+
+### Running the engine
+
+The engine reads `os.environ` directly and loads no file of its own. A plain `uv
+run` therefore ignores `.env`, and the courses-of-action pass then fails as
+unconfigured; start it with the env file:
+
+```
+uv run --env-file .env uvicorn athena.service:app --port 8000
+```
+
+Under Docker the variables are passed in by compose, so no file is read.
 
 ## Known limits
 
@@ -454,22 +556,25 @@ answer.
   expecting to regenerate it.
 - **An assessment is only as good as the intent it was given.** With no posture
   and no narrative the model has nothing but terrain, and what comes back is
-  geography rather than intelligence. The engine reports when intent is empty;
-  it does not refuse.
+  geography rather than intelligence. The engine reports when intent is empty; it
+  does not refuse.
 - **The model's scores are judgement, not measurement.** Likelihood and danger
-  are its opinion on a scale, not probabilities derived from anything. They
-  order courses; they do not quantify risk.
+  are its opinion on a scale, not probabilities derived from anything. They order
+  courses; they do not quantify risk.
+- **An objective's area is not modelled.** An objective drawn as ground routes to
+  its centre like any other mark; the engine does not consider approaches to its
+  edges or its extent.
 - **Learned weights are one deployment's taste, not doctrine.** They reflect
-  whoever has been giving verdicts on this instance. Reset them when the
-  operator changes, or read them and decide whether they still describe the
-  commander being served.
+  whoever has been giving verdicts on this instance. Reset them when the operator
+  changes, or read them and decide whether they still describe the commander
+  being served.
 - **A rejected reference means the assessment was incomplete.** Courses that
   named ground which does not exist were dropped, so what remains is a subset of
-  what the model proposed — read `rejected` before treating the list as the
-  whole answer.
-- **The allocation is one greedy pass, not an optimum.** It serves urgency
-  first and never backtracks, so a different assignment may cover more
-  corridors. It is a starting point for a commander, not a solution.
+  what the model proposed — read `rejected` before treating the list as the whole
+  answer.
+- **The allocation is one greedy pass, not an optimum.** It serves urgency first
+  and never backtracks, so a different assignment may cover more corridors. It is
+  a starting point for a commander, not a solution.
 - **Weather, surface condition, and traffic are not modelled.**
 - **No corridor is found from unmarked ground.** The operator's marks bound the
   entire analysis.

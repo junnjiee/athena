@@ -1,15 +1,12 @@
-import { Triangle, Map, ClipboardList, Radar, Route, Users, Settings } from 'lucide-react'
+import { Triangle, Route, Settings } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-/** Battleground/Plans/Routes/Settings have real pages -- the rest stay
- *  non-interactive stubs (no `path`) rather than wiring up routes that don't
- *  exist yet. Tracked in issues #54-#58. */
+/** Only the two surfaces a commander actually works in today. The tactical
+ *  battleground, plans, intel and units pages still answer on their URLs, but
+ *  none of them carry the route-substrate workflow, so putting them in the rail
+ *  only offers dead ends. */
 const NAV_ITEMS = [
-  { label: 'Battleground', icon: Map, path: '/' },
-  { label: 'Plans', icon: ClipboardList, path: '/plans' },
-  { label: 'Routes', icon: Route, path: '/route-studies' },
-  { label: 'Intel', icon: Radar, path: '/intel' },
-  { label: 'Units', icon: Users, path: '/units' },
+  { label: 'Planning', icon: Route, path: '/route-studies' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 
@@ -27,19 +24,16 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-1 px-3">
         {NAV_ITEMS.map(({ label, icon: Icon, path }) => {
-          const active = path !== null && location.pathname === path
+          const active = location.pathname === path
           return (
             <button
               key={label}
               type="button"
-              disabled={path === null}
-              onClick={path ? () => navigate(path) : undefined}
+              onClick={() => navigate(path)}
               className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                 active
                   ? 'bg-white/10 text-(--text-h)'
-                  : path === null
-                    ? 'cursor-not-allowed text-(--text-dim)'
-                    : 'text-(--text) hover:bg-white/5 hover:text-(--text-h)'
+                  : 'text-(--text) hover:bg-white/5 hover:text-(--text-h)'
               }`}
             >
               {active && (

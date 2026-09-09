@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
 import {
   AlertTriangle,
+  Brain,
   Crosshair,
   Flag,
   Loader2,
@@ -9,25 +10,35 @@ import {
   MapPinned,
   Plus,
   Radar,
+  Route as RouteIcon,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
+  Users,
 } from 'lucide-react'
 import { OperationalGlobe } from '../components/globe/OperationalGlobe'
 import { MapControls } from '../components/globe/MapControls'
+import { NextStepGuide } from '../components/panels/NextStepGuide'
 import { Sidebar } from '../components/layout/Sidebar'
+import { BlockForcePanel } from '../components/panels/BlockForcePanel'
 import { CorridorEditorPanel } from '../components/panels/CorridorEditorPanel'
+import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
+import { OrbatPanel } from '../components/panels/OrbatPanel'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { useMapControls } from '../hooks/useMapControls'
 import {
   createOperationalArea,
+  deleteOperationalArea,
   deleteRouteStudy,
   fetchOperationalArea,
   fetchOperationalGraph,
   listOperationalAreas,
   listRouteStudies,
 } from '../lib/api'
+import { courseEmphasis } from '../lib/courses'
+import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
-import { computeRectangleStats, flyToSelectionPreview } from '../lib/selectionGeometry'
+import { computeRectangleStats } from '../lib/selectionGeometry'
 import { subscribeBattleground } from '../lib/socket'
 import { useRouteStudy } from '../state/routeStudy'
 import type { LonLat } from '../types/entities'
@@ -35,13 +46,28 @@ import type { SelectionResult } from '../types/selection'
 import type { ProgressEvent, ReasoningStep } from '../types/terrain'
 import type {
   Corridor,
+  Echelon,
   OperationalAreaMeta,
   OperationalToolMode,
+  OrbatUnit,
   RoadGraph,
   RouteStudySummary,
   StudyMark,
   StudyMarkKind,
 } from '../types/routeStudy'
+
+/** The four passes over one study, in the order a staff runs them: the ground,
+ *  then what the enemy does with it, then what we have, then what we put on
+ *  it. Tabs rather than stacked panels — they answer different questions and
+ *  four at once is a wall. */
+type WorkspaceTab = 'corridors' | 'courses' | 'orbat' | 'block'
+
+const WORKSPACE_TABS: { id: WorkspaceTab; label: string; icon: typeof Radar }[] = [
+  { id: 'corridors', label: 'Ground', icon: RouteIcon },
+  { id: 'courses', label: 'Enemy', icon: Brain },
+  { id: 'orbat', label: 'ORBAT', icon: Users },
+  { id: 'block', label: 'Block', icon: ShieldCheck },
+]
 
 type LibraryState =
   | { kind: 'loading' }
@@ -51,6 +77,13 @@ type LibraryState =
 type AreaPhase = 'idle' | 'generating'
 
 const OPERATIONAL_MIN_EXTENT_METERS = 10_000
+
+/** Below this, a drag was a click: the operator meant a bridge or a junction,
+ *  not ground, so the objective is stored as a point with no footprint. */
+const OBJECTIVE_MIN_EXTENT_METERS = 150
+
+/** How long a freshly placed mark stays called out in the marks list. */
+const MARK_HIGHLIGHT_MS = 2_500
 const AREA_TIMEOUT_MS = 180_000
 
 const AREA_STEP_LABELS: [ReasoningStep['id'], string][] = [
@@ -87,6 +120,20 @@ function rectangleFor(area: OperationalAreaMeta): Cesium.Rectangle {
   return Cesium.Rectangle.fromDegrees(area.bbox.west, area.bbox.south, area.bbox.east, area.bbox.north)
 }
 
+/** Cesium frames a rectangle destination edge to edge, which puts the boundary
+ *  exactly on the viewport border where it reads as no boundary at all. Frame a
+ *  padded copy so all four sides land inside the glass. */
+function withFramingMargin(rectangle: Cesium.Rectangle): Cesium.Rectangle {
+  const marginWidth = rectangle.width * 0.25
+  const marginHeight = rectangle.height * 0.25
+  return new Cesium.Rectangle(
+    rectangle.west - marginWidth,
+    rectangle.south - marginHeight,
+    rectangle.east + marginWidth,
+    rectangle.north + marginHeight,
+  )
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -105,6 +152,8 @@ export function RouteStudiesPage() {
   const [areaError, setAreaError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [tab, setTab] = useState<WorkspaceTab>('corridors')
+  const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const areaGenerationRef = useRef(0)
   const areaUnsubscribeRef = useRef<(() => void) | null>(null)
 
@@ -114,6 +163,8 @@ export function RouteStudiesPage() {
   const studyError = useRouteStudy((state) => state.error)
   const selectedCorridorId = useRouteStudy((state) => state.selectedCorridorId)
   const addMark = useRouteStudy((state) => state.addMark)
+  const lastMarkId = useRouteStudy((state) => state.lastMarkId)
+  const clearLastMark = useRouteStudy((state) => state.clearLastMark)
   const removeMark = useRouteStudy((state) => state.removeMark)
   const renameMark = useRouteStudy((state) => state.renameMark)
   const runStudy = useRouteStudy((state) => state.run)
@@ -124,6 +175,29 @@ export function RouteStudiesPage() {
   const categoriseCorridor = useRouteStudy((state) => state.categoriseCorridor)
   const toggleChoke = useRouteStudy((state) => state.toggleChoke)
   const dismissStudyError = useRouteStudy((state) => state.dismissError)
+
+  const intent = useRouteStudy((state) => state.intent)
+  const coursesPhase = useRouteStudy((state) => state.coursesPhase)
+  const selectedCourseName = useRouteStudy((state) => state.selectedCourseName)
+  const preferences = useRouteStudy((state) => state.preferences)
+  const setIntent = useRouteStudy((state) => state.setIntent)
+  const toggleIntentObjective = useRouteStudy((state) => state.toggleIntentObjective)
+  const selectCourse = useRouteStudy((state) => state.selectCourse)
+  const assessCourses = useRouteStudy((state) => state.assessCourses)
+  const judgeCourse = useRouteStudy((state) => state.judgeCourse)
+  const loadPreferences = useRouteStudy((state) => state.loadPreferences)
+
+  const orbatUnits = useRouteStudy((state) => state.orbatUnits)
+  const ceiling = useRouteStudy((state) => state.ceiling)
+  const selectedUnitId = useRouteStudy((state) => state.selectedUnitId)
+  const addUnit = useRouteStudy((state) => state.addUnit)
+  const updateUnit = useRouteStudy((state) => state.updateUnit)
+  const removeUnit = useRouteStudy((state) => state.removeUnit)
+  const selectUnit = useRouteStudy((state) => state.selectUnit)
+  const setCeiling = useRouteStudy((state) => state.setCeiling)
+
+  const blockPhase = useRouteStudy((state) => state.blockPhase)
+  const planBlocks = useRouteStudy((state) => state.planBlocks)
 
   const {
     handleViewerReady,
@@ -142,6 +216,23 @@ export function RouteStudiesPage() {
     () => (graph && study ? corridorLines(study.result.corridors, graph) : []),
     [graph, study],
   )
+
+  const selectedCourse = useMemo(
+    () => study?.courses?.courses.find((course) => course.name === selectedCourseName) ?? null,
+    [study, selectedCourseName],
+  )
+
+  // Only while the enemy tab is open: emphasis is an answer to "how would they
+  // use this ground", and leaving corridors faded behind an ORBAT edit would
+  // dim the map for a question nobody is asking.
+  const emphasis = useMemo(
+    () => (tab === 'courses' ? courseEmphasis(selectedCourse) : new Map<string, 'main' | 'supporting'>()),
+    [tab, selectedCourse],
+  )
+
+  useEffect(() => {
+    void loadPreferences()
+  }, [loadPreferences])
 
   const refreshLibrary = useCallback(async () => {
     const [studies, areas] = await Promise.all([listRouteStudies(), listOperationalAreas()])
@@ -173,11 +264,31 @@ export function RouteStudiesPage() {
     areaUnsubscribeRef.current?.()
   }, [])
 
+  // Every armed tool takes the globe hostage to some degree -- the rectangle
+  // ones stop the camera outright. Escape is the way out of all of them.
+  useEffect(() => {
+    if (toolMode === 'navigate') return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setToolMode('navigate')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [toolMode])
+
+  useEffect(() => {
+    if (!lastMarkId) return
+    const timer = setTimeout(clearLastMark, MARK_HIGHLIGHT_MS)
+    return () => clearTimeout(timer)
+  }, [lastMarkId, clearLastMark])
+
+  /** Opens on the whole area rather than the oblique close-up a tactical
+   *  selection gets: the black boundary is only worth drawing if the operator
+   *  can see all four sides of it, and 18 km of ground is a map problem, not a
+   *  standing-on-the-hill one. */
   function frameArea(nextArea: OperationalAreaMeta) {
     const rectangle = rectangleFor(nextArea)
     setSelectionZoomCap(rectangle)
-    const viewer = getViewer()
-    if (viewer) flyToSelectionPreview(viewer, rectangle)
+    getViewer()?.camera.setView({ destination: withFramingMargin(rectangle) })
   }
 
   function cancelAreaGeneration() {
@@ -235,6 +346,12 @@ export function RouteStudiesPage() {
     } finally {
       setBusyId(null)
     }
+  }
+
+  /** Tool buttons toggle. An armed rectangle tool holds the camera still, so
+   *  clicking the lit button has to be a way out of it, not a no-op. */
+  function armTool(mode: OperationalToolMode) {
+    setToolMode(toolMode === mode ? 'navigate' : mode)
   }
 
   function beginNewArea() {
@@ -341,18 +458,52 @@ export function RouteStudiesPage() {
     }
   }
 
-  function handlePlace(mode: 'place-reserve' | 'place-study-objective', position: LonLat) {
-    if (!area) return
+  function insideArea(longitude: number, latitude: number): boolean {
+    if (!area) return false
     const { bbox } = area
-    if (
-      position.longitude < bbox.west || position.longitude > bbox.east ||
-      position.latitude < bbox.south || position.latitude > bbox.north
-    ) {
-      setWorkspaceError('Place study marks inside the selected operational area.')
+    return (
+      longitude >= bbox.west && longitude <= bbox.east &&
+      latitude >= bbox.south && latitude <= bbox.north
+    )
+  }
+
+  function handlePlace(mode: 'place-reserve' | 'place-orbat-unit', position: LonLat) {
+    if (!area) return
+    if (!insideArea(position.longitude, position.latitude)) {
+      setWorkspaceError('Place marks and units inside the black operational boundary.')
       return
     }
     setWorkspaceError(null)
-    addMark(mode === 'place-reserve' ? 'reserve' : 'objective', position.longitude, position.latitude)
+    if (mode === 'place-orbat-unit') {
+      addUnit(placingEchelon, position.longitude, position.latitude)
+      return
+    }
+    addMark('reserve', position.longitude, position.latitude)
+  }
+
+  /** An objective drawn as ground. A drag too small to be ground was a click,
+   *  so it lands as a plain point — the engine routes to the centre either way,
+   *  and a bridge should not acquire a footprint it does not have. */
+  function handleObjectiveArea(result: SelectionResult) {
+    if (!area) return
+    const { centerLongitude, centerLatitude, widthMeters, heightMeters } = result.stats
+    if (!insideArea(centerLongitude, centerLatitude)) {
+      setWorkspaceError('Draw objectives inside the black operational boundary.')
+      return
+    }
+    setWorkspaceError(null)
+    const isArea =
+      widthMeters >= OBJECTIVE_MIN_EXTENT_METERS && heightMeters >= OBJECTIVE_MIN_EXTENT_METERS
+    addMark('objective', centerLongitude, centerLatitude, {
+      bbox: isArea
+        ? {
+            west: Cesium.Math.toDegrees(result.rectangle.west),
+            south: Cesium.Math.toDegrees(result.rectangle.south),
+            east: Cesium.Math.toDegrees(result.rectangle.east),
+            north: Cesium.Math.toDegrees(result.rectangle.north),
+          }
+        : undefined,
+    })
   }
 
   async function submitStudy() {
@@ -376,6 +527,26 @@ export function RouteStudiesPage() {
     }
   }
 
+  async function handleDeleteArea(item: OperationalAreaMeta) {
+    const dependents = library.kind === 'ready'
+      ? library.studies.filter((summary) => summary.areaId === item.id)
+      : []
+    const tail = dependents.length === 0
+      ? ''
+      : ` The ${dependents.length} route ${dependents.length === 1 ? 'study' : 'studies'} over it go too.`
+    if (!window.confirm(`Delete "${item.name}"?${tail} This can't be undone.`)) return
+    setBusyId(item.id)
+    try {
+      await deleteOperationalArea(item.id)
+      if (area?.id === item.id) beginNewArea()
+      await refreshLibrary()
+    } catch (error: unknown) {
+      setWorkspaceError(error instanceof Error ? error.message : 'failed to delete operational area')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function handleDeleteStudy(summary: RouteStudySummary) {
     if (!window.confirm(`Delete "${summary.name}"? This can't be undone.`)) return
     setBusyId(summary.id)
@@ -390,6 +561,10 @@ export function RouteStudiesPage() {
     }
   }
 
+  function locateUnit(unit: OrbatUnit) {
+    flyToPositions([{ longitude: unit.lon, latitude: unit.lat }])
+  }
+
   function locateCorridor(corridor: Corridor) {
     if (!graph) return
     const points = corridor.routes.flatMap((route) => route.edge_ids)
@@ -402,16 +577,70 @@ export function RouteStudiesPage() {
   const marksDirty = study !== null && JSON.stringify(marks) !== JSON.stringify(study.marks)
   const runningStudy = phase === 'running'
 
+  const progress: PlanningProgress = {
+    hasSelection: selection !== null,
+    hasArea: area !== null,
+    reserveCount: marks.reserves.length,
+    objectiveCount: marks.objectives.length,
+    hasStudy: study !== null,
+    marksDirty,
+    hasCourses: study?.courses != null,
+    unitCount: orbatUnits.length,
+    hasBlockPlan: study?.blockPlan != null,
+  }
+  const steps = planningSteps(progress)
+  const step = currentPlanningStep(progress)
+
+  // The armed tool's own instruction outranks the workflow's, and every tool
+  // says how to get back out of it.
+  const toolHint =
+    toolMode === 'select-area'
+      ? 'Drag a rectangle between 10 and 50 km per side. Esc to cancel.'
+      : toolMode === 'place-reserve'
+        ? 'Click inside the black boundary to place an enemy reserve. Esc when done.'
+        : toolMode === 'draw-objective-area'
+          ? 'Drag a box over the objective inside the black boundary. Esc when done.'
+          : toolMode === 'place-orbat-unit'
+            ? 'Click inside the black boundary to place a unit of your force. Esc when done.'
+            : null
+
+  /** The one control that moves the current step along, when it is not already
+   *  on screen. The ingest step is deliberately absent: its panel is open with
+   *  a name to type and its own button underneath. */
+  const stepAction: { label: string; run: () => void } | null =
+    step === null || step.id === 'ingest'
+      ? null
+      : step.id === 'area'
+        ? { label: 'Select area', run: () => setToolMode('select-area') }
+        : step.id === 'reserves'
+          ? { label: 'Place reserve', run: () => setToolMode('place-reserve') }
+          : step.id === 'objectives'
+            ? { label: 'Draw objective', run: () => setToolMode('draw-objective-area') }
+            : step.id === 'run'
+              ? { label: 'Run study', run: () => void submitStudy() }
+              : step.id === 'enemy'
+                ? { label: 'Open Enemy', run: () => setTab('courses') }
+                : step.id === 'force'
+                  ? { label: 'Open ORBAT', run: () => { setTab('orbat'); setToolMode('place-orbat-unit') } }
+                  : { label: 'Open Block', run: () => setTab('block') }
+
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
       <div className="absolute inset-0">
         <OperationalGlobe
           toolMode={toolMode}
           resetToken={resetToken}
+          areaBbox={area?.bbox ?? null}
           marks={marks}
           lines={lines}
           selectedCorridorId={selectedCorridorId}
+          courseEmphasis={emphasis}
+          orbatUnits={orbatUnits}
+          selectedUnitId={selectedUnitId}
+          blockPlan={study?.blockPlan ?? null}
+          graph={graph}
           onSelectionFinalize={handleSelectionFinalize}
+          onObjectiveAreaFinalize={handleObjectiveArea}
           onViewerReady={handleViewerReady}
           onPlace={handlePlace}
         />
@@ -433,7 +662,7 @@ export function RouteStudiesPage() {
             title="Select a 10–50 km operational area"
             active={toolMode === 'select-area'}
             disabled={areaPhase === 'generating'}
-            onClick={() => setToolMode('select-area')}
+            onClick={() => armTool('select-area')}
           >
             <Crosshair className="h-4 w-4" /> Select area
           </ToolButton>
@@ -441,17 +670,28 @@ export function RouteStudiesPage() {
             title="Place enemy reserve"
             active={toolMode === 'place-reserve'}
             disabled={!area}
-            onClick={() => setToolMode('place-reserve')}
+            onClick={() => armTool('place-reserve')}
           >
             <ShieldAlert className="h-4 w-4" /> Reserve
           </ToolButton>
           <ToolButton
-            title="Place objective"
-            active={toolMode === 'place-study-objective'}
+            title="Drag a box over the objective"
+            active={toolMode === 'draw-objective-area'}
             disabled={!area}
-            onClick={() => setToolMode('place-study-objective')}
+            onClick={() => armTool('draw-objective-area')}
           >
             <Flag className="h-4 w-4" /> Objective
+          </ToolButton>
+          <ToolButton
+            title="Place a unit of the available force"
+            active={toolMode === 'place-orbat-unit'}
+            disabled={!study}
+            onClick={() => {
+              setTab('orbat')
+              armTool('place-orbat-unit')
+            }}
+          >
+            <Users className="h-4 w-4" /> Force
           </ToolButton>
         </div>
       </header>
@@ -481,25 +721,37 @@ export function RouteStudiesPage() {
             <LibraryHeading label="AREAS" count={library.areas.length} />
             {library.areas.length === 0 && <EmptyLibraryRow>No ingested areas yet.</EmptyLibraryRow>}
             {library.areas.map((item) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                disabled={busyId !== null}
-                onClick={() => void openArea(item)}
-                className={`mb-1.5 w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                className={`group mb-1.5 flex items-center rounded-lg border px-2.5 py-2 transition-colors ${
                   area?.id === item.id && !study
                     ? 'border-(--accent-border) bg-(--accent-bg)'
                     : 'border-transparent bg-white/3 hover:bg-white/6'
                 }`}
               >
-                <div className="flex items-center gap-1.5 text-sm text-(--text-h)">
-                  {busyId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPinned className="h-3.5 w-3.5" />}
-                  <span className="truncate">{item.name}</span>
-                </div>
-                <div className="mt-0.5 text-[10px] text-(--text-dim)">
-                  {item.nodeCount.toLocaleString()} junctions · {item.edgeCount.toLocaleString()} edges
-                </div>
-              </button>
+                <button
+                  type="button"
+                  disabled={busyId !== null}
+                  onClick={() => void openArea(item)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="flex items-center gap-1.5 text-sm text-(--text-h)">
+                    {busyId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPinned className="h-3.5 w-3.5" />}
+                    <span className="truncate">{item.name}</span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-(--text-dim)">
+                    {item.nodeCount.toLocaleString()} junctions · {item.edgeCount.toLocaleString()} edges
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  title={`Delete ${item.name}`}
+                  onClick={() => void handleDeleteArea(item)}
+                  className="ml-1 p-1 text-(--text-dim) opacity-0 transition-all hover:text-(--hostile) group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
 
             <LibraryHeading label="STUDIES" count={library.studies.length} />
@@ -581,6 +833,7 @@ export function RouteStudiesPage() {
             studyName={studyName}
             onStudyNameChange={setStudyName}
             marks={marks}
+            lastMarkId={lastMarkId}
             toolMode={toolMode}
             running={runningStudy}
             dirty={marksDirty}
@@ -594,17 +847,82 @@ export function RouteStudiesPage() {
         )}
 
         {study && (
-          <div className="pointer-events-auto min-h-0 flex-1">
-            <CorridorEditorPanel
-              study={study}
-              running={runningStudy}
-              selectedCorridorId={selectedCorridorId}
-              onSelect={selectCorridor}
-              onLocate={locateCorridor}
-              onRename={renameCorridor}
-              onCategorise={categoriseCorridor}
-              onToggleChoke={toggleChoke}
-            />
+          <div className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-2">
+            <div className="glass flex items-center gap-0.5 rounded-xl p-1">
+              {WORKSPACE_TABS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] transition-colors ${
+                    tab === id
+                      ? 'bg-white/10 text-(--text-h)'
+                      : 'text-(--text-dim) hover:text-(--text)'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1">
+              {tab === 'corridors' && (
+                <CorridorEditorPanel
+                  study={study}
+                  running={runningStudy}
+                  selectedCorridorId={selectedCorridorId}
+                  onSelect={selectCorridor}
+                  onLocate={locateCorridor}
+                  onRename={renameCorridor}
+                  onCategorise={categoriseCorridor}
+                  onToggleChoke={toggleChoke}
+                />
+              )}
+
+              {tab === 'courses' && (
+                <EnemyCoursesPanel
+                  study={study}
+                  intent={intent}
+                  running={coursesPhase === 'running'}
+                  selectedCourseName={selectedCourseName}
+                  preferences={preferences}
+                  onSetIntent={setIntent}
+                  onToggleObjective={toggleIntentObjective}
+                  onSelectCourse={selectCourse}
+                  onAssess={() => void assessCourses()}
+                  onJudge={(name, verdict) => void judgeCourse(name, verdict)}
+                />
+              )}
+
+              {tab === 'orbat' && (
+                <OrbatPanel
+                  units={orbatUnits}
+                  selectedUnitId={selectedUnitId}
+                  placing={toolMode === 'place-orbat-unit'}
+                  placingEchelon={placingEchelon}
+                  onSetPlacingEchelon={setPlacingEchelon}
+                  onBeginPlacing={() => setToolMode('place-orbat-unit')}
+                  onSelectUnit={selectUnit}
+                  onUpdateUnit={updateUnit}
+                  onRemoveUnit={removeUnit}
+                  onLocateUnit={locateUnit}
+                />
+              )}
+
+              {tab === 'block' && (
+                <BlockForcePanel
+                  study={study}
+                  units={orbatUnits}
+                  ceiling={ceiling}
+                  running={blockPhase === 'running'}
+                  selectedCorridorId={selectedCorridorId}
+                  onSetCeiling={setCeiling}
+                  onSelectCorridor={selectCorridor}
+                  onRun={() => void planBlocks()}
+                />
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -638,15 +956,15 @@ export function RouteStudiesPage() {
         />
       </div>
 
-      {toolMode !== 'navigate' && (
-        <div className="glass pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-lg px-3 py-1.5 text-xs text-(--text-h)">
-          {toolMode === 'select-area'
-            ? 'Drag a rectangle between 10 and 50 km per side'
-            : toolMode === 'place-reserve'
-              ? 'Click inside the area to place an enemy reserve'
-              : 'Click inside the area to place an objective'}
-        </div>
-      )}
+      <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
+        <NextStepGuide
+          steps={steps}
+          current={step}
+          hint={toolHint}
+          actionLabel={stepAction?.label ?? null}
+          onAction={() => stepAction?.run()}
+        />
+      </div>
 
       <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
         <ReasoningPanel
@@ -707,6 +1025,7 @@ function MarksPanel({
   studyName,
   onStudyNameChange,
   marks,
+  lastMarkId,
   toolMode,
   running,
   dirty,
@@ -721,6 +1040,7 @@ function MarksPanel({
   studyName: string
   onStudyNameChange: (name: string) => void
   marks: { reserves: StudyMark[]; objectives: StudyMark[] }
+  lastMarkId: string | null
   toolMode: OperationalToolMode
   running: boolean
   dirty: boolean
@@ -749,6 +1069,7 @@ function MarksPanel({
         label="ENEMY RESERVES"
         kind="reserve"
         marks={marks.reserves}
+        lastMarkId={lastMarkId}
         active={toolMode === 'place-reserve'}
         onAdd={() => onSetToolMode('place-reserve')}
         onRename={onRenameMark}
@@ -759,8 +1080,9 @@ function MarksPanel({
         label="OBJECTIVES"
         kind="objective"
         marks={marks.objectives}
-        active={toolMode === 'place-study-objective'}
-        onAdd={() => onSetToolMode('place-study-objective')}
+        lastMarkId={lastMarkId}
+        active={toolMode === 'draw-objective-area'}
+        onAdd={() => onSetToolMode('draw-objective-area')}
         onRename={onRenameMark}
         onRemove={onRemoveMark}
         onLocate={onLocate}
@@ -782,6 +1104,7 @@ function MarkGroup({
   label,
   kind,
   marks,
+  lastMarkId,
   active,
   onAdd,
   onRename,
@@ -791,6 +1114,9 @@ function MarkGroup({
   label: string
   kind: StudyMarkKind
   marks: StudyMark[]
+  /** The mark just dropped on the globe, called out here so a click that landed
+   *  off screen still shows up somewhere the operator is looking. */
+  lastMarkId: string | null
   active: boolean
   onAdd: () => void
   onRename: (kind: StudyMarkKind, id: string, name: string) => void
@@ -803,7 +1129,7 @@ function MarkGroup({
         <span>{label} ({marks.length})</span>
         <button
           type="button"
-          aria-label={`Place ${kind === 'reserve' ? 'enemy reserve' : 'objective'}`}
+          aria-label={kind === 'reserve' ? 'Place enemy reserve' : 'Draw objective area'}
           onClick={onAdd}
           className={active ? 'text-(--accent)' : 'hover:text-(--text-h)'}
         >
@@ -811,10 +1137,19 @@ function MarkGroup({
         </button>
       </div>
       <div className="mt-1 max-h-24 overflow-y-auto">
-        {marks.length === 0 && <div className="px-1 py-1 text-[11px] text-(--text-dim)">No marks placed.</div>}
+        {marks.length === 0 && (
+          <div className="px-1 py-1 text-[11px] text-(--text-dim)">
+            {kind === 'reserve' ? 'No reserves marked yet.' : 'No objectives drawn yet.'}
+          </div>
+        )}
         {marks.map((mark) => (
-          <div key={mark.id} className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-white/5">
-            <span className={`h-1.5 w-1.5 rounded-full ${kind === 'reserve' ? 'bg-(--hostile)' : 'bg-(--accent)'}`} />
+          <div
+            key={mark.id}
+            className={`group flex items-center gap-1 rounded-md px-1 py-1 transition-colors ${
+              mark.id === lastMarkId ? 'bg-(--accent-bg) ring-1 ring-(--accent-border)' : 'hover:bg-white/5'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${kind === 'reserve' ? 'bg-(--hostile)' : 'bg-(--accent)'}`} />
             <input
               value={mark.name}
               maxLength={80}
@@ -822,6 +1157,7 @@ function MarkGroup({
               onChange={(event) => onRename(kind, mark.id, event.target.value)}
               className="min-w-0 flex-1 bg-transparent text-xs text-(--text-h) focus:outline-none"
             />
+            {mark.bbox && <span className="shrink-0 text-[9px] tracking-wide text-(--text-dim)">AREA</span>}
             <button type="button" title="Locate" onClick={() => onLocate(mark)} className="text-(--text-dim) opacity-0 hover:text-(--text-h) group-hover:opacity-100">
               <Crosshair className="h-3 w-3" />
             </button>

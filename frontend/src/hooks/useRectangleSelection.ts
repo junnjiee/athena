@@ -8,6 +8,13 @@ interface Args {
   armed: boolean
   resetToken: number
   maxExtentMeters?: number
+  /** Drag colour, so a box that means "objective" cannot be mistaken for a box
+   *  that means "ingest this ground". */
+  colorHex?: string
+  /** Ground selection reframes the camera on what was just chosen. Drawing an
+   *  objective inside ground already framed must not move the camera — the
+   *  operator is mid-sequence and about to draw another. */
+  frameOnFinalize?: boolean
   onSelectionFinalize: (result: SelectionResult) => void
 }
 
@@ -16,6 +23,8 @@ export function useRectangleSelection({
   armed,
   resetToken,
   maxExtentMeters,
+  colorHex = '#4b8cf0', // mirrors --friendly
+  frameOnFinalize = true,
   onSelectionFinalize,
 }: Args) {
   const rectangleRef = useRef<Cesium.Rectangle | null>(null)
@@ -36,14 +45,15 @@ export function useRectangleSelection({
     viewerRef.current = viewer
   }, [viewer])
 
-  function ensureEntity(v: Cesium.Viewer) {
+  function ensureEntity(v: Cesium.Viewer, hex: string) {
     if (entityRef.current) return entityRef.current
+    const color = Cesium.Color.fromCssColorString(hex)
     entityRef.current = v.entities.add({
       rectangle: {
         coordinates: new Cesium.CallbackProperty(() => rectangleRef.current, false),
-        material: Cesium.Color.fromCssColorString('#4b8cf0').withAlpha(0.25), // mirrors --friendly
+        material: color.withAlpha(0.25),
         outline: true,
-        outlineColor: Cesium.Color.fromCssColorString('#4b8cf0'),
+        outlineColor: color,
         outlineWidth: 2,
         classificationType: Cesium.ClassificationType.TERRAIN, // drapes over terrain, no heightReference needed
       },
@@ -58,19 +68,22 @@ export function useRectangleSelection({
   }
 
   useEffect(() => {
-    if (!viewer) return
+    if (!viewer || !armed) return
 
+    // Only an armed selector touches the camera flags. More than one of these
+    // hooks runs at a time (ground selection and objective drawing are separate
+    // instances), so an unarmed one writing `true` here would hand the camera
+    // back mid-drag of whichever one is actually armed.
+    //
     // viewerRef is our own ref mirroring Cesium's imperative Viewer; toggling controller
     // flags through it is the sanctioned mutable-escape-hatch pattern, not React state.
     /* eslint-disable react-hooks/immutability */
     const controller = viewerRef.current?.scene.screenSpaceCameraController
     if (controller) {
-      controller.enableRotate = !armed
-      controller.enableTranslate = !armed
+      controller.enableRotate = false
+      controller.enableTranslate = false
     }
     /* eslint-enable react-hooks/immutability */
-
-    if (!armed) return
 
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
 
@@ -80,7 +93,7 @@ export function useRectangleSelection({
       startCartographicRef.current = carto
       isDraggingRef.current = true
       rectangleRef.current = Cesium.Rectangle.fromCartographicArray([carto, carto])
-      ensureEntity(viewer)
+      ensureEntity(viewer, colorHex)
     }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
 
     handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
@@ -95,7 +108,7 @@ export function useRectangleSelection({
       if (!isDraggingRef.current || !rectangleRef.current) return
       isDraggingRef.current = false
       const finalRectangle = rectangleRef.current
-      flyToSelectionPreview(viewer, finalRectangle)
+      if (frameOnFinalize) flyToSelectionPreview(viewer, finalRectangle)
       // The drag-preview box has done its job once finalized -- remove it rather than
       // leaving it draped over the terrain through classification/planning. The globe
       // clipping applied on finalize already shows the selection bounds from here on.
@@ -116,7 +129,7 @@ export function useRectangleSelection({
         cleanupController.enableTranslate = true
       }
     }
-  }, [viewer, armed, maxExtentMeters])
+  }, [viewer, armed, maxExtentMeters, colorHex, frameOnFinalize])
 
   useEffect(() => {
     if (!viewer || resetToken === 0) return

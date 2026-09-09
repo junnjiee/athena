@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from athena.intent import EnemyIntent
 from athena.params import (
     ECA_MAX_TOKENS,
+    ECA_API_KEY_ENV_VAR,
     ECA_MODEL,
     ECA_MODEL_ENV_VAR,
     ECA_SYSTEM_PROMPT,
@@ -270,6 +271,50 @@ class RefusedError(RuntimeError):
     """
 
 
+class NotConfiguredError(RuntimeError):
+    """The engine was never given a way to reach a model.
+
+    Separate from a refusal because nothing was asked. A missing key, a
+    provider that cannot be resolved and a model the provider will not serve
+    are one operator action -- fix the deployment -- and none of them is a
+    finding about the enemy. Reported plainly rather than escaping as an
+    unhandled error, which is what turns a one-line environment fix into an
+    opaque 500.
+    """
+
+
+def resolve_model(model: object | None = None) -> object:
+    """What to hand pydantic-ai: a model name, or a model built around a key.
+
+    No provider is named here, and no table of them exists anywhere in the
+    engine. The name carries its own provider as a ``provider:name`` prefix,
+    and pydantic-ai maps that prefix to a class; supplying the key is done by
+    handing it that lookup rather than by knowing which vendor is on the other
+    end. Adding a provider is therefore something pydantic-ai does, not
+    something this engine is changed for.
+
+    With no key set the string is returned untouched and resolution is left
+    entirely to pydantic-ai, which reads whichever conventional variable the
+    provider expects.
+    """
+    spec = model or os.environ.get(ECA_MODEL_ENV_VAR) or ECA_MODEL
+    api_key = os.environ.get(ECA_API_KEY_ENV_VAR)
+    if not api_key or not isinstance(spec, str):
+        return spec
+
+    from pydantic_ai.models import infer_model
+    from pydantic_ai.providers import infer_provider_class
+
+    def with_key(provider_name: str) -> object:
+        return infer_provider_class(provider_name)(api_key=api_key)
+
+    # A provider that cannot be resolved raises here rather than being swapped
+    # for one that can. Everywhere else in the engine an unanswerable question
+    # is reported instead of answered badly, and a silent fallback to a
+    # different vendor's judgement would be the worst instance of it.
+    return infer_model(spec, provider_factory=with_key)
+
+
 def model_generator(model: object | None = None) -> CourseGenerator:
     """The real model call.
 
@@ -281,17 +326,34 @@ def model_generator(model: object | None = None) -> CourseGenerator:
     """
 
     def generate(system: str, prompt: str) -> DraftCourses:
-        from pydantic_ai import Agent, UnexpectedModelBehavior
+        from pydantic_ai import Agent, ModelHTTPError, UnexpectedModelBehavior, UserError
         from pydantic_ai.settings import ModelSettings
 
-        agent = Agent(
-            model or os.environ.get(ECA_MODEL_ENV_VAR) or ECA_MODEL,
-            output_type=DraftCourses,
-            instructions=system,
-            model_settings=ModelSettings(max_tokens=ECA_MAX_TOKENS),
-        )
+        # Building the agent is where an absent key surfaces, so it sits inside
+        # the guard rather than above it. Left outside, the one failure an
+        # operator can actually fix is the one that escapes as a bare 500.
+        try:
+            agent = Agent(
+                resolve_model(model),
+                output_type=DraftCourses,
+                instructions=system,
+                model_settings=ModelSettings(max_tokens=ECA_MAX_TOKENS),
+            )
+        except UserError as error:
+            raise NotConfiguredError(_not_configured(error)) from error
+
         try:
             return agent.run_sync(prompt).output
+        except ModelHTTPError as error:
+            # A key the provider rejects and a model it does not serve are
+            # configuration; a rate limit or an outage is not. The difference is
+            # whether the operator should edit something or simply try again,
+            # so the two are not collapsed into one message.
+            if error.status_code in (401, 403, 404):
+                raise NotConfiguredError(_not_configured(error)) from error
+            raise RefusedError(
+                f"the model could not be reached: {error}"
+            ) from error
         except UnexpectedModelBehavior as error:
             # A decline, a truncation and a wall of prose all arrive here, and
             # the engine does not need to tell them apart: none of them is an
@@ -301,6 +363,16 @@ def model_generator(model: object | None = None) -> CourseGenerator:
             ) from error
 
     return generate
+
+
+def _not_configured(error: object) -> str:
+    """One sentence naming what to set, because the operator reads this in the
+    app rather than in a stack trace."""
+    return (
+        f"the engine has no model to ask: {error}. Set {ECA_MODEL_ENV_VAR} and "
+        f"{ECA_API_KEY_ENV_VAR} in the engine's own environment -- a plain "
+        "`uv run` does not read .env, so start it with `--env-file .env`."
+    )
 
 
 def parse_draft(payload: str) -> DraftCourses:

@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/client'
-import { operationalAreas } from '../db/schema'
+import { courseFeedback, operationalAreas, routeStudies } from '../db/schema'
 import { decodeGraph, encodeGraph } from './graphWire'
 import type { OperationalAreaMeta, RoadGraph } from '../types'
 
@@ -67,4 +67,39 @@ export async function listOperationalAreas(): Promise<OperationalAreaMeta[]> {
     })
     .from(operationalAreas)
   return rows
+}
+
+/** Removes an area and everything standing on it.
+ *
+ *  A study is meaningless without the graph it was routed over, so the two
+ *  cannot be deleted independently -- and the foreign keys say so. Ordered
+ *  child-first rather than wrapped in a transaction because neon-http has no
+ *  interactive transactions (see db/client.ts); a failure part way through
+ *  leaves fewer rows than asked for, never a study pointing at a missing area.
+ *
+ *  Returns null when the area was never there, so the caller can answer 404
+ *  rather than reporting a delete that deleted nothing. */
+export async function deleteOperationalArea(
+  id: string,
+): Promise<{ deletedStudies: number } | null> {
+  const existing = await db
+    .select({ id: operationalAreas.id })
+    .from(operationalAreas)
+    .where(eq(operationalAreas.id, id))
+    .limit(1)
+  if (!existing[0]) return null
+
+  const studies = await db
+    .select({ id: routeStudies.id })
+    .from(routeStudies)
+    .where(eq(routeStudies.areaId, id))
+  const studyIds = studies.map((row) => row.id)
+
+  if (studyIds.length > 0) {
+    await db.delete(courseFeedback).where(inArray(courseFeedback.studyId, studyIds))
+    await db.delete(routeStudies).where(eq(routeStudies.areaId, id))
+  }
+  await db.delete(operationalAreas).where(eq(operationalAreas.id, id))
+
+  return { deletedStudies: studyIds.length }
 }

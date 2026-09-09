@@ -31,10 +31,10 @@ services:
       # The model that reasons about enemy intent, as provider:name. Only the
       # courses-of-action pass needs it; routes and block forces are
       # deterministic and run without it.
-      ATHENA_ECA_MODEL: ${ATHENA_ECA_MODEL:-openai:gpt-5.6-sol}
-    # Whichever key that provider wants -- OPENAI_API_KEY, ANTHROPIC_API_KEY,
-    # GEMINI_API_KEY. Compose names no vendor so changing provider is a change
-    # of .env alone.
+      ATHENA_MODEL: ${ATHENA_MODEL:-openai:gpt-5.6-sol}
+      # One key, whichever provider is named above. No vendor is named here or
+      # anywhere else, so changing provider is a change of .env alone.
+      PROVIDER_API_KEY: ${PROVIDER_API_KEY:-}
     env_file:
       - path: .env
         required: false

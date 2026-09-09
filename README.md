@@ -4,21 +4,25 @@ A commander sketches a plan on real ground and instantly sees whether it works.
 Globe → area selection → live terrain ingestion → military classification → 3D
 battlefield with tactical heatmaps → plan drawing → AI plan validation.
 
-Two processes:
+Three processes:
 
 | | Stack | Port | Role |
 |---|---|---|---|
-| `frontend/` | Vite 8 + React 19 + resium/Cesium + Tailwind v4 + zustand | 5173 | Globe, battlefield render, plan drawing, voice assistant |
-| `server/` | Fastify 5 + Socket.IO + Drizzle/Neon Postgres | 8787 | Terrain pipeline, plan persistence |
+| `frontend/` | Vite 8 + React 19 + resium/Cesium + Tailwind v4 + zustand | 5173 | Globe, battlefield render, planning surface, voice assistant |
+| `server/` | Fastify 5 + Socket.IO + Drizzle/Postgres | 8787 | Terrain pipeline, persistence, the engine's only caller |
+| `engine/` | FastAPI + pydantic-ai (Python, uv) | 8000 | Route studies, enemy courses of action, block forces |
 
-The frontend talks only to the server.
+The frontend talks only to the server; the server is the only thing that talks
+to the engine. The engine holds no state of its own — it pulls an operational
+area's road graph from the server, computes, and returns the result.
 
-> **Where the engine went.** Athena previously carried a third process: a
-> force-on-force simulation that ran LLM-driven soldiers over this terrain and
-> scored a plan by Monte Carlo. It has been removed. The engine is being rebuilt
-> as a planning aid that complements battle procedure rather than fighting the
-> battle — finding enemy reinforcement routes for the S2 and deployable block
-> forces for the S3. See
+> **On the planning engine.** Athena previously carried a force-on-force
+> simulation that ran LLM-driven soldiers over this terrain and scored a plan by
+> Monte Carlo. That was removed and replaced by `engine/`, which complements
+> battle procedure rather than fighting the battle: enemy reinforcement routes
+> and their courses of action for the S2, deployable block forces for the S3.
+> Behaviour and modelling assumptions are in
+> [`engine/ENGINE.md`](engine/ENGINE.md); the original design is in
 > [`docs/superpowers/specs/2026-09-08-route-substrate-design.md`](docs/superpowers/specs/2026-09-08-route-substrate-design.md).
 
 ## Quick start
@@ -34,29 +38,108 @@ docker compose up --build
 |---|---|
 | Web app | http://localhost:5173 |
 | Terrain API | http://localhost:8787 |
+| Engine API | http://localhost:8000 |
 
-`frontend/src` and `server/src` are bind-mounted, so edits on the host are
-picked up live — Vite keeps HMR and the terrain service runs under `tsx watch`.
-Rebuild only when dependencies change.
+One root `.env` covers all three services here — compose passes the variables in
+directly, so the per-process `.env` files below are not used and the engine's
+`--env-file` caveat does not apply. Postgres and the migrations are handled for
+you. To use the courses-of-action pass, set `ATHENA_MODEL` and
+`PROVIDER_API_KEY` in that root `.env`.
+
+`frontend/src`, `server/src` and `engine/athena` are bind-mounted, so edits on
+the host are picked up live — Vite keeps HMR and the terrain service runs under
+`tsx watch`. Rebuild only when dependencies change.
 
 ### On the host
 
-```bash
-# 1. API + terrain pipeline (port 8787)
-cd server && bun install && bun run dev
+You need **Bun**, **Python 3.11+** with [uv](https://docs.astral.sh/uv/), and a
+**Postgres** to point at. There are three separate `.env` files, one per process
+— there is no shared root one outside Docker.
 
-# 2. Web app (port 5173, proxies /api and /socket.io to 8787)
-cd frontend && bun install && bun run dev
+**0. Postgres.** Easiest is the one from compose; any Postgres or a Neon
+connection string works just as well.
+
+```bash
+docker compose up -d postgres   # postgresql://athena:athena@localhost:5432/athena
 ```
 
-`DATABASE_URL` may be a Neon connection string or any ordinary Postgres URL —
-`server/src/db/client.ts` picks the driver from the host, because Neon's
-serverless driver speaks its own HTTP protocol rather than the Postgres wire
-protocol and cannot reach a local server.
+**1. Terrain service** — port 8787.
 
-Optional: set `VITE_CESIUM_ION_TOKEN` in `frontend/.env.local` (free account at
-cesium.com) — without it the app falls back to Cesium's rate-limited demo token,
-which loads world imagery/terrain noticeably slower.
+```bash
+cd server
+cp .env.example .env            # set DATABASE_URL and ENGINE_URL (below)
+bun install
+bun run db:migrate              # creates the tables; run once, and after schema changes
+bun run dev
+```
+
+`server/.env` must contain at least:
+
+```
+DATABASE_URL=postgresql://athena:athena@localhost:5432/athena
+ENGINE_URL=http://localhost:8000
+```
+
+The server refuses to start without `DATABASE_URL`. It loads `.env` itself (via
+`dotenv/config`), so no flag is needed.
+
+**2. Planning engine** — port 8000. Only this process needs a model key.
+
+```bash
+cd engine
+uv sync
+cp .env.example .env            # set ATHENA_MODEL and PROVIDER_API_KEY (below)
+uv run --env-file .env uvicorn athena.service:app --port 8000
+```
+
+`engine/.env`:
+
+```
+TERRAIN_SERVICE_URL=http://localhost:8787
+ATHENA_MODEL=openai:gpt-5.6-sol
+PROVIDER_API_KEY=<your key for whichever provider ATHENA_MODEL names>
+```
+
+> **`--env-file` is not optional.** Unlike the server, the engine reads
+> `os.environ` directly and loads no file of its own, so a plain `uv run`
+> silently ignores `.env`. The symptom is **Assess enemy courses** failing with
+> "the engine has no model to ask" while the key sits correctly in the file. Add
+> `--reload` too if you are editing engine code — it does not pick up changes
+> otherwise. See [`engine/README.md`](engine/README.md).
+
+**3. Web app** — port 5173, proxies `/api` and `/socket.io` to 8787.
+
+```bash
+cd frontend
+cp .env.example .env.local      # optional keys; note .env.local, not .env
+bun install
+bun run dev
+```
+
+Open http://localhost:5173. It redirects to the planning surface.
+
+Everything except the engine works with no keys at all: terrain generation, plan
+drawing, route studies and block forces are deterministic. Only the enemy
+courses-of-action pass reaches a model.
+
+## Environment
+
+| File | Key | Without it |
+|---|---|---|
+| `server/.env` | `DATABASE_URL` | **The server will not start.** Neon string or any Postgres URL — `src/db/client.ts` picks the driver from the hostname, because Neon's serverless driver speaks HTTP rather than the Postgres wire protocol and cannot reach a local server |
+| | `ENGINE_URL` | Route studies, courses and block forces return `503`; terrain generation and plan drawing still work |
+| | `CORS_ORIGINS` | Any localhost port is allowed, which is what you want locally. A deployed frontend must be named here |
+| | `BATTLEGROUND_RATE_LIMIT` | Defaults to 20 generations per caller per minute — the one endpoint that spends third-party quota |
+| | `ELEVENLABS_API_KEY` / `ELEVENLABS_AGENT_ID` | The assistant dock reports "not configured"; everything else works. Run `bun run agent:sync` once after setting the key to create the agent and print its id |
+| `engine/.env` | `ATHENA_MODEL` | Defaults to `openai:gpt-5.6-sol`. Named as `provider:name` and resolved by pydantic-ai — `anthropic:claude-opus-5`, `google:gemini-2.5-pro`, `ollama:llama3.3` all work |
+| | `PROVIDER_API_KEY` | Falls back to whatever conventional variable that provider expects (`OPENAI_API_KEY` and so on). With neither, **Assess enemy courses** returns `503` naming both variables |
+| | `TERRAIN_SERVICE_URL` | Defaults to `http://localhost:8787` |
+| `frontend/.env.local` | `VITE_CESIUM_ION_TOKEN` | Falls back to Cesium's rate-limited demo token — world imagery and terrain load noticeably slower. Free account at cesium.com |
+| | `VITE_GOOGLE_MAPS_KEY` | RECON (photorealistic) mode falls back to the ion proxy asset; with neither, the Recon toggle is disabled |
+
+One key, not one per vendor, is deliberate on the engine side: which client
+`PROVIDER_API_KEY` reaches follows from `ATHENA_MODEL` alone, so swapping
+provider is a change of those two lines and nothing else.
 
 ## How it works
 
@@ -147,9 +230,13 @@ This is the first piece of the route substrate described in the spec above.
 ## Tests
 
 ```bash
-cd server && bun test        # tile math, wire format, classifier, plan brief, road graph
+cd server   && bun test                  # tile math, wire format, classifier, plan brief, road graph
 cd frontend && bun test && bun run lint && bunx tsc -b
+cd engine   && uv run pytest             # routing, corridors, ORBAT, blocking, ranking, HTTP surface
 ```
+
+The engine suite needs no key and touches no network: the courses-of-action
+pass is driven through pydantic-ai's offline test models.
 
 ## Layout
 
@@ -157,9 +244,11 @@ cd frontend && bun test && bun run lint && bunx tsc -b
 athena/
 ├── frontend/   Vite 8 + React 19 + resium/Cesium + Tailwind v4 + zustand + framer-motion
 │   └── src/{components,state,lib,hooks,pages,types}
-└── server/     Fastify 5 + Socket.IO + zod + Drizzle (bun-managed, runs on tsx)
-    └── src/{routes/,services/{dem,osm,weather,classify,grid,pipeline,
-             planBrief,roadGraph},db/,lib/}
+├── server/     Fastify 5 + Socket.IO + zod + Drizzle (bun-managed, runs on tsx)
+│   └── src/{routes/,services/{dem,osm,weather,classify,grid,pipeline,
+│            planBrief,roadGraph,engineClient},db/,lib/}
+└── engine/     FastAPI + pydantic-ai (Python, uv-managed)
+    └── athena/{graph,routing,corridors,study,eca,preference,orbat,blocking,service}.py
 ```
 
 ## Security notes

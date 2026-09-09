@@ -8,6 +8,7 @@ import {
   type ProgressListener,
 } from '../services/operationalArea'
 import {
+  deleteOperationalArea,
   listOperationalAreas,
   loadOperationalArea,
   loadOperationalGraphBuffer,
@@ -91,5 +92,13 @@ export function registerOperationalAreaRoutes(
     if (!job) return reply.status(404).send({ error: 'unknown operational area' })
     if (job.status === 'error') return reply.status(500).send({ error: job.error })
     return reply.status(409).send({ error: 'not ready' })
+  })
+
+  /** Drops the area and the studies routed over it. The count comes back so
+   *  the client can say what it cost rather than guessing from a stale list. */
+  app.delete<{ Params: { id: string } }>('/api/operational-area/:id', async (req, reply) => {
+    const result = await deleteOperationalArea(req.params.id)
+    if (!result) return reply.status(404).send({ error: 'unknown operational area' })
+    return result
   })
 }
