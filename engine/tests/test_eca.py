@@ -8,6 +8,7 @@ from pydantic_ai.models.test import TestModel
 
 from athena.eca import (
     CourseOfAction,
+    CourseCorridor,
     DraftCourses,
     Effort,
     NotConfiguredError,
@@ -89,6 +90,20 @@ def test_corridors_are_described_by_id_time_and_choke() -> None:
     assert "cor_a" in described
     assert "10 min" in described
     assert "Depot (res1)" in described
+
+
+def test_operator_corridor_context_reaches_the_model_without_replacing_identity() -> None:
+    named = CourseCorridor(
+        **CORRIDORS[0].model_dump(),
+        operator_name="COBRA",
+        operator_category="main approach",
+    )
+
+    described = describe_corridors([named], RESERVES)
+    prompt = build_prompt([named], RESERVES, OBJECTIVES, EnemyIntent())
+
+    assert 'cor_a (operator name "COBRA"; operator category "main approach")' in described
+    assert "Stable corridor ids remain the only valid effort references" in prompt
 
 
 def test_a_corridor_with_no_choke_point_says_so() -> None:

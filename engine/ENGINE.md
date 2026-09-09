@@ -334,9 +334,11 @@ does not refuse.
 
 ### What the model is shown
 
-Corridor id, fastest time, how many routes, which reserves can use it, reserve
-deployment intelligence, objective IVO localities, and whether each corridor
-has a choke point. **Route geometry is withheld** — it would fill the context
+Corridor id, bounded operator name/category where present, fastest time, how many
+routes, which reserves can use it, reserve deployment intelligence, objective
+IVO localities, and whether each corridor has a choke point. Operator labels are
+explicitly delimited as scenario data; the stable id remains the only reference
+the model may return. **Route geometry is withheld** — it would fill the context
 without changing any judgement being asked for.
 
 ### Which model, and how it is configured

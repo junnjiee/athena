@@ -492,6 +492,38 @@ def test_returns_ranked_courses_of_action() -> None:
     assert body["most_dangerous"]["name"] == "Northern push"
 
 
+def test_course_endpoint_retains_operator_corridor_context_for_the_prompt() -> None:
+    from athena.eca import DraftCourses
+    from athena.service import get_course_generator
+
+    seen: dict[str, str] = {}
+
+    def generator(system: str, prompt: str) -> DraftCourses:
+        seen["prompt"] = prompt
+        return DraftCourses.model_validate({"courses": [A_COURSE]})
+
+    app.dependency_overrides[get_course_generator] = lambda: generator
+    try:
+        response = client.post(
+            "/v1/enemy-courses-of-action",
+            json=courses_request(
+                corridors=[
+                    {
+                        **CORRIDOR,
+                        "operator_name": "COBRA",
+                        "operator_category": "main approach",
+                    }
+                ]
+            ),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert 'operator name "COBRA"' in seen["prompt"]
+    assert 'operator category "main approach"' in seen["prompt"]
+
+
 def test_invented_ground_is_reported_rather_than_rendered() -> None:
     from athena.service import get_course_generator
 
