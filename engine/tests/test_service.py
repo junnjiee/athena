@@ -338,6 +338,55 @@ def test_block_force_endpoint_accepts_an_operator_block_point() -> None:
     assert response.json()["block_points"][0]["inlet_id"] == inlet_id
 
 
+def test_block_force_endpoint_accepts_one_bounded_delay_per_inlet() -> None:
+    first = client.post("/v1/block-forces", json=block_request())
+    inlet_id = first.json()["inlets"][0]["inlet_id"]
+    assessment = {"inlet_id": inlet_id, "unit_id": "sec1", "delay_minutes": 45}
+    armed = {
+        "units": [
+            {
+                **ORBAT["units"][0],
+                "weapons": [{"id": "atgm", "weapon": "ATGM", "count": 3}],
+            }
+        ]
+    }
+    delayed_reserve = {
+        **RESERVE,
+        "task_organization": [
+            {
+                "id": "element-1",
+                "designation": "Motor Rifle Company",
+                "echelon": "company",
+                "modifier": "=",
+                "order_of_move": 1,
+                "platforms": [
+                    {
+                        "id": "platform-1",
+                        "platform": "BTR-90",
+                        "establishment_count": 10,
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = client.post(
+        "/v1/block-forces",
+        json=block_request(
+            orbat=armed,
+            reserves=[delayed_reserve],
+            delay_assessments=[assessment],
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["delay_assessments"] == [assessment]
+    assert client.post(
+        "/v1/block-forces",
+        json=block_request(delay_assessments=[assessment, assessment]),
+    ).status_code == 422
+
+
 def test_an_invalid_orbat_tree_is_rejected() -> None:
     broken = {
         "units": [

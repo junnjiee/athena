@@ -2,6 +2,7 @@ import { descendants, orbatRows, type OrbatRow } from './orbatTree'
 import type {
   BlockPlan,
   BlockPointInput,
+  DelayAssessmentInput,
   ExactCount,
   InletBlock,
   OrbatUnit,
@@ -68,6 +69,32 @@ export function replaceBlockPoint(
   return position
     ? [...retained, { inlet_id: inletId, lon: position.longitude, lat: position.latitude }]
     : retained
+}
+
+export function delayAssessmentInputs(plan: BlockPlan | null): DelayAssessmentInput[] {
+  return (plan?.delay_assessments ?? []).map(({ inlet_id, unit_id, delay_minutes }) => ({
+    inlet_id,
+    unit_id,
+    delay_minutes,
+  }))
+}
+
+/** Preserve every accepted delay assessment while replacing or clearing one inlet. */
+export function replaceDelayAssessment(
+  plan: BlockPlan | null,
+  inletId: string,
+  delayMinutes: number | null,
+): DelayAssessmentInput[] {
+  const retained = delayAssessmentInputs(plan)
+    .filter((assessment) => assessment.inlet_id !== inletId)
+  const unitId = plan?.allocation.find(
+    (entry) => (entry.inlet_id ?? `legacy:${entry.corridor_id}`) === inletId,
+  )?.unit_id
+  return delayMinutes == null
+    ? retained
+    : unitId == null
+      ? retained
+      : [...retained, { inlet_id: inletId, unit_id: unitId, delay_minutes: delayMinutes }]
 }
 
 /** Preserve the engine's exact fractions instead of implying false precision

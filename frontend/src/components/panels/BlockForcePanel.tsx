@@ -33,6 +33,7 @@ interface Props {
   placingBlockInletId: string | null
   onBeginBlockPoint: (inletId: string) => void
   onClearBlockPoint: (inletId: string) => void
+  onSetDelayAssessment: (inletId: string, delayMinutes: number | null) => void
 }
 
 /**
@@ -52,6 +53,7 @@ export function BlockForcePanel({
   placingBlockInletId,
   onBeginBlockPoint,
   onClearBlockPoint,
+  onSetDelayAssessment,
 }: Props) {
   const [selectedInletId, setSelectedInletId] = useState<string | null>(null)
   const plan = study.blockPlan
@@ -126,6 +128,16 @@ export function BlockForcePanel({
           </div>
         )}
 
+        {(plan?.rejected_delay_assessments?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1.5 text-[10px] text-amber-300">
+            {plan!.rejected_delay_assessments!.map((rejection) => (
+              <div key={`${rejection.inlet_id}:${rejection.reason}`}>
+                {inletNames.get(rejection.inlet_id) ?? rejection.inlet_id} · {rejection.reason}
+              </div>
+            ))}
+          </div>
+        )}
+
         {inlets.map((block) => (
           <InletBlockRow
             key={block.inlet_id}
@@ -146,6 +158,7 @@ export function BlockForcePanel({
             placingBlockPoint={placingBlockInletId === block.inlet_id}
             onBeginBlockPoint={() => onBeginBlockPoint(block.inlet_id)}
             onClearBlockPoint={() => onClearBlockPoint(block.inlet_id)}
+            onSetDelayAssessment={(minutes) => onSetDelayAssessment(block.inlet_id, minutes)}
             blockPointControlsDisabled={running}
           />
         ))}
@@ -192,6 +205,7 @@ function InletBlockRow({
   placingBlockPoint,
   onBeginBlockPoint,
   onClearBlockPoint,
+  onSetDelayAssessment,
   blockPointControlsDisabled,
 }: {
   block: InletBlock
@@ -208,6 +222,7 @@ function InletBlockRow({
   placingBlockPoint: boolean
   onBeginBlockPoint: () => void
   onClearBlockPoint: () => void
+  onSetDelayAssessment: (delayMinutes: number | null) => void
   blockPointControlsDisabled: boolean
 }) {
   const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
@@ -258,7 +273,12 @@ function InletBlockRow({
             {candidateWeapons(assignedCandidate)}
           </div>
           {sealing && (
-            <SealingResult assessment={sealing} contactUnitName={allocation.unit_name} />
+            <SealingResult
+              assessment={sealing}
+              contactUnitName={allocation.unit_name}
+              disabled={blockPointControlsDisabled}
+              onSetDelayAssessment={onSetDelayAssessment}
+            />
           )}
           {forceRows.length > 0 ? (
             <div className="mt-2 rounded-md border border-(--border) bg-black/15 px-2 py-1.5">
@@ -389,9 +409,13 @@ const HARDNESS_LABEL: Record<NonNullable<SealingAssessment['target_hardness']>, 
 function SealingResult({
   assessment,
   contactUnitName,
+  disabled,
+  onSetDelayAssessment,
 }: {
   assessment: SealingAssessment
   contactUnitName: string
+  disabled: boolean
+  onSetDelayAssessment: (delayMinutes: number | null) => void
 }) {
   const presentation = {
     destroyed_at_block: {
@@ -442,9 +466,78 @@ function SealingResult({
             : 'none recorded'}
         </div>
       )}
+      {assessment.outcome === 'delayed_and_attrited' && (
+        <DelayAssessmentEditor
+          key={assessment.reaction?.delay_minutes ?? 'unset'}
+          value={assessment.reaction?.delay_minutes ?? null}
+          disabled={disabled}
+          onSave={onSetDelayAssessment}
+        />
+      )}
       {assessment.reaction && (
         <ReactionChain assessment={assessment} contactUnitName={contactUnitName} />
       )}
+    </div>
+  )
+}
+
+function DelayAssessmentEditor({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number | null
+  disabled: boolean
+  onSave: (delayMinutes: number | null) => void
+}) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value))
+
+  const parsed = Number(draft)
+  const valid = draft.trim() !== '' && Number.isFinite(parsed) && parsed > 0 && parsed <= 10_080
+  const changed = valid && parsed !== value
+
+  return (
+    <div className="mt-1.5 border-t border-current/15 pt-1.5 text-[9px] text-(--text-dim)">
+      <div className="tracking-wide">OPERATOR DELAY ASSESSMENT</div>
+      <div className="mt-1 flex items-center gap-1">
+        <input
+          type="number"
+          min={1}
+          max={10_080}
+          step={1}
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.target.value)}
+          aria-label="Delay duration in minutes"
+          placeholder="minutes"
+          className="min-w-0 flex-1 rounded border border-current/20 bg-black/20 px-1.5 py-1 text-(--text) outline-none disabled:opacity-40"
+        />
+        <span>min</span>
+        <button
+          type="button"
+          disabled={disabled || !changed}
+          onClick={() => onSave(parsed)}
+          className="rounded border border-current/20 px-1.5 py-1 text-(--text) disabled:opacity-40"
+        >
+          Apply
+        </button>
+        {value != null && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSave(null)}
+            className="rounded border border-current/20 px-1.5 py-1 disabled:opacity-40"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {!valid && draft.trim() !== '' && (
+        <div className="mt-1 normal-case text-(--hostile)">Enter 1–10,080 minutes.</div>
+      )}
+      <div className="mt-1 normal-case leading-relaxed">
+        Enter a judged delay; Athena will not infer one from attrition alone.
+      </div>
     </div>
   )
 }

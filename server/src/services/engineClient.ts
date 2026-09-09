@@ -2,6 +2,7 @@ import { config } from '../config'
 import type {
   BlockPlan,
   BlockPointInput,
+  DelayAssessmentInput,
   CourseFeatures,
   CourseOfAction,
   EnemyIntent,
@@ -87,6 +88,7 @@ export interface BlockForceRequest {
   orbat: Orbat
   reserves: StudyMarks['reserves']
   blockPoints?: BlockPointInput[]
+  delayAssessments?: DelayAssessmentInput[]
 }
 
 /** Asks the engine what could block each corridor.
@@ -109,6 +111,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
       orbat: request.orbat,
       reserves: request.reserves,
       block_points: request.blockPoints ?? [],
+      delay_assessments: request.delayAssessments ?? [],
     }),
     signal: AbortSignal.timeout(config.engineTimeoutMs),
   })

@@ -87,11 +87,15 @@ describe('revision-pinned engine calls', () => {
       orbat: { units: [] },
       reserves: [],
       blockPoints: [{ inlet_id: 'inlet-1', lon: 103.8, lat: 1.35 }],
+      delayAssessments: [{ inlet_id: 'inlet-1', unit_id: 'sec1', delay_minutes: 45 }],
     })
 
     expect(sent.graph_revision).toBe(4)
     expect(sent.reserves).toEqual([])
     expect(sent.block_points).toEqual([{ inlet_id: 'inlet-1', lon: 103.8, lat: 1.35 }])
+    expect(sent.delay_assessments).toEqual([
+      { inlet_id: 'inlet-1', unit_id: 'sec1', delay_minutes: 45 },
+    ])
   })
 })
 

@@ -422,9 +422,12 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   operator selects a position on each allocated inlet, the engine grounds it to
   that routed polyline, and known commencement plus accumulated edge travel
   produces contact time. Unknown or distant points are rejected rather than
-  attached to invented ground. Delayed arrival stays unknown until delay
-  duration is assessed; Athena still does not borrow the source example's
-  half-hour as a universal rule.
+  attached to invented ground. **Delay assessment is now done** — an operator
+  can enter a bounded positive duration for a delayed inlet and its allocated
+  force, and Athena adds it to complete reserve timing to calculate final
+  objective arrival. Unknown inlets, changed allocations, and no-longer-delayed
+  outcomes reject stale assessments; no duration is inferred from attrition or
+  borrowed from the source example's half-hour.
 
 ---
 
