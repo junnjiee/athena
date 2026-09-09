@@ -458,6 +458,14 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   is ready in time. The value is bound to both allocated unit and exact point, so
   reassignment or movement rejects stale timing; straight-line distance is never
   promoted into a travel-time estimate.
+- ~~**Reconcile saved block plans after rerouting.**~~ **Done** — when route
+  ground changes, Athena reruns allocation, sealing, and reaction timing from
+  the retained ORBAT against the new inlets. Operator block points, delay
+  assessments, and establishment assessments survive only when the inlet's
+  reserve/objective/ordered-edge identity still exists, even if corridors
+  regroup; stale route-bound inputs are not reassigned to different ground.
+  Reserve scenario edits also recalculate the plan without rerouting, keeping
+  composition-dependent sealing and timing-dependent reaction results current.
 
 ---
 
