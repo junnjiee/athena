@@ -2,6 +2,7 @@ import { config } from '../config'
 import type {
   BlockPlan,
   BlockPointInput,
+  BlockEstablishmentInput,
   DelayAssessmentInput,
   CourseFeatures,
   CourseOfAction,
@@ -89,6 +90,7 @@ export interface BlockForceRequest {
   reserves: StudyMarks['reserves']
   blockPoints?: BlockPointInput[]
   delayAssessments?: DelayAssessmentInput[]
+  blockEstablishments?: BlockEstablishmentInput[]
 }
 
 /** Asks the engine what could block each corridor.
@@ -112,6 +114,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
       reserves: request.reserves,
       block_points: request.blockPoints ?? [],
       delay_assessments: request.delayAssessments ?? [],
+      block_establishments: request.blockEstablishments ?? [],
     }),
     signal: AbortSignal.timeout(config.engineTimeoutMs),
   })

@@ -427,7 +427,13 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   force, and Athena adds it to complete reserve timing to calculate final
   objective arrival. Unknown inlets, changed allocations, and no-longer-delayed
   outcomes reject stale assessments; no duration is inferred from attrition or
-  borrowed from the source example's half-hour.
+  borrowed from the source example's half-hour. **Block-force establishment is
+  now done as an explicit assessment** — once a point exists, the operator enters
+  when the assigned force will be established there in plan-relative minutes.
+  Athena compares that with calculated enemy contact and flags whether the block
+  is ready in time. The value is bound to both allocated unit and exact point, so
+  reassignment or movement rejects stale timing; straight-line distance is never
+  promoted into a travel-time estimate.
 
 ---
 

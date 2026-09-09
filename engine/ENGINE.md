@@ -588,7 +588,15 @@ point on that inlet; the engine snaps a click within 500 m onto the routed
 polyline and accumulates the actual edge travel times to calculate enemy
 contact. A point naming unknown ground or outside that tolerance is rejected
 and surfaced. Without an operator point, contact time remains explicitly
-unknown. The sealing outcome then decides whether a remnant continues:
+unknown. The operator may also assess when the allocated force will be
+established at that exact point, using the same plan-relative minutes as enemy
+commencement. The assessment is bound to both unit and grounded point; a changed
+allocation or moved point rejects it rather than silently reusing stale timing.
+When contact is known, the reaction states whether the block is established by
+contact. A force known to be late cannot realize its capability at that point,
+so the reaction records an unimpeded pass and computes objective arrival when
+reserve timing is complete. Otherwise the sealing outcome decides whether a
+remnant continues:
 
 - destroyed — no remnant continues and the reserve **did not reach** the
   objective;
@@ -688,10 +696,13 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
 
 POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat,
                           reserves[], block_points?: [{ inlet_id, lon, lat }],
-                          delay_assessments?: [{ inlet_id, unit_id, delay_minutes }] }
+                          delay_assessments?: [{ inlet_id, unit_id, delay_minutes }],
+                          block_establishments?: [{ inlet_id, unit_id,
+                            block_point_lon, block_point_lat, established_minutes }] }
                         -> { inlets[], allocation[], unblockable[], uncovered[],
                              sealing[], block_points[], rejected_block_points[],
-                             delay_assessments[], rejected_delay_assessments[] }
+                             delay_assessments[], rejected_delay_assessments[],
+                             block_establishments[], rejected_block_establishments[] }
 
 POST /v1/enemy-courses-of-action
                         { corridors[], reserves[], objectives[], intent, weights? }
@@ -744,10 +755,11 @@ Under Docker the variables are passed in by compose, so no file is read.
 
 ## Known limits
 
-- **No block-force arrival timing.** The engine says a route exists and can
-  compute an unimpeded reserve's objective arrival from complete reserve timing,
-  but never whether the block force gets there first. A block plan is an option
-  set for a human to time, not a movement plan.
+- **No automatic block-force arrival model.** A credible derived arrival time
+  still needs an assembly area or movement route, a movement start time and a
+  route/speed model. The reaction chain therefore accepts a bounded operator
+  assessment and labels it as such; it never converts straight-line proximity
+  into arrival time.
 - **Sealing is a capability comparison, not combat simulation.** Effective
   weapons are compared one-for-one with the hardest known reserve platforms.
   The engine does not model ammunition expenditure, rate of fire, exposure,

@@ -1,6 +1,7 @@
 import { descendants, orbatRows, type OrbatRow } from './orbatTree'
 import type {
   BlockPlan,
+  BlockEstablishmentInput,
   BlockPointInput,
   DelayAssessmentInput,
   ExactCount,
@@ -95,6 +96,37 @@ export function replaceDelayAssessment(
     : unitId == null
       ? retained
       : [...retained, { inlet_id: inletId, unit_id: unitId, delay_minutes: delayMinutes }]
+}
+
+export function blockEstablishmentInputs(plan: BlockPlan | null): BlockEstablishmentInput[] {
+  return (plan?.block_establishments ?? []).map((entry) => ({ ...entry }))
+}
+
+/** Bind an establishment time to the allocation and exact point it assessed. */
+export function replaceBlockEstablishment(
+  plan: BlockPlan | null,
+  inletId: string,
+  establishedMinutes: number | null,
+): BlockEstablishmentInput[] {
+  const retained = blockEstablishmentInputs(plan)
+    .filter((entry) => entry.inlet_id !== inletId)
+  if (establishedMinutes == null) return retained
+  const allocation = plan?.allocation.find(
+    (entry) => (entry.inlet_id ?? `legacy:${entry.corridor_id}`) === inletId,
+  )
+  const point = plan?.block_points?.find((entry) => entry.inlet_id === inletId)
+    ?? allocation?.block_point
+  if (!allocation || !point) return retained
+  return [
+    ...retained,
+    {
+      inlet_id: inletId,
+      unit_id: allocation.unit_id,
+      block_point_lon: point.lon,
+      block_point_lat: point.lat,
+      established_minutes: establishedMinutes,
+    },
+  ]
 }
 
 /** Preserve the engine's exact fractions instead of implying false precision

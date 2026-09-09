@@ -44,7 +44,11 @@ import {
   type PlaceLookupResult,
 } from '../lib/api'
 import { courseEmphasis } from '../lib/courses'
-import { replaceBlockPoint, replaceDelayAssessment } from '../lib/blockForces'
+import {
+  replaceBlockEstablishment,
+  replaceBlockPoint,
+  replaceDelayAssessment,
+} from '../lib/blockForces'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
 import type { RoadIdentity } from '../lib/roads'
@@ -1248,6 +1252,17 @@ export function RouteStudiesPage() {
                     void planBlocks(
                       undefined,
                       replaceDelayAssessment(study.blockPlan, inletId, delayMinutes),
+                    )
+                  }}
+                  onSetBlockEstablishment={(inletId, establishedMinutes) => {
+                    void planBlocks(
+                      undefined,
+                      undefined,
+                      replaceBlockEstablishment(
+                        study.blockPlan,
+                        inletId,
+                        establishedMinutes,
+                      ),
                     )
                   }}
                 />

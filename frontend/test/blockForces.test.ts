@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   allocationByInlet,
+  blockEstablishmentInputs,
   blockInlets,
   blockForceOrbat,
   blockCoverage,
@@ -9,6 +10,7 @@ import {
   formatExactCount,
   inletMidpoint,
   replaceBlockPoint,
+  replaceBlockEstablishment,
   replaceDelayAssessment,
   sealingByInlet,
   unblockableByInlet,
@@ -162,6 +164,39 @@ describe('operator delay assessments', () => {
       { inlet_id: 'a', unit_id: '1-pl', delay_minutes: 30 },
       { inlet_id: 'b', unit_id: '2-pl', delay_minutes: 45 },
     ])
+  })
+})
+
+describe('block force establishment timing', () => {
+  const timed: BlockPlan = {
+    ...PLAN,
+    allocation: [{ ...PLAN.allocation[0], inlet_id: 'a' }],
+    block_points: [
+      { inlet_id: 'a', lon: 103.7, lat: 1.3, enemy_movement_seconds: 60, snap_distance_meters: 0 },
+    ],
+    block_establishments: [{
+      inlet_id: 'a',
+      unit_id: '1-pl',
+      block_point_lon: 103.7,
+      block_point_lat: 1.3,
+      established_minutes: 15,
+    }],
+  }
+
+  test('persists and replaces a time bound to the current unit and point', () => {
+    expect(blockEstablishmentInputs(timed)).toEqual(timed.block_establishments!)
+    expect(replaceBlockEstablishment(timed, 'a', 20)).toEqual([{
+      inlet_id: 'a',
+      unit_id: '1-pl',
+      block_point_lon: 103.7,
+      block_point_lat: 1.3,
+      established_minutes: 20,
+    }])
+  })
+
+  test('clears one time and refuses to invent a point', () => {
+    expect(replaceBlockEstablishment(timed, 'a', null)).toEqual([])
+    expect(replaceBlockEstablishment(PLAN, 'legacy:cor_a', 20)).toEqual([])
   })
 })
 
