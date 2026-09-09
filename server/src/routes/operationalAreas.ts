@@ -15,7 +15,7 @@ import {
   persistOperationalGraphRevision,
   updateOperationalRoadSettings,
 } from '../services/operationalAreaStore'
-import { addRoad, setRoadDestroyed } from '../services/graphMutations'
+import { addRoad, breakRoadStretch, setRoadDestroyed } from '../services/graphMutations'
 
 const areaBody = z
   .object({
@@ -46,6 +46,11 @@ export const roadSettingsBody = z
   })
 
 export const roadStateBody = z.object({ destroyed: z.boolean() })
+
+export const roadBreakBody = z.object({
+  start: z.tuple([z.number().gte(-180).lte(180), z.number().gte(-85).lte(85)]),
+  end: z.tuple([z.number().gte(-180).lte(180), z.number().gte(-85).lte(85)]),
+})
 
 export const addRoadBody = z.object({
   points: z
@@ -165,6 +170,30 @@ export function registerOperationalAreaRoutes(
         return reply.status(409).send({ error: 'road graph changed; reload and retry' })
       }
       return reply.status(201).send({ meta, wayId: mutation.wayId })
+    },
+  )
+
+  app.post<{ Params: { id: string; wayId: string } }>(
+    '/api/operational-area/:id/graph/roads/:wayId/breaks',
+    async (req, reply) => {
+      const parsed = roadBreakBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+      const wayId = Number(req.params.wayId)
+      if (!Number.isSafeInteger(wayId)) return reply.status(400).send({ error: 'wayId must be an integer' })
+
+      const stored = await loadOperationalArea(req.params.id)
+      if (!stored) return reply.status(404).send({ error: 'unknown operational area' })
+      const mutation = breakRoadStretch(stored.graph, wayId, parsed.data.start, parsed.data.end)
+      if (!mutation.ok) return reply.status(400).send({ error: mutation.reason })
+      const meta = await persistOperationalGraphRevision(
+        req.params.id,
+        stored.meta.currentRevision,
+        mutation.graph,
+      )
+      if (!meta) return reply.status(409).send({ error: 'road graph changed; reload and retry' })
+      return reply.status(201).send({ meta, edgeId: mutation.edgeId })
     },
   )
 

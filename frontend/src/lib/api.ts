@@ -245,6 +245,22 @@ export async function updateOperationalRoadState(
   return body.meta
 }
 
+export async function breakOperationalRoad(
+  id: string,
+  wayId: number,
+  start: [number, number],
+  end: [number, number],
+): Promise<OperationalAreaMeta> {
+  const res = await fetch(`/api/operational-area/${id}/graph/roads/${wayId}/breaks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start, end }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { meta: OperationalAreaMeta }
+  return body.meta
+}
+
 export async function addOperationalRoad(
   id: string,
   points: [number, number][],

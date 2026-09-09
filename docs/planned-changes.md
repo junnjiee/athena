@@ -147,11 +147,12 @@ Consequences to handle deliberately:
   - Scope note: this applies to **corridor** names only. **Axis** names are
     durable by construction — they hang off road identity and survive both
     splits and destruction — so they are never re-attached and never lost.
-- **Breaking a portion of an axis, not just a whole edge.** The operator selects
-  a stretch along an axis and breaks it. That splits the edge into three —
-  before, broken, after — inserting new nodes at the two cut points. Today
-  `edgeOverrides` works at whole-edge granularity only, so a bridge halfway
-  along a long edge cannot be expressed.
+- ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
+  operator selects two cut points on one intact graph segment. Athena snaps the
+  picks to that segment and writes a new immutable revision in which the edge is
+  replaced by intact/broken/intact children and two new negative-id nodes. Every
+  child retains the source `wayId`, name and road code; only the middle child is
+  marked destroyed and omitted from routing.
 - **Destruction is a state change, never a deletion.** A revision marks an axis
   destroyed; it does not drop it. `PROTON` destroyed is still `PROTON`, so the
   operator can ask how its loss reshaped the theater — and comparing corridor

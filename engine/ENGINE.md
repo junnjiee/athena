@@ -57,6 +57,11 @@ contract reads the same from either side.
 - A destroyed edge remains in the revision with `destroyed: true`, preserving
   its axis identity for display and comparison, but is omitted from routing
   adjacency. Destruction is a terrain state, never deletion.
+- A partial break replaces one edge with intact/broken/intact children in a new
+  immutable revision. The cut junctions use negative node ids and child edges
+  use the `split:<source-edge-id>:<serial>:<part>` namespace. All three retain
+  the original `wayId`, OSM name, and operator road code; only the middle child
+  has `destroyed: true`, so routing can still use the surviving approaches.
 - Operator-added roads snap to two live junctions and use negative road ids plus
   `added:N:index` edge ids. OSM ids are positive, so neither identity space can
   collide. Added edges otherwise route by the same class, grade and direction
