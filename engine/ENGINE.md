@@ -336,6 +336,15 @@ Intent is *scenario input*. It is **empty** when no objective is selected and
 the narrative is blank. The engine names that condition and still answers; it
 does not refuse.
 
+The saved assessment remains bound to that scenario and its routed ground. When
+a study reruns, objective selections that no longer exist are pruned while the
+analyst's narrative is retained. The saved courses are retained only if intent
+is unchanged and every effort still names the same routed corridor–reserve–
+objective combination; otherwise they are invalidated and must be reassessed.
+Legacy efforts without an objective use their original corridor–reserve pair.
+This prevents a recorded model judgement from silently surviving the ground or
+scenario it was made against.
+
 ### What the model is shown
 
 Corridor id, bounded operator name/category where present, fastest time, how many

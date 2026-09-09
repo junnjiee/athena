@@ -9,6 +9,7 @@ import type {
   CourseCorridor,
   EnemyIntent,
   Orbat,
+  RankedCourses,
   RankingWeights,
   StudyMarks,
   StudyResult,
@@ -54,6 +55,61 @@ export function unknownIntentObjectiveIds(
 ): string[] {
   const known = new Set(objectives.map((objective) => objective.id))
   return [...new Set(intent.objective_ids.filter((id) => !known.has(id)))].sort()
+}
+
+/** Remove only objective selections that disappeared from a rerouted study. */
+export function reconcileIntentWithObjectives(
+  intent: EnemyIntent | null,
+  objectives: StudyMarks['objectives'],
+): EnemyIntent | null {
+  if (!intent) return null
+  const known = new Set(objectives.map((objective) => objective.id))
+  return {
+    ...intent,
+    objective_ids: intent.objective_ids.filter((id) => known.has(id)),
+  }
+}
+
+/** Whether every saved effort still names ground in the new route result.
+ *  Legacy efforts without an objective retain pair-level compatibility. */
+export function coursesRemainGrounded(
+  courses: RankedCourses | null,
+  result: StudyResult,
+): boolean {
+  if (!courses) return true
+  const pairs = new Set<string>()
+  const triples = new Set<string>()
+  for (const corridor of result.corridors) {
+    for (const route of corridor.routes) {
+      pairs.add(JSON.stringify([corridor.id, route.reserve_id]))
+      triples.add(JSON.stringify([corridor.id, route.reserve_id, route.objective_id]))
+    }
+  }
+  return courses.courses.every(
+    (course) => course.efforts.length > 0 && course.efforts.every((effort) => (
+      effort.objective_id
+        ? triples.has(JSON.stringify([
+            effort.corridor_id,
+            effort.reserve_id,
+            effort.objective_id,
+          ]))
+        : pairs.has(JSON.stringify([effort.corridor_id, effort.reserve_id]))
+    )),
+  )
+}
+
+export function reconcileCourseState(
+  intent: EnemyIntent | null,
+  courses: RankedCourses | null,
+  objectives: StudyMarks['objectives'],
+  result: StudyResult,
+): { intent: EnemyIntent | null; courses: RankedCourses | null } {
+  const reconciledIntent = reconcileIntentWithObjectives(intent, objectives)
+  const intentChanged = reconciledIntent?.objective_ids.length !== intent?.objective_ids.length
+  return {
+    intent: reconciledIntent,
+    courses: intentChanged || !coursesRemainGrounded(courses, result) ? null : courses,
+  }
 }
 
 const markBoundsSchema = z.object({
@@ -454,6 +510,9 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         throw error
       }
     }
+    const { intent, courses } = research
+      ? reconcileCourseState(row.intent, row.courses, marks.objectives, result)
+      : { intent: row.intent, courses: row.courses }
 
     await db
       .update(routeStudies)
@@ -464,6 +523,8 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         result,
         graphRevision: research ? currentGraphRevision : row.graphRevision,
         corridorEdits,
+        intent,
+        courses,
         updatedAt: new Date(),
       })
       .where(eq(routeStudies.id, req.params.id))
@@ -479,13 +540,13 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       edgeOverrides,
       result,
       corridorEdits,
-      // Untouched by this route, and returned so a client that replaces its
-      // study with the response does not lose an assessment or an allocation
-      // to a rename.
+      // Force allocation is independent of presentation-only edits. A reroute
+      // also reconciles intent and retains a saved S2 assessment only while all
+      // of its exact routed combinations still exist.
       orbat: row.orbat,
       blockPlan: row.blockPlan,
-      intent: row.intent,
-      courses: row.courses,
+      intent,
+      courses,
     }
   })
 
