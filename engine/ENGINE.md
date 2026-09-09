@@ -541,6 +541,10 @@ straight-line distance from the unit to the nearest point on that axis's full
 polyline — equirectangular at the unit's own latitude. This projection matters
 on long road segments whose stored vertices may be far apart. When force is too
 scarce to hold every inlet, route time decides which inlets remain open.
+The response retains that exact nearest point for each candidate and allocation,
+so the map's dashed tasking link lands on the same ground as the displayed
+distance. An operator-set block point supersedes it. Older saved plans retain a
+representative inlet-midpoint fallback.
 
 Neither is a claim about who arrives first. Distance is not road distance and not
 travel time; it exists because with arrival time excluded nothing else

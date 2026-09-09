@@ -407,7 +407,9 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   inlets held before distance and never strips one inlet to reinforce another.
   Candidate distance now projects each unit onto the full traversed inlet
   polyline, including a mid-edge objective terminal, rather than comparing only
-  sparse graph vertices; it remains an ordering aid, never an arrival estimate.
+  sparse graph vertices. The exact projected point is retained so the map's
+  tasking link and displayed distance describe the same ground; it remains an
+  ordering aid, never an arrival estimate.
 - ~~**Measure block forces in weapons, not manpower.**~~ **Done** — own-force
   ORBAT nodes now carry structured, capability-generic organic weapon holdings.
   Each `BlockCandidate` aggregates the assigned unit and its descendants by

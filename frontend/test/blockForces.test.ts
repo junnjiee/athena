@@ -9,6 +9,7 @@ import {
   delayAssessmentInputs,
   formatExactCount,
   inletMidpoint,
+  inletTaskPoint,
   replaceBlockPoint,
   replaceBlockEstablishment,
   replaceDelayAssessment,
@@ -260,6 +261,25 @@ describe('inletMidpoint', () => {
   test('an inlet with no graph edge has no point', () => {
     expect(inletMidpoint(GRAPH, [])).toBeNull()
     expect(inletMidpoint(GRAPH, ['missing'])).toBeNull()
+  })
+})
+
+describe('inletTaskPoint', () => {
+  test('uses the engine point that produced the displayed distance', () => {
+    expect(inletTaskPoint(GRAPH, ['e1'], { lon: 11.25, lat: 0.5 })).toEqual([11.25, 0.5])
+  })
+
+  test('an operator block point replaces the automatic distance point', () => {
+    expect(inletTaskPoint(
+      GRAPH,
+      ['e1'],
+      { lon: 11.25, lat: 0.5 },
+      { lon: 11.75, lat: 0.25 },
+    )).toEqual([11.75, 0.25])
+  })
+
+  test('legacy plans still land on the inlet midpoint', () => {
+    expect(inletTaskPoint(GRAPH, ['e1'])).toEqual(inletMidpoint(GRAPH, ['e1']))
   })
 })
 
