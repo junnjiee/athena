@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { needsResearch, objectiveMarkSchema, reserveMarkSchema } from '../src/routes/routeStudies'
+import {
+  corridorsForCourseAssessment,
+  needsResearch,
+  objectiveMarkSchema,
+  reserveMarkSchema,
+} from '../src/routes/routeStudies'
 import type { StudyMarks } from '../src/db/studyTypes'
 
 const MARKS: StudyMarks = {
@@ -205,5 +210,30 @@ describe('objective terrain references', () => {
       ...objective,
       bbox: { ...objective.bbox, north: objective.bbox.south },
     }).success).toBe(false)
+  })
+})
+
+describe('course corridor context', () => {
+  const corridor = {
+    id: 'cor_a',
+    routes: [],
+    choke_edge_ids: [],
+    fastest_seconds: 600,
+  }
+
+  test('adds bounded one-line operator context without replacing the stable id', () => {
+    const [assessable] = corridorsForCourseAssessment([corridor], {
+      cor_a: { name: '  COBRA\nNORTH  ', category: ' main\tapproach ' },
+    })
+
+    expect(assessable).toEqual({
+      ...corridor,
+      operator_name: 'COBRA NORTH',
+      operator_category: 'main approach',
+    })
+  })
+
+  test('does not invent context for an unedited corridor', () => {
+    expect(corridorsForCourseAssessment([corridor], {})).toEqual([corridor])
   })
 })

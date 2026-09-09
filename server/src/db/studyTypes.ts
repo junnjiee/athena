@@ -67,6 +67,12 @@ export interface Corridor {
   fastest_seconds: number
 }
 
+/** Corridor context supplied only to the model-backed assessment pass. */
+export interface CourseCorridor extends Corridor {
+  operator_name?: string
+  operator_category?: string
+}
+
 export interface UnreachablePair {
   reserve_id: string
   objective_id: string

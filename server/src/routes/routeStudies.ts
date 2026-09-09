@@ -6,10 +6,12 @@ import { db } from '../db/client'
 import { courseFeedback, rankingWeights, routeStudies } from '../db/schema'
 import type {
   CorridorEdit,
+  CourseCorridor,
   EnemyIntent,
   Orbat,
   RankingWeights,
   StudyMarks,
+  StudyResult,
 } from '../db/studyTypes'
 import {
   EngineUnavailableError,
@@ -21,6 +23,29 @@ import {
 } from '../services/engineClient'
 import { loadOperationalAreaRevision } from '../services/operationalAreaStore'
 import { reattachCorridorEdits } from '../services/corridorEdits'
+
+function boundedContext(value: string | undefined, maxLength: number): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim()
+  return normalized ? normalized.slice(0, maxLength) : undefined
+}
+
+/** Adds only operator-authored context to the model pass. Stable corridor ids
+ *  and derived route facts remain unchanged and continue to ground output. */
+export function corridorsForCourseAssessment(
+  corridors: StudyResult['corridors'],
+  edits: Record<string, CorridorEdit>,
+): CourseCorridor[] {
+  return corridors.map((corridor) => {
+    const edit = edits[corridor.id]
+    const operatorName = boundedContext(edit?.name, 80)
+    const operatorCategory = boundedContext(edit?.category, 40)
+    return {
+      ...corridor,
+      ...(operatorName ? { operator_name: operatorName } : {}),
+      ...(operatorCategory ? { operator_category: operatorCategory } : {}),
+    }
+  })
+}
 
 const markBoundsSchema = z.object({
   west: z.number().gte(-180).lte(180),
@@ -532,7 +557,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       let courses
       try {
         courses = await runEnemyCourses({
-          corridors: row.result.corridors,
+          corridors: corridorsForCourseAssessment(row.result.corridors, row.corridorEdits),
           reserves: row.marks.reserves,
           objectives: row.marks.objectives,
           intent,

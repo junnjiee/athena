@@ -147,6 +147,9 @@ Consequences to handle deliberately:
   - Scope note: this applies to **corridor** names only. **Axis** names are
     durable by construction — they hang off road identity and survive both
     splits and destruction — so they are never re-attached and never lost.
+  - Operator corridor names and categories now also reach the model-backed
+    enemy-course assessment as bounded scenario context. Stable corridor ids
+    remain the only valid references in model output, so grounding is unchanged.
 - ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
   operator selects two cut points on one intact graph segment. Athena snaps the
   picks to that segment and writes a new immutable revision in which the edge is

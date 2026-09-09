@@ -5,6 +5,7 @@ import type {
   BlockEstablishmentInput,
   DelayAssessmentInput,
   CourseFeatures,
+  CourseCorridor,
   CourseOfAction,
   EnemyIntent,
   Orbat,
@@ -127,7 +128,7 @@ export async function runBlockForces(request: BlockForceRequest): Promise<BlockP
 }
 
 export interface CoursesRequest {
-  corridors: StudyResult['corridors']
+  corridors: CourseCorridor[]
   reserves: StudyMarks['reserves']
   objectives: StudyMarks['objectives']
   intent: EnemyIntent

@@ -21,6 +21,7 @@ from athena.blocking import (
 from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
+    CourseCorridor,
     CourseOfAction,
     NotConfiguredError,
     RankedCourses,
@@ -238,7 +239,7 @@ class CoursesRequest(BaseModel):
     everything that judgement rests on.
     """
 
-    corridors: list[CorridorOut]
+    corridors: list[CourseCorridor]
     reserves: list[Mark]
     objectives: list[Mark]
     intent: EnemyIntent = EnemyIntent()
