@@ -9,6 +9,7 @@ import { useStudyMarkEntities } from '../../hooks/useStudyMarkEntities'
 import { useCorridorEntities } from '../../hooks/useCorridorEntities'
 import { useOrbatEntities } from '../../hooks/useOrbatEntities'
 import { useBlockLinkEntities } from '../../hooks/useBlockLinkEntities'
+import { useRoadNetworkEntities } from '../../hooks/useRoadNetworkEntities'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import type { CorridorLine } from '../../lib/routeStudy'
@@ -83,6 +84,8 @@ function OperationalOverlayController({
   const { viewer } = useCesium()
   const allocatedUnitIds = new Set((blockPlan?.allocation ?? []).map((entry) => entry.unit_id))
 
+  // Under everything else: the detected network is context, not a finding.
+  useRoadNetworkEntities({ viewer, graph })
   useAreaBoundsEntity({ viewer, bbox: areaBbox })
   useStudyMarkEntities({ viewer, marks })
   useCorridorEntities({ viewer, lines, selectedCorridorId, courseEmphasis })
