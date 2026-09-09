@@ -6,11 +6,12 @@ export interface Mark {
   name: string
   lon: number
   lat: number
+  /** Named terrain reference for either a reserve or objective. */
+  locality?: string
   /** Reserve-only deployment-overlay fields; absent on objectives and legacy marks. */
   level?: 'K' | 'K1' | 'K2' | 'K3' | 'K4'
   owning_formation?: string
   intelligence_status?: 'assessed' | 'confirmed'
-  locality?: string
   task_organization?: {
     id: string
     designation: string
