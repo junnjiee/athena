@@ -10,8 +10,9 @@ This doc records the Athena engine's behaviour and its modelling assumptions.
 
 The engine does not fight battles. It complements battle procedure: on the S2
 side it finds the routes an enemy reserve can reinforce along, and on the S3
-side it will find the block forces a unit can deploy against them. This document
-covers what is built — the route substrate.
+side it finds the block forces a unit can deploy against them. This document
+covers what is built — the route substrate and the block-force pass. Neither
+uses an agent; both are deterministic.
 
 Three kinds of value appear below:
 
@@ -170,28 +171,130 @@ between the marks.
 Likewise, an area whose graph cannot be fetched is a `502`, never an empty
 study — a study on ground nobody read would be a confident answer about nothing.
 
+## Order of battle
+
+The force a commander has to block with. This is the force *available for this
+task*, not the formation's establishment: units get moved around by mission
+requirement, so the operator supplies it per study. The ORBAT is *scenario
+input*.
+
+Athena models organisation down from a company — company, platoon, section,
+group. Nothing above a company exists, so a company is always the root of a
+tree. Each unit carries its location, strength and availability.
+
+### Role follows the echelon commanded
+
+Role is not stored on a unit. It is derived from the echelon that unit
+commands: a company or platoon is commanded by an officer, a section by a
+sergeant, a group by a man. That keeps one fact in one place — promote a unit by
+giving it command of a larger formation, not by editing two fields that can
+disagree. A group being led by a man holding an appointment rather than by a
+sergeant is doctrine, not an approximation. *Hardcoded rule.*
+
+### The tree rule, and why there is no cycle check
+
+A unit's parent must sit at a **strictly higher echelon**. Because echelon depth
+strictly decreases on every step upward and is bounded below by zero, that
+single rule also makes parent cycles impossible. The engine therefore has no
+separate cycle check, and does not need one. Ids must be unique and every named
+parent must exist. *Hardcoded rule.*
+
+### Availability
+
+Only an **uncommitted** unit is offered as a block force. A `committed` unit is
+already doing something the commander decided mattered more, and offering it as
+free would quietly propose breaking that. A `reserve` unit is likewise withheld.
+Availability is *scenario input*.
+
+### Committing spends the tree in both directions
+
+Committing a unit makes unavailable:
+
+- everything **below** it — committing a platoon commits its sections;
+- everything **above** it — a platoon with one section gone is no longer a
+  platoon to commit.
+
+Without both directions the same men are allocated to two corridors under two
+different names, which makes an allocation worthless. Siblings are untouched.
+*Hardcoded rule.*
+
+## Block forces
+
+Given the corridors the S2 pass derived and an ORBAT, the engine reports what
+could block what. The corridors are **passed in rather than re-derived**, so the
+answer is against the operator's current picture — including corridors they have
+already blocked — rather than a possibly different set.
+
+### The size ceiling
+
+The operator states the largest formation that may be committed to any one
+corridor. A ceiling of platoon admits a platoon, a section or a group, but not a
+company. Expressed on echelon depth so it cannot disagree with the tree rule.
+*Scenario input.*
+
+### Distance is not time
+
+The engine **does not model arrival**. Candidates for a corridor are ordered by
+straight-line distance from the unit to the choke point, and the allocation
+serves the quickest corridor first on the grounds that it is the one the enemy
+reaches soonest.
+
+Neither is a claim about who arrives first. Distance is not road distance and
+not travel time; it exists because with arrival time excluded nothing else
+distinguishes which unit blocks which corridor, and the alternative output is
+every unit against every approach. **The race remains the commander's
+judgement.** *Hardcoded rule.*
+
+### Allocation
+
+One pass, mutually exclusive: each corridor in urgency order takes the nearest
+force still free, and that force's whole commitment set is spent. Ties break on
+unit id, so the same ORBAT always proposes the same force. The result is
+deterministic.
+
+### Two kinds of absence, kept apart
+
+- **unblockable** — nothing can be put on this corridor. Either it has no choke
+  point (its routes share no ground to stand on), its choke point is not in the
+  area's road graph, or no uncommitted unit fits the ceiling.
+- **uncovered** — the corridor could have been blocked, but the force ran out
+  before reaching it.
+
+An S3 needs to tell *"there is nowhere to stand"* from *"we were one section
+short"*. Collapsing the two would hide the difference, and the second is a
+resourcing problem while the first is not.
+
 ## HTTP surface
 
 ```
 GET  /health
-POST /v1/route-study    { area_id | graph, reserves[], objectives[], ...params }
-                        -> { corridors[], unreachable[] }
+POST /v1/route-study     { area_id | graph, reserves[], objectives[], ...params }
+                         -> { corridors[], unreachable[] }
+POST /v1/block-forces    { area_id | graph, corridors[], orbat, ceiling }
+                         -> { corridors[], allocation[], unblockable[], uncovered[] }
 ```
 
 `area_id` is resolved against `TERRAIN_SERVICE_URL`. `graph` is accepted
-directly so the engine can be exercised without a terrain service running.
+directly so the engine can be exercised without a terrain service running. A
+graph that cannot be fetched is a `502` on either endpoint, never an empty
+answer.
 
 ## Known limits
 
-- **No arrival timing.** The engine says a route exists and how long it takes,
-  never who gets there first. Block feasibility in S3 is an option set for a
-  human to time, not a plan.
-- **No dismounted movement**, and therefore no cross-country approach.
+- **No arrival timing.** The engine says a route exists and how long the enemy
+  takes along it, but never whether a block force gets there first. A block plan
+  is an option set for a human to time, not a plan.
+- **A block force is never sized against the threat.** The engine does not ask
+  whether a section can actually hold what is coming down the corridor, only
+  whether it is free and within the ceiling.
+- **No dismounted movement**, and therefore no cross-country approach — for the
+  enemy or for a block force moving to its position.
 - **Completeness is scoped to marked pairs** (see above).
 - **No enemy intent, ranking, or courses of action yet.** Everything here is
   deterministic; the S2 agent layer sits on top of it and is not built.
-- **No block forces yet.** The S3 side is not built; choke points are derived
-  and waiting for it.
+- **The allocation is one greedy pass, not an optimum.** It serves urgency
+  first and never backtracks, so a different assignment may cover more
+  corridors. It is a starting point for a commander, not a solution.
 - **Weather, surface condition, and traffic are not modelled.**
 - **No corridor is found from unmarked ground.** The operator's marks bound the
   entire analysis.
