@@ -7,7 +7,7 @@ later and sit on top of what this produces; nothing here guesses.
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from athena.corridors import cluster_into_corridors
 from athena.graph import RoadGraph, nearest_node
@@ -100,6 +100,14 @@ class ReserveTiming(BaseModel):
         return commencement + movement_seconds / 60 + self.deployment_minutes
 
 
+class IntelligenceEvidence(BaseModel):
+    """A bounded excerpt retained after an operator accepts a model proposal."""
+
+    source_document_id: str = Field(min_length=1, max_length=120)
+    source_document_name: str = Field(min_length=1, max_length=240)
+    excerpt: str = Field(min_length=1, max_length=500)
+
+
 class Mark(BaseModel):
     """A point the operator placed: a suspected reserve, or an objective."""
 
@@ -110,9 +118,22 @@ class Mark(BaseModel):
     level: ReserveLevel | None = None
     owning_formation: str | None = None
     intelligence_status: IntelligenceStatus | None = None
+    intelligence_evidence: list[IntelligenceEvidence] = Field(
+        default_factory=list, max_length=20
+    )
     locality: str | None = None
     task_organization: list[TaskOrganizationElement] = Field(default_factory=list)
     timing: ReserveTiming | None = None
+
+    @field_validator("intelligence_evidence")
+    @classmethod
+    def evidence_sources_are_unique(
+        cls, evidence: list[IntelligenceEvidence]
+    ) -> list[IntelligenceEvidence]:
+        source_ids = [item.source_document_id for item in evidence]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("intelligence evidence source ids must be unique")
+        return evidence
 
 
 class RouteOut(BaseModel):

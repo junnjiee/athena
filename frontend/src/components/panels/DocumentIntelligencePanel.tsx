@@ -112,7 +112,9 @@ export function DocumentIntelligencePanel({
             <div className="mt-1 max-h-20 space-y-0.5 overflow-y-auto border-l border-(--border) pl-1.5 text-[9px] text-(--text-dim)">
               {proposal.claims.map((claim, claimIndex) => (
                 <div key={`${claim.source_document_id}:${claimIndex}`}>
-                  <span className="text-(--text)">{claim.source_document_id}</span>: “{claim.evidence}”
+                  <span className="text-(--text)" title={claim.source_document_id}>
+                    {claim.source_document_name ?? claim.source_document_id}
+                  </span>: “{claim.evidence}”
                 </div>
               ))}
             </div>

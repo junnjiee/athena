@@ -1,5 +1,7 @@
 """Marked ground in, corridors out."""
 
+import pytest
+
 from athena.graph import RoadGraph, nearest_node
 from athena.study import (
     AggressorEchelon,
@@ -37,6 +39,13 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         level=ReserveLevel.DIVISION_RESERVE,
         owning_formation="301 Div",
         intelligence_status=IntelligenceStatus.ASSESSED,
+        intelligence_evidence=[
+            {
+                "source_document_id": "sitrep",
+                "source_document_name": "SITREP.txt",
+                "excerpt": "302 Div Res 1 remains IVO TOMA 1b",
+            }
+        ],
         locality="TOMA 1b",
     )
 
@@ -48,10 +57,33 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         "level": "K4",
         "owning_formation": "301 Div",
         "intelligence_status": "assessed",
+        "intelligence_evidence": [
+            {
+                "source_document_id": "sitrep",
+                "source_document_name": "SITREP.txt",
+                "excerpt": "302 Div Res 1 remains IVO TOMA 1b",
+            }
+        ],
         "locality": "TOMA 1b",
         "task_organization": [],
         "timing": None,
     }
+
+
+def test_a_reserve_rejects_duplicate_evidence_identities() -> None:
+    evidence = {
+        "source_document_id": "sitrep",
+        "source_document_name": "SITREP.txt",
+        "excerpt": "Reserve seen",
+    }
+    with pytest.raises(ValueError, match="source ids must be unique"):
+        Mark(
+            id="res1",
+            name="Reserve 1",
+            lon=1,
+            lat=2,
+            intelligence_evidence=[evidence, {**evidence, "excerpt": "Repeated"}],
+        )
 
 
 def test_composition_modifiers_are_exact_thirds_without_changing_echelon() -> None:

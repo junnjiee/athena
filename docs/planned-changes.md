@@ -448,12 +448,16 @@ Connections to the rest of the work:
   cited excerpts, resolves an exact named locality inside the AO, and remains
   inert until the operator accepts it. Unresolved places cannot be accepted,
   one lookup failure does not discard other proposals, and only facts on which
-  the cited claims agree populate the reserve mark.
+  the cited claims agree populate the reserve mark. Accepted marks retain the
+  bounded excerpt and source filename for every claim, so assessed and confirmed
+  positions remain auditable after the transient upload review closes; raw file
+  bytes are never stored.
 - ~~**The two-source rule becomes computable.**~~ **Done** — if two independent documents
   report the same reserve position, that reserve is *Confirmed* rather than
   *Assessed*, exactly as p.56 defines it. Document count is the evidence.
-- Operator review before extraction becomes marks — extraction proposes, the
-  operator confirms.
+- ~~Operator review before extraction becomes marks~~ **Done** — extraction
+  proposes; the operator accepts or dismisses, and accepted evidence remains on
+  the saved reserve record.
 
 ### Constraints
 

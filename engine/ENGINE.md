@@ -631,7 +631,9 @@ raw source bytes are neither stored nor forwarded. It enforces 10 MB and
 same aggregate text ceiling. The S2 review surface discloses that extracted
 plain text leaves the machine for the configured model provider, shows every
 cited excerpt, and requires an exact named-place match inside the AO before an
-operator can accept a proposal as a mark.
+operator can accept a proposal as a mark. Acceptance persists each bounded
+excerpt with its source filename on the reserve record, keeping the assessment
+auditable without storing the uploaded file.
 
 ## Platform catalogue and weapon matching
 

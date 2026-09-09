@@ -66,6 +66,9 @@ export interface StudyMark {
   level?: ReserveLevel
   owning_formation?: string
   intelligence_status?: IntelligenceStatus
+  /** Bounded excerpts retained when a document proposal becomes a mark. Raw
+   *  source bytes are never stored in the study. */
+  intelligence_evidence?: IntelligenceEvidence[]
   task_organization?: TaskOrganizationElement[]
   timing?: ReserveTiming
   /** Objectives are usually ground, not a pin. When the operator dragged an
@@ -76,6 +79,12 @@ export interface StudyMark {
 
 export type ReserveLevel = 'K' | 'K1' | 'K2' | 'K3' | 'K4'
 export type IntelligenceStatus = 'assessed' | 'confirmed'
+
+export interface IntelligenceEvidence {
+  source_document_id: string
+  source_document_name: string
+  excerpt: string
+}
 
 export interface ReserveTiming {
   /** Doctrinal stages normalized to minutes; missing means not yet assessed. */

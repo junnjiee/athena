@@ -2,6 +2,7 @@ import type { IntelligenceStatus, ReserveLevel, ReserveTiming, TaskOrganizationE
 
 export interface ReserveClaim {
   source_document_id: string
+  source_document_name?: string
   name: string
   locality: string
   level?: ReserveLevel | null

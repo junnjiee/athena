@@ -15,6 +15,11 @@ export function proposalMarkPatch(proposal: ReserveProposal): Partial<StudyMark>
   return {
     locality: proposal.locality,
     intelligence_status: proposal.intelligence_status,
+    intelligence_evidence: proposal.claims.map((claim) => ({
+      source_document_id: claim.source_document_id,
+      source_document_name: claim.source_document_name ?? claim.source_document_id,
+      excerpt: claim.evidence,
+    })),
     level: consensus(proposal.claims, (claim) => claim.level),
     owning_formation: consensus(proposal.claims, (claim) => claim.owning_formation),
     timing: consensus(proposal.claims, (claim) => claim.timing),

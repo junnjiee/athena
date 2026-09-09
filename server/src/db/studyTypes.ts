@@ -12,6 +12,12 @@ export interface Mark {
   level?: 'K' | 'K1' | 'K2' | 'K3' | 'K4'
   owning_formation?: string
   intelligence_status?: 'assessed' | 'confirmed'
+  /** Evidence retained after operator acceptance; source bytes are never stored. */
+  intelligence_evidence?: {
+    source_document_id: string
+    source_document_name: string
+    excerpt: string
+  }[]
   task_organization?: {
     id: string
     designation: string
