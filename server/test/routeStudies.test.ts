@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  coursesRemainGrounded,
   corridorsForCourseAssessment,
   needsResearch,
   objectiveMarkSchema,
+  reconcileCourseState,
+  reconcileIntentWithObjectives,
   reserveMarkSchema,
 } from '../src/routes/routeStudies'
-import type { StudyMarks } from '../src/db/studyTypes'
+import type { RankedCourses, StudyMarks, StudyResult } from '../src/db/studyTypes'
 
 const MARKS: StudyMarks = {
   reserves: [{ id: 'r1', name: 'Assembly', lon: 0, lat: 0 }],
@@ -235,5 +238,110 @@ describe('course corridor context', () => {
 
   test('does not invent context for an unedited corridor', () => {
     expect(corridorsForCourseAssessment([corridor], {})).toEqual([corridor])
+  })
+})
+
+describe('rerouted course reconciliation', () => {
+  const result: StudyResult = {
+    corridors: [{
+      id: 'cor_a',
+      routes: [{
+        reserve_id: 'r1',
+        objective_id: 'o1',
+        edge_ids: ['edge_a'],
+        node_ids: [1, 2],
+        seconds: 60,
+        length_meters: 100,
+      }],
+      choke_edge_ids: [],
+      fastest_seconds: 60,
+    }],
+    unreachable: [],
+  }
+  const courses: RankedCourses = {
+    courses: [{
+      name: 'Advance',
+      narrative: 'Use the live inlet.',
+      efforts: [{
+        kind: 'main',
+        corridor_id: 'cor_a',
+        reserve_id: 'r1',
+        objective_id: 'o1',
+        rationale: 'Fastest route.',
+      }],
+      likelihood: 0.8,
+      danger: 0.7,
+    }],
+    most_likely: null,
+    most_dangerous: null,
+    rejected: [],
+  }
+
+  test('prunes only objective selections that disappeared', () => {
+    expect(reconcileIntentWithObjectives({
+      objective_ids: ['o2', 'o1', 'o3'],
+      narrative: 'Retain the analyst narrative.',
+    }, MARKS.objectives)).toEqual({
+      objective_ids: ['o1'],
+      narrative: 'Retain the analyst narrative.',
+    })
+  })
+
+  test('leaves an absent assessment input absent', () => {
+    expect(reconcileIntentWithObjectives(null, MARKS.objectives)).toBeNull()
+    expect(coursesRemainGrounded(null, result)).toBe(true)
+  })
+
+  test('retains a saved assessment while its exact routed combination exists', () => {
+    expect(coursesRemainGrounded(courses, result)).toBe(true)
+  })
+
+  test('invalidates the assessment when a selected intent objective disappears', () => {
+    expect(reconcileCourseState(
+      { objective_ids: ['o1', 'o2'], narrative: 'Seize either objective.' },
+      courses,
+      MARKS.objectives,
+      result,
+    )).toEqual({
+      intent: { objective_ids: ['o1'], narrative: 'Seize either objective.' },
+      courses: null,
+    })
+  })
+
+  test.each([
+    ['corridor', { corridor_id: 'cor_b' }],
+    ['reserve', { reserve_id: 'r2' }],
+    ['objective', { objective_id: 'o2' }],
+  ])('invalidates an assessment whose %s changed', (_field, changed) => {
+    const stale: RankedCourses = {
+      ...courses,
+      courses: [{
+        ...courses.courses[0],
+        efforts: [{ ...courses.courses[0].efforts[0], ...changed }],
+      }],
+    }
+    expect(coursesRemainGrounded(stale, result)).toBe(false)
+  })
+
+  test('retains a legacy effort when its corridor and reserve still exist together', () => {
+    const legacy: RankedCourses = {
+      ...courses,
+      courses: [{
+        ...courses.courses[0],
+        efforts: [{
+          ...courses.courses[0].efforts[0],
+          objective_id: undefined,
+        }],
+      }],
+    }
+    expect(coursesRemainGrounded(legacy, result)).toBe(true)
+  })
+
+  test('rejects a structurally empty saved course', () => {
+    const empty: RankedCourses = {
+      ...courses,
+      courses: [{ ...courses.courses[0], efforts: [] }],
+    }
+    expect(coursesRemainGrounded(empty, result)).toBe(false)
   })
 })

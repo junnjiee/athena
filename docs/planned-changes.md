@@ -154,6 +154,11 @@ Consequences to handle deliberately:
     by a corridor; each returned effort must name one real corridor/reserve/
     objective combination, preventing valid ids from being recombined into a
     movement the route substrate never found.
+  - **Done: saved assessment reconciliation.** A reroute prunes only intent
+    objective selections that disappeared and preserves the analyst narrative.
+    Saved courses survive only when intent is unchanged and every effort's exact
+    corridor/reserve/objective route still exists; otherwise the assessment is
+    cleared for a deliberate rerun. Legacy courses retain pair-level grounding.
 - ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
   operator selects two cut points on one intact graph segment. Athena snaps the
   picks to that segment and writes a new immutable revision in which the edge is
