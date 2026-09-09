@@ -48,6 +48,20 @@ def test_runs_a_study_over_a_supplied_graph() -> None:
     assert body["corridors"][0]["routes"][0]["edge_ids"] == ["1:0"]
 
 
+def test_corridor_heading_limit_is_a_bounded_request_parameter() -> None:
+    response = client.post(
+        "/v1/route-study",
+        json={
+            "graph": GRAPH,
+            "reserves": [RESERVE],
+            "objectives": [OBJECTIVE],
+            "corridor_max_heading_degrees": 181,
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_a_study_needs_ground_to_run_over() -> None:
     response = client.post(
         "/v1/route-study",

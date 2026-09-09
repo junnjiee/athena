@@ -5,9 +5,15 @@ belong together when they run close, point the same way, and can be crossed
 between along their length. Shared tarmac is emphatically not the test.
 """
 
-from athena.corridors import cluster_into_corridors, lateral_detour_ratio
+from athena.corridors import (
+    axis_heading_difference_degrees,
+    cluster_into_corridors,
+    lateral_detour_ratio,
+)
 from athena.graph import RoadGraph
 from athena.routing import Route, find_diverse_routes
+
+from .conftest import edge, node
 
 
 def route_over(graph: RoadGraph, edge_ids: list[str]) -> Route:
@@ -55,6 +61,37 @@ def test_axes_far_apart_are_separate_however_well_connected(corridor_pair) -> No
 
     # The two arms are 200 km apart -- connectivity cannot rescue that.
     assert len(corridors) == 2
+
+
+def test_close_connected_axes_crossing_at_right_angles_are_separate() -> None:
+    crossing = RoadGraph(
+        nodes=(
+            node(1, -0.02, 0), node(2, 0, 0), node(3, 0.02, 0),
+            node(4, 0, -0.02), node(5, 0, 0.02),
+        ),
+        edges=(
+            edge("40:0", 1, 2, 2226), edge("40:1", 2, 3, 2226),
+            edge("50:0", 4, 2, 2226), edge("50:1", 2, 5, 2226),
+        ),
+    )
+    horizontal = route_over(crossing, ["40:0", "40:1"])
+    vertical = route_over(crossing, ["50:0", "50:1"])
+
+    assert axis_heading_difference_degrees(horizontal, vertical, crossing.nodes_by_id()) == 90
+    assert len(cluster_into_corridors([horizontal, vertical], crossing)) == 2
+
+
+def test_opposite_travel_directions_are_not_one_approach(parallel_axes) -> None:
+    eastbound = route_over(parallel_axes, NORTH)
+    westbound = Route(
+        edges=tuple(reversed(eastbound.edges)),
+        nodes=tuple(reversed(eastbound.nodes)),
+        seconds=eastbound.seconds,
+        length_meters=eastbound.length_meters,
+    )
+
+    assert axis_heading_difference_degrees(eastbound, westbound, parallel_axes.nodes_by_id()) == 180
+    assert len(cluster_into_corridors([eastbound, westbound], parallel_axes)) == 2
 
 
 def test_no_routes_makes_no_corridors(parallel_axes) -> None:

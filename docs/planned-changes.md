@@ -217,7 +217,9 @@ Replace the grouping rule in `cluster_into_corridors`. Axes belong to the same
 corridor when they are:
 
 1. laterally close — small straight-line separation
-2. directionally aligned — running the same way
+2. ~~directionally aligned — running the same way~~ **Done** — the engine now
+   compares start-to-finish travel headings against a configurable 45° limit;
+   crossing routes and routes moving in opposite directions remain separate.
 3. laterally connected — network distance of the same order as straight-line
    separation
 

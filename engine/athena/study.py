@@ -13,6 +13,7 @@ from athena.corridors import cluster_into_corridors
 from athena.graph import RoadGraph, nearest_node
 from athena.params import (
     CORRIDOR_DETOUR_RATIO,
+    CORRIDOR_MAX_HEADING_DEGREES,
     CORRIDOR_SEPARATION_METERS,
     MAX_SHARING,
     MAX_STRETCH,
@@ -154,6 +155,7 @@ def run_study(
     max_stretch: float = MAX_STRETCH,
     max_sharing: float = MAX_SHARING,
     separation_meters: float = CORRIDOR_SEPARATION_METERS,
+    max_heading_degrees: float = CORRIDOR_MAX_HEADING_DEGREES,
     detour_ratio: float = CORRIDOR_DETOUR_RATIO,
     excluded_edge_ids: frozenset[str] = frozenset(),
 ) -> StudyResult:
@@ -206,7 +208,11 @@ def run_study(
 
     corridors = []
     for corridor in cluster_into_corridors(
-        routes, graph, separation_meters=separation_meters, detour_ratio=detour_ratio
+        routes,
+        graph,
+        separation_meters=separation_meters,
+        max_heading_degrees=max_heading_degrees,
+        detour_ratio=detour_ratio,
     ):
         corridors.append(
             CorridorOut(
