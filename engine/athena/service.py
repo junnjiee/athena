@@ -1,17 +1,26 @@
 """The engine's HTTP surface.
 
 Deliberately thin. The terrain service owns all state and every operator edit;
-this process fetches a graph, runs a deterministic search over it, and returns
-the result. Nothing is stored, so the same request always answers the same way.
+this process fetches a graph, computes, and returns the result. Nothing is
+stored, so a deterministic request always answers the same way -- which is
+every endpoint but the courses-of-action pass, the one place a model reasons.
 """
 
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from athena.blocking import BlockPlan, plan_blocks
 from athena.client import fetch_graph
+from athena.eca import (
+    CourseGenerator,
+    RankedCourses,
+    RefusedError,
+    anthropic_generator,
+    generate_courses,
+)
+from athena.intent import EnemyIntent
 from athena.graph import RoadGraph
 from athena.params import CORRIDOR_SIMILARITY, MAX_SHARING, MAX_STRETCH, ROUTES_PER_PAIR
 from athena.orbat import Orbat
@@ -111,3 +120,41 @@ class BlockRequest(BaseModel):
 async def block_forces(request: BlockRequest) -> BlockPlan:
     graph = await _resolve_graph(request.area_id, request.graph)
     return plan_blocks(graph, request.corridors, request.orbat, ceiling=request.ceiling)
+
+
+class CoursesRequest(BaseModel):
+    """Enemy courses of action over corridors an earlier study derived.
+
+    No graph is needed: this pass reasons about which approaches an enemy would
+    use, not about the ground under them, and the corridors already carry
+    everything that judgement rests on.
+    """
+
+    corridors: list[CorridorOut]
+    reserves: list[Mark]
+    objectives: list[Mark]
+    intent: EnemyIntent = EnemyIntent()
+
+
+def get_course_generator() -> CourseGenerator:
+    """The model call, injectable so tests never reach the API."""
+    return anthropic_generator()
+
+
+@app.post("/v1/enemy-courses-of-action", response_model=RankedCourses)
+async def enemy_courses(
+    request: CoursesRequest,
+    generator: CourseGenerator = Depends(get_course_generator),
+) -> RankedCourses:
+    try:
+        return generate_courses(
+            request.corridors,
+            request.reserves,
+            request.objectives,
+            request.intent,
+            generator,
+        )
+    except RefusedError as error:
+        # Never an empty list of courses: "the enemy has no options" and "we did
+        # not get an answer" are opposite findings.
+        raise HTTPException(status_code=502, detail=str(error)) from error

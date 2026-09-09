@@ -68,6 +68,9 @@ export const config = {
   /** A study is a graph search over tens of thousands of edges, not a model
    *  call, so this bounds a slow network rather than slow thinking. */
   engineTimeoutMs: 60_000,
+  /** The courses-of-action pass is a model reasoning about how a force would
+   *  fight, not a graph search, so it runs to minutes rather than seconds. */
+  engineReasoningTimeoutMs: 300_000,
   /** Public Overpass instances throttle/block requests without an identifying UA. */
   userAgent: 'athena-terrain-service/0.1 (dev)',
 

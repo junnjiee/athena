@@ -4,8 +4,13 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
 import { routeStudies } from '../db/schema'
-import type { CorridorEdit, Orbat, StudyMarks } from '../db/studyTypes'
-import { EngineUnavailableError, runBlockForces, runRouteStudy } from '../services/engineClient'
+import type { CorridorEdit, EnemyIntent, Orbat, StudyMarks } from '../db/studyTypes'
+import {
+  EngineUnavailableError,
+  runBlockForces,
+  runEnemyCourses,
+  runRouteStudy,
+} from '../services/engineClient'
 
 const markSchema = z.object({
   id: z.string().min(1),
@@ -55,6 +60,18 @@ export const blockForcesBody = z.object({
   orbat: orbatSchema,
   /** Largest formation the operator will commit to any one corridor. */
   ceiling: echelonSchema,
+})
+
+
+export const enemyCoursesBody = z.object({
+  intent: z.object({
+    posture: z
+      .enum(['attacking', 'defending', 'delaying', 'withdrawing', 'unknown'])
+      .default('unknown'),
+    objective_ids: z.array(z.string()).default([]),
+    /** Free text, as an S2 would write it. Reaches the model unedited. */
+    narrative: z.string().max(4000).default(''),
+  }),
 })
 
 /** Whether an edit changes what the engine would find.
@@ -234,6 +251,54 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         .where(eq(routeStudies.id, req.params.id))
 
       return { orbat, ceiling, blockPlan }
+    },
+  )
+
+
+  /** Runs the S2 pass: how this enemy would use the corridors already found.
+   *
+   *  The only endpoint here that reaches a model. Corridors are sent from the
+   *  stored study rather than recomputed, so the assessment is about the ground
+   *  the operator is actually looking at. */
+  app.post<{ Params: { id: string } }>(
+    '/api/route-study/:id/courses',
+    async (req, reply) => {
+      const parsed = enemyCoursesBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+
+      const rows = await db
+        .select()
+        .from(routeStudies)
+        .where(eq(routeStudies.id, req.params.id))
+        .limit(1)
+      const row = rows[0]
+      if (!row) return reply.status(404).send({ error: 'unknown route study' })
+
+      const intent = parsed.data.intent as EnemyIntent
+
+      let courses
+      try {
+        courses = await runEnemyCourses({
+          corridors: row.result.corridors,
+          reserves: row.marks.reserves,
+          objectives: row.marks.objectives,
+          intent,
+        })
+      } catch (error: unknown) {
+        if (error instanceof EngineUnavailableError) {
+          return reply.status(503).send({ error: error.message })
+        }
+        throw error
+      }
+
+      await db
+        .update(routeStudies)
+        .set({ intent, courses, updatedAt: new Date() })
+        .where(eq(routeStudies.id, req.params.id))
+
+      return { intent, courses }
     },
   )
 

@@ -50,6 +50,13 @@
       "when": 1788897253307,
       "tag": "0006_useful_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788916340705,
+      "tag": "0007_bitter_grandmaster",
+      "breakpoints": true
     }
   ]
 }
