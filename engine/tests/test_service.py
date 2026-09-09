@@ -162,7 +162,8 @@ def test_offers_a_block_force_against_a_corridor() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["allocation"][0]["unit_id"] == "sec1"
-    assert body["corridors"][0]["choke_edge_ids"] == ["1:0"]
+    assert body["inlets"][0]["edge_ids"] == ["1:0"]
+    assert body["inlets"][0]["inlet_number"] == 1
 
 
 def test_block_forces_need_ground_to_answer_over() -> None:

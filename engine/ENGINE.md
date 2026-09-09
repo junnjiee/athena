@@ -504,45 +504,47 @@ Committing a unit makes unavailable:
 - everything **above** it — a platoon with one section gone is no longer a
   platoon to commit.
 
-Without both directions the same men are allocated to two corridors under two
+Without both directions the same men are allocated to two inlets under two
 different names, which makes an allocation worthless. Siblings are untouched.
 *Hardcoded rule.*
 
 ## Block forces
 
 Given the corridors the S2 pass derived and an ORBAT, the engine reports what
-could block what. The corridors are **passed in rather than re-derived**, so the
-answer is against the operator's current picture — including corridors they have
-already blocked — rather than a possibly different set.
+could block every axis/inlet. The corridors are **passed in rather than
+re-derived**, so the answer is against the operator's current picture — including
+corridors they have already blocked — rather than a possibly different set.
 
 ### Distance is not time
 
-The engine **does not model arrival**. Candidates for a corridor are ordered by
-straight-line distance from the unit to the nearest vertex of the choke point —
-equirectangular at the unit's own latitude — and the allocation serves the
-quickest corridor first on the grounds that it is the one the enemy reaches
-soonest.
+The engine **does not model arrival**. Candidates for an inlet are ordered by
+straight-line distance from the unit to the nearest sampled vertex of that
+axis — equirectangular at the unit's own latitude. When force is too scarce to
+hold every inlet, route time decides which inlets remain open.
 
 Neither is a claim about who arrives first. Distance is not road distance and not
 travel time; it exists because with arrival time excluded nothing else
-distinguishes which unit blocks which corridor, and the alternative output is
+distinguishes which unit blocks which inlet, and the alternative output is
 every unit against every approach. **The race remains the commander's judgement.**
 *Hardcoded rule.*
 
 ### Allocation
 
-One pass, mutually exclusive: each corridor in urgency order takes the nearest
-force still free, and that force's whole commitment set is spent. Ties break on
-unit id, so the same ORBAT always proposes the same force. The result is
-deterministic.
+**Coverage is the first optimisation objective.** Each axis is an inlet and receives its own
+block position, including axes in a corridor with no common choke. The allocator
+computes the ORBAT's maximum independent commitment capacity, then chooses the
+nearest force for each urgent inlet only when that choice leaves enough capacity
+to achieve the maximum. A nearby parent formation is therefore skipped when
+committing it would consume descendants needed to hold other inlets. If there is
+only one inlet, that same parent remains eligible: this is a coverage rule, not
+an echelon ceiling. Ties break on unit id, so the result is deterministic.
 
 ### Two kinds of absence, kept apart
 
-- **unblockable** — nothing can be put on this corridor. Either it has no choke
-  point (its routes share no ground to stand on), its choke point is not in the
-  area's road graph, or no uncommitted unit exists.
-- **uncovered** — the corridor could have been blocked, but the force ran out
-  before reaching it.
+- **unblockable** — nothing can be put on this inlet. Either its route is not in
+  the area's road graph, or no uncommitted unit exists.
+- **uncovered** — the inlet could have been blocked, but the force ran out before
+  reaching it.
 
 An S3 needs to tell *"there is nowhere to stand"* from *"we were one section
 short"*. Collapsing the two would hide the difference, and the second is a
@@ -560,7 +562,7 @@ POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectiv
                         -> { corridors[], unreachable[] }
 
 POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat }
-                        -> { corridors[], allocation[], unblockable[], uncovered[] }
+                        -> { inlets[], allocation[], unblockable[], uncovered[] }
 
 POST /v1/enemy-courses-of-action
                         { corridors[], reserves[], objectives[], intent, weights? }

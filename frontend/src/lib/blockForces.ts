@@ -1,5 +1,5 @@
 import { descendants, orbatRows, type OrbatRow } from './orbatTree'
-import type { BlockPlan, OrbatUnit, RoadGraph } from '../types/routeStudy'
+import type { BlockPlan, InletBlock, OrbatUnit, RoadGraph } from '../types/routeStudy'
 
 /**
  * Reading a block plan.
@@ -13,12 +13,32 @@ import type { BlockPlan, OrbatUnit, RoadGraph } from '../types/routeStudy'
 
 export type Coverage = 'allocated' | 'uncovered' | 'unblockable' | 'unknown'
 
-export function allocationByCorridor(plan: BlockPlan) {
-  return new Map(plan.allocation.map((entry) => [entry.corridor_id, entry]))
+export function blockInlets(plan: BlockPlan): InletBlock[] {
+  if (plan.inlets) return plan.inlets
+  return (plan.corridors ?? []).map((block) => ({
+    inlet_id: `legacy:${block.corridor_id}`,
+    corridor_id: block.corridor_id,
+    inlet_number: 1,
+    reserve_id: '',
+    objective_id: '',
+    edge_ids: block.choke_edge_ids,
+    candidates: block.candidates,
+  }))
 }
 
-export function unblockableByCorridor(plan: BlockPlan): Map<string, string> {
-  return new Map(plan.unblockable.map((entry) => [entry.corridor_id, entry.reason]))
+export function allocationByInlet(plan: BlockPlan) {
+  return new Map(
+    plan.allocation.map((entry) => [entry.inlet_id ?? `legacy:${entry.corridor_id}`, entry]),
+  )
+}
+
+export function unblockableByInlet(plan: BlockPlan): Map<string, string> {
+  return new Map(
+    plan.unblockable.map((entry) => [
+      entry.inlet_id ?? `legacy:${entry.corridor_id}`,
+      entry.reason,
+    ]),
+  )
 }
 
 /** The formed body committed by one allocation, presented as an ORBAT rooted
@@ -36,9 +56,16 @@ export function blockForceOrbat(units: OrbatUnit[], unitId: string): OrbatRow[] 
  *  not reported as uncovered, which would be a claim the engine never made. */
 export function blockCoverage(plan: BlockPlan | null, corridorId: string): Coverage {
   if (!plan) return 'unknown'
-  if (plan.allocation.some((entry) => entry.corridor_id === corridorId)) return 'allocated'
-  if (plan.unblockable.some((entry) => entry.corridor_id === corridorId)) return 'unblockable'
+  const inlets = blockInlets(plan).filter((entry) => entry.corridor_id === corridorId)
+  if (inlets.length === 0) return 'unknown'
   if (plan.uncovered.some((entry) => entry.corridor_id === corridorId)) return 'uncovered'
+  if (plan.unblockable.some((entry) => entry.corridor_id === corridorId)) return 'unblockable'
+  const allocated = new Set(
+    plan.allocation
+      .filter((entry) => entry.corridor_id === corridorId)
+      .map((entry) => entry.inlet_id ?? `legacy:${entry.corridor_id}`),
+  )
+  if (inlets.every((entry) => allocated.has(entry.inlet_id))) return 'allocated'
   return 'unknown'
 }
 
@@ -54,15 +81,13 @@ export function blockSummary(plan: BlockPlan): {
   }
 }
 
-/** A point on the corridor's choke edge, to draw an allocation link to.
+/** A representative point on an inlet, to draw an allocation link to.
  *
- *  A real vertex rather than an interpolated midpoint: the link is a sketch of
- *  which unit holds which choke point, and a vertex is guaranteed to sit on
- *  the road. */
-export function chokeMidpoint(graph: RoadGraph, chokeEdgeIds: string[]): [number, number] | null {
-  for (const edgeId of chokeEdgeIds) {
-    const edge = graph.edges.find((candidate) => candidate.id === edgeId)
-    if (edge && edge.points.length > 0) return edge.points[Math.floor(edge.points.length / 2)]
-  }
-  return null
+ *  A real route vertex rather than an interpolated point: the link remains a
+ *  sketch of tasking, without implying a road movement or arrival time. */
+export function inletMidpoint(graph: RoadGraph, edgeIds: string[]): [number, number] | null {
+  const points = edgeIds.flatMap(
+    (edgeId) => graph.edges.find((candidate) => candidate.id === edgeId)?.points ?? [],
+  )
+  return points[Math.floor(points.length / 2)] ?? null
 }

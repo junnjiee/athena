@@ -1,16 +1,18 @@
+import { useState } from 'react'
 import { AlertTriangle, Ban, Loader2, ShieldCheck, Users } from 'lucide-react'
 import { corridorColor, corridorLabel } from '../../lib/corridors'
 import {
-  allocationByCorridor,
+  allocationByInlet,
+  blockInlets,
   blockForceOrbat,
   blockSummary,
-  unblockableByCorridor,
+  unblockableByInlet,
 } from '../../lib/blockForces'
 import { ECHELON_LABEL, availabilitySummary } from '../../lib/orbatTree'
 import { formatRouteDistance } from '../../lib/routeStudy'
 import type {
   BlockAllocation,
-  CorridorBlock,
+  InletBlock,
   OrbatUnit,
   RouteStudy,
 } from '../../types/routeStudy'
@@ -25,11 +27,11 @@ interface Props {
 }
 
 /**
- * The S3 pass: what could be put on each corridor.
+ * The S3 pass: what could be put on each axis/inlet.
  *
  * An option set for a commander to time, not a plan. The engine never asks
  * whether a block force arrives first or whether it can hold what is coming —
- * only whether it is free and near enough to be offered.
+ * only whether it is free and where it lies relative to the inlet.
  */
 export function BlockForcePanel({
   study,
@@ -39,6 +41,7 @@ export function BlockForcePanel({
   onSelectCorridor,
   onRun,
 }: Props) {
+  const [selectedInletId, setSelectedInletId] = useState<string | null>(null)
   const plan = study.blockPlan
   const counts = availabilitySummary(units)
   const corridorNames = new Map(
@@ -47,9 +50,12 @@ export function BlockForcePanel({
       { label: corridorLabel(corridor, index, study.corridorEdits), color: corridorColor(index) },
     ]),
   )
-  const allocated = plan ? allocationByCorridor(plan) : new Map()
-  const unblockable = plan ? unblockableByCorridor(plan) : new Map<string, string>()
-  const uncovered = new Set((plan?.uncovered ?? []).map((entry) => entry.corridor_id))
+  const inlets = plan ? blockInlets(plan) : []
+  const allocated = plan ? allocationByInlet(plan) : new Map()
+  const unblockable = plan ? unblockableByInlet(plan) : new Map<string, string>()
+  const uncovered = new Set(
+    (plan?.uncovered ?? []).map((entry) => entry.inlet_id ?? `legacy:${entry.corridor_id}`),
+  )
   const summary = plan ? blockSummary(plan) : null
 
   return (
@@ -92,23 +98,28 @@ export function BlockForcePanel({
           </div>
         )}
 
-        {plan?.corridors.map((block) => (
-          <CorridorBlockRow
-            key={block.corridor_id}
+        {inlets.map((block) => (
+          <InletBlockRow
+            key={block.inlet_id}
             block={block}
             named={corridorNames.get(block.corridor_id)}
-            allocation={allocated.get(block.corridor_id)}
+            allocation={allocated.get(block.inlet_id)}
             units={units}
-            unblockableReason={unblockable.get(block.corridor_id)}
-            uncovered={uncovered.has(block.corridor_id)}
-            selected={selectedCorridorId === block.corridor_id}
-            onSelect={() => onSelectCorridor(block.corridor_id)}
+            unblockableReason={unblockable.get(block.inlet_id)}
+            uncovered={uncovered.has(block.inlet_id)}
+            selected={selectedInletId === block.inlet_id}
+            corridorSelected={selectedCorridorId === block.corridor_id}
+            onSelect={() => {
+              setSelectedInletId(block.inlet_id)
+              onSelectCorridor(block.corridor_id)
+            }}
           />
         ))}
 
         {plan && (
           <p className="px-0.5 pt-1 text-[10px] leading-relaxed text-(--text-dim)">
-            Distances are straight-line to the choke point, not road distance and not time. Nothing
+            Every axis is an inlet. Distances are straight-line to that inlet, not road distance or
+            time. Nothing
             here says a block force arrives first, or that it can hold what is coming — that timing
             is yours to make.
           </p>
@@ -133,7 +144,7 @@ function Tally({ label, value, tone }: { label: string; value: number; tone: 'go
   )
 }
 
-function CorridorBlockRow({
+function InletBlockRow({
   block,
   named,
   allocation,
@@ -141,15 +152,17 @@ function CorridorBlockRow({
   unblockableReason,
   uncovered,
   selected,
+  corridorSelected,
   onSelect,
 }: {
-  block: CorridorBlock
+  block: InletBlock
   named: { label: string; color: string } | undefined
   allocation: BlockAllocation | undefined
   units: OrbatUnit[]
   unblockableReason: string | undefined
   uncovered: boolean
   selected: boolean
+  corridorSelected: boolean
   onSelect: () => void
 }) {
   const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
@@ -158,7 +171,7 @@ function CorridorBlockRow({
     <div
       role="button"
       tabIndex={0}
-      aria-label={`Block options for ${named?.label ?? block.corridor_id}`}
+      aria-label={`Block options for ${named?.label ?? block.corridor_id}, inlet ${block.inlet_number}`}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
@@ -169,6 +182,8 @@ function CorridorBlockRow({
       className={`rounded-lg border p-2.5 transition-colors ${
         selected
           ? 'border-(--accent-border) bg-(--accent-bg)'
+          : corridorSelected
+            ? 'border-(--accent-border)/40 bg-(--accent-bg)/40'
           : 'border-transparent bg-white/3 hover:bg-white/5'
       }`}
     >
@@ -179,6 +194,9 @@ function CorridorBlockRow({
         />
         <span className="min-w-0 flex-1 truncate text-sm text-(--text-h)">
           {named?.label ?? block.corridor_id}
+        </span>
+        <span className="shrink-0 text-[10px] tracking-wide text-(--text-dim)">
+          INLET {block.inlet_number}
         </span>
       </div>
 
@@ -237,7 +255,7 @@ function CorridorBlockRow({
           </div>
           {block.candidates.length === 0 && (
             <div className="mt-1 text-[11px] text-(--text-dim)">
-              No uncommitted unit can reach this choke point.
+              No uncommitted unit can be put on this inlet.
             </div>
           )}
           {block.candidates.map((candidate) => (

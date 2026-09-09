@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { syncEntities } from '../lib/entitySync'
-import { chokeMidpoint } from '../lib/blockForces'
+import { blockInlets, inletMidpoint } from '../lib/blockForces'
 import type { BlockPlan, OrbatUnit, RoadGraph } from '../types/routeStudy'
 
 interface BlockLink {
@@ -11,7 +11,7 @@ interface BlockLink {
   to: [number, number]
 }
 
-/** A dashed line from each allocated unit to the choke point it was given.
+/** A dashed line from each allocated unit to the inlet it was given.
  *
  *  Deliberately straight, and deliberately not labelled with a time. The engine
  *  measures straight-line distance and says nothing about whether the unit gets
@@ -33,15 +33,16 @@ export function useBlockLinkEntities({
   const links = useMemo<BlockLink[]>(() => {
     if (!plan || !graph) return []
     const byId = new Map(units.map((unit) => [unit.unit_id, unit]))
-    const chokes = new Map(plan.corridors.map((block) => [block.corridor_id, block.choke_edge_ids]))
+    const inlets = new Map(blockInlets(plan).map((block) => [block.inlet_id, block.edge_ids]))
 
     return plan.allocation.flatMap((entry) => {
       const unit = byId.get(entry.unit_id)
-      const target = chokeMidpoint(graph, chokes.get(entry.corridor_id) ?? [])
+      const inletId = entry.inlet_id ?? `legacy:${entry.corridor_id}`
+      const target = inletMidpoint(graph, inlets.get(inletId) ?? [])
       if (!unit || !target) return []
       return [
         {
-          id: `block-link:${entry.corridor_id}:${entry.unit_id}`,
+          id: `block-link:${inletId}:${entry.unit_id}`,
           unitName: entry.unit_name,
           from: [unit.lon, unit.lat] as [number, number],
           to: target,

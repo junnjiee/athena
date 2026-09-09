@@ -28,18 +28,25 @@ def unit(
     )
 
 
-def corridor(corridor_id: str, choke: list[str], seconds: float = 600.0) -> CorridorOut:
+def corridor(
+    corridor_id: str,
+    choke: list[str],
+    seconds: float = 600.0,
+    route_edges: list[list[str]] | None = None,
+) -> CorridorOut:
+    route_edges = route_edges or [choke or ["e-none"]]
     return CorridorOut(
         id=corridor_id,
         routes=[
             RouteOut(
                 reserve_id="res1",
-                objective_id="obj1",
-                edge_ids=choke or ["e-none"],
+                objective_id=f"obj{index}",
+                edge_ids=edge_ids,
                 node_ids=[],
-                seconds=seconds,
+                seconds=seconds + index,
                 length_meters=1000.0,
             )
+            for index, edge_ids in enumerate(route_edges, start=1)
         ],
         choke_edge_ids=choke,
         fastest_seconds=seconds,
@@ -86,15 +93,15 @@ def test_offers_every_available_unit_against_a_corridor() -> None:
 
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
-    assert [c.unit_id for c in plan.corridors[0].candidates] == ["a", "b"]
+    assert [c.unit_id for c in plan.inlets[0].candidates] == ["a", "b"]
 
 
-def test_candidates_are_ordered_by_distance_to_the_choke_point() -> None:
+def test_candidates_are_ordered_by_distance_to_the_inlet() -> None:
     orbat = Orbat(units=(unit("far", Echelon.SECTION, 10), unit("near", Echelon.SECTION, 0)))
 
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
-    assert [c.unit_id for c in plan.corridors[0].candidates] == ["near", "far"]
+    assert [c.unit_id for c in plan.inlets[0].candidates] == ["near", "far"]
 
 
 def test_a_committed_unit_is_never_offered() -> None:
@@ -107,7 +114,7 @@ def test_a_committed_unit_is_never_offered() -> None:
 
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
-    assert [c.unit_id for c in plan.corridors[0].candidates] == ["free"]
+    assert [c.unit_id for c in plan.inlets[0].candidates] == ["free"]
 
 
 def test_all_available_echelons_are_offered() -> None:
@@ -117,22 +124,43 @@ def test_all_available_echelons_are_offered() -> None:
 
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
-    assert [c.unit_id for c in plan.corridors[0].candidates] == ["coy", "sec"]
+    assert [c.unit_id for c in plan.inlets[0].candidates] == ["coy", "sec"]
 
 
 # Corridors that cannot be blocked
 
 
-def test_a_corridor_with_no_choke_point_cannot_be_blocked() -> None:
-    """Its routes share no ground, so there is nowhere to stand."""
-    diffuse = corridor("cor_diffuse", [])
+def test_a_corridor_with_no_common_choke_is_blocked_axis_by_axis() -> None:
+    """A missing common choke does not erase the separate ways in."""
+    diffuse = corridor("cor_diffuse", [], route_edges=[["11:0"], ["22:0"]])
     orbat = Orbat(units=(unit("a", Echelon.SECTION, 0),))
 
     plan = plan_blocks(GRAPH, [diffuse], orbat)
 
-    assert plan.corridors == []
-    assert len(plan.unblockable) == 1
-    assert "choke" in plan.unblockable[0].reason
+    assert len(plan.inlets) == 2
+    assert plan.inlets[0].corridor_id == "cor_diffuse"
+    assert plan.inlets[0].inlet_id != plan.inlets[1].inlet_id
+    assert len(plan.allocation) == 1
+    assert len(plan.uncovered) == 1
+
+
+def test_a_four_axis_corridor_requires_four_separate_block_positions() -> None:
+    four_inlets = corridor(
+        "cor_four",
+        [],
+        route_edges=[["11:0"], ["22:0"], ["11:0"], ["22:0"]],
+    )
+    orbat = Orbat(
+        units=tuple(unit(f"sec-{index}", Echelon.SECTION, index) for index in range(4))
+    )
+
+    plan = plan_blocks(GRAPH, [four_inlets], orbat)
+
+    assert len(plan.inlets) == 4
+    assert [entry.inlet_number for entry in plan.inlets] == [1, 2, 3, 4]
+    assert len({entry.inlet_id for entry in plan.inlets}) == 4
+    assert len(plan.allocation) == 4
+    assert plan.uncovered == []
 
 
 def test_a_corridor_with_no_available_force_is_reported_not_omitted() -> None:
@@ -147,7 +175,7 @@ def test_a_corridor_with_no_available_force_is_reported_not_omitted() -> None:
     assert plan.unblockable[0].corridor_id == "cor_west"
 
 
-def test_a_choke_point_missing_from_the_graph_is_reported() -> None:
+def test_an_inlet_missing_from_the_graph_is_reported() -> None:
     stale = corridor("cor_stale", ["gone:0"])
     orbat = Orbat(units=(unit("a", Echelon.SECTION, 0),))
 
@@ -199,6 +227,42 @@ def test_allocating_a_section_spends_the_platoon_above_it() -> None:
 
     assert len(plan.allocation) == 1
     assert [u.corridor_id for u in plan.uncovered] == ["cor_east"]
+
+
+def test_nearest_formation_is_skipped_when_it_would_reduce_inlet_coverage() -> None:
+    """Distance may choose among full-coverage plans, never reduce coverage."""
+    two_inlets = corridor(
+        "cor_two",
+        [],
+        route_edges=[["11:0"], ["22:0"]],
+    )
+    orbat = Orbat(
+        units=(
+            unit("coy", Echelon.COMPANY, 0),
+            unit("west", Echelon.SECTION, 1, parent_id="coy"),
+            unit("east", Echelon.SECTION, 10, parent_id="coy"),
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [two_inlets], orbat)
+
+    assert len(plan.allocation) == 2
+    assert {entry.unit_id for entry in plan.allocation} == {"west", "east"}
+    assert plan.uncovered == []
+
+
+def test_nearest_formation_can_be_used_when_it_does_not_cost_coverage() -> None:
+    """The coverage guard is not an implicit echelon ceiling."""
+    orbat = Orbat(
+        units=(
+            unit("coy", Echelon.COMPANY, 0),
+            unit("section", Echelon.SECTION, 10, parent_id="coy"),
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [WEST], orbat)
+
+    assert [entry.unit_id for entry in plan.allocation] == ["coy"]
 
 
 def test_a_corridor_left_uncovered_is_named() -> None:
