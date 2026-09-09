@@ -7,6 +7,7 @@ import {
   blockSummary,
   formatExactCount,
   inletMidpoint,
+  replaceBlockPoint,
   sealingByInlet,
   unblockableByInlet,
 } from '../src/lib/blockForces'
@@ -101,6 +102,29 @@ describe('sealing assessments', () => {
     expect(formatExactCount({ numerator: 10, denominator: 1 })).toBe('10')
     expect(formatExactCount({ numerator: 1, denominator: 3 })).toBe('1/3')
     expect(formatExactCount(null)).toBe('—')
+  })
+})
+
+describe('operator block points', () => {
+  const located: BlockPlan = {
+    ...PLAN,
+    block_points: [
+      { inlet_id: 'a', lon: 103.7, lat: 1.3, enemy_movement_seconds: 60, snap_distance_meters: 2 },
+      { inlet_id: 'b', lon: 103.8, lat: 1.4, enemy_movement_seconds: 90, snap_distance_meters: 1 },
+    ],
+  }
+
+  test('replaces one point without losing another', () => {
+    expect(replaceBlockPoint(located, 'a', { longitude: 104, latitude: 1.5 })).toEqual([
+      { inlet_id: 'b', lon: 103.8, lat: 1.4 },
+      { inlet_id: 'a', lon: 104, lat: 1.5 },
+    ])
+  })
+
+  test('clears only the named inlet', () => {
+    expect(replaceBlockPoint(located, 'a', null)).toEqual([
+      { inlet_id: 'b', lon: 103.8, lat: 1.4 },
+    ])
   })
 })
 

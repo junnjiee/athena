@@ -9,6 +9,7 @@ interface BlockLink {
   unitName: string
   from: [number, number]
   to: [number, number]
+  fixed: boolean
 }
 
 /** A dashed line from each allocated unit to the inlet it was given.
@@ -34,11 +35,15 @@ export function useBlockLinkEntities({
     if (!plan || !graph) return []
     const byId = new Map(units.map((unit) => [unit.unit_id, unit]))
     const inlets = new Map(blockInlets(plan).map((block) => [block.inlet_id, block.edge_ids]))
+    const points = new Map((plan.block_points ?? []).map((point) => [point.inlet_id, point]))
 
     return plan.allocation.flatMap((entry) => {
       const unit = byId.get(entry.unit_id)
       const inletId = entry.inlet_id ?? `legacy:${entry.corridor_id}`
-      const target = inletMidpoint(graph, inlets.get(inletId) ?? [])
+      const fixed = points.get(inletId) ?? entry.block_point ?? null
+      const target = fixed
+        ? [fixed.lon, fixed.lat] as [number, number]
+        : inletMidpoint(graph, inlets.get(inletId) ?? [])
       if (!unit || !target) return []
       return [
         {
@@ -46,6 +51,7 @@ export function useBlockLinkEntities({
           unitName: entry.unit_name,
           from: [unit.lon, unit.lat] as [number, number],
           to: target,
+          fixed: fixed != null,
         },
       ]
     })
@@ -54,6 +60,24 @@ export function useBlockLinkEntities({
   useEffect(() => {
     if (!viewer) return
     syncEntities(viewer, links, entityMapRef, (link) => ({
+      position: link.fixed ? Cesium.Cartesian3.fromDegrees(link.to[0], link.to[1]) : undefined,
+      point: link.fixed ? {
+        pixelSize: 9,
+        color: Cesium.Color.fromCssColorString('#f59e0b'),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      } : undefined,
+      label: link.fixed ? {
+        text: `${link.unitName} BLOCK`,
+        font: '10px sans-serif',
+        fillColor: Cesium.Color.fromCssColorString('#fbbf24'),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -15),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      } : undefined,
       polyline: {
         positions: [link.from, link.to].map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat)),
         width: 2,

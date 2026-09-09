@@ -19,7 +19,8 @@ from pydantic import BaseModel, Field
 
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Orbat, Unit, WeaponSystem
-from athena.study import CorridorOut, Mark
+from athena.routing import edge_travel_seconds
+from athena.study import CorridorOut, Mark, RouteOut
 from athena.targeting import Effect, Hardness, TargetClass, lookup_platform, match_weapon
 from athena.units import Echelon
 
@@ -29,6 +30,22 @@ class BlockWeapon(BaseModel):
 
     weapon: WeaponSystem
     count: int = Field(ge=1)
+
+
+class BlockPointInput(BaseModel):
+    """An operator's requested contact point, snapped to one known inlet."""
+
+    inlet_id: str = Field(min_length=1, max_length=120)
+    lon: float = Field(ge=-180, le=180)
+    lat: float = Field(ge=-85, le=85)
+
+
+class BlockPoint(BaseModel):
+    inlet_id: str
+    lon: float = Field(ge=-180, le=180)
+    lat: float = Field(ge=-85, le=85)
+    enemy_movement_seconds: float = Field(ge=0)
+    snap_distance_meters: float = Field(ge=0)
 
 
 class BlockCandidate(BaseModel):
@@ -64,6 +81,12 @@ class Allocation(BaseModel):
     unit_id: str
     unit_name: str
     distance_meters: float
+    block_point: BlockPoint | None = None
+
+
+class RejectedBlockPoint(BaseModel):
+    inlet_id: str
+    reason: str
 
 
 class Unblockable(BaseModel):
@@ -142,6 +165,8 @@ class BlockPlan(BaseModel):
     unblockable: list[Unblockable]
     uncovered: list[Uncovered]
     sealing: list[SealingAssessment]
+    block_points: list[BlockPoint] = Field(default_factory=list)
+    rejected_block_points: list[RejectedBlockPoint] = Field(default_factory=list)
 
 
 def _inlet_id(reserve_id: str, objective_id: str, edge_ids: list[str]) -> str:
@@ -161,6 +186,104 @@ def _route_points(
         if edge is not None:
             points.extend(edge.points)
     return points
+
+
+MAX_BLOCK_POINT_SNAP_METERS = 500.0
+
+
+def _segment_meters(
+    start: tuple[float, float], end: tuple[float, float]
+) -> float:
+    latitude = (start[1] + end[1]) / 2
+    return math.hypot(
+        (end[0] - start[0]) * math.cos(math.radians(latitude)) * 111_320.0,
+        (end[1] - start[1]) * 111_320.0,
+    )
+
+
+def _project_onto_segment(
+    point: BlockPointInput,
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> tuple[float, float, float, float]:
+    """Projected lon, lat, segment fraction, and miss distance in metres."""
+    lon_scale = math.cos(math.radians(point.lat)) * 111_320.0
+    lat_scale = 111_320.0
+    start_x = (start[0] - point.lon) * lon_scale
+    start_y = (start[1] - point.lat) * lat_scale
+    end_x = (end[0] - point.lon) * lon_scale
+    end_y = (end[1] - point.lat) * lat_scale
+    dx, dy = end_x - start_x, end_y - start_y
+    denominator = dx * dx + dy * dy
+    fraction = 0.0 if denominator == 0 else max(
+        0.0, min(1.0, -(start_x * dx + start_y * dy) / denominator)
+    )
+    projected_x = start_x + fraction * dx
+    projected_y = start_y + fraction * dy
+    return (
+        start[0] + fraction * (end[0] - start[0]),
+        start[1] + fraction * (end[1] - start[1]),
+        fraction,
+        math.hypot(projected_x, projected_y),
+    )
+
+
+def _locate_block_point(
+    route: RouteOut,
+    requested: BlockPointInput,
+    edges_by_id: dict[str, Edge],
+    graph: RoadGraph,
+) -> BlockPoint | None:
+    """Snap an operator click to the inlet and recover enemy movement time."""
+    nodes = graph.nodes_by_id()
+    elapsed_seconds = 0.0
+    best: BlockPoint | None = None
+    previous: tuple[float, float] | None = None
+
+    for index, edge_id in enumerate(route.edge_ids):
+        edge = edges_by_id.get(edge_id)
+        if edge is None:
+            continue
+        if index < len(route.node_ids):
+            reverse = edge.to_node == route.node_ids[index]
+        elif previous is not None:
+            reverse = _segment_meters(previous, edge.points[-1]) < _segment_meters(
+                previous, edge.points[0]
+            )
+        else:
+            reverse = False
+        points = list(reversed(edge.points)) if reverse else list(edge.points)
+        travel_seconds = edge_travel_seconds(edge, nodes, reverse=reverse)
+        if travel_seconds is None or len(points) < 2:
+            continue
+        segment_lengths = [
+            _segment_meters(start, end) for start, end in zip(points, points[1:])
+        ]
+        shape_length = sum(segment_lengths)
+        traversed = 0.0
+        for (start, end), segment_length in zip(zip(points, points[1:]), segment_lengths):
+            lon, lat, fraction, miss = _project_onto_segment(requested, start, end)
+            movement = elapsed_seconds
+            if shape_length > 0:
+                movement += travel_seconds * (
+                    traversed + segment_length * fraction
+                ) / shape_length
+            candidate = BlockPoint(
+                inlet_id=requested.inlet_id,
+                lon=lon,
+                lat=lat,
+                enemy_movement_seconds=movement,
+                snap_distance_meters=miss,
+            )
+            if best is None or candidate.snap_distance_meters < best.snap_distance_meters:
+                best = candidate
+            traversed += segment_length
+        elapsed_seconds += travel_seconds
+        previous = points[-1]
+
+    if best is None or best.snap_distance_meters > MAX_BLOCK_POINT_SNAP_METERS:
+        return None
+    return best
 
 
 def _distance_meters(unit: Unit, points: list[tuple[float, float]]) -> float:
@@ -246,13 +369,14 @@ def _hardest_platforms(reserve: Mark) -> tuple[Hardness, dict[str, Fraction]] | 
 
 def _reaction_timeline(
     block: InletBlock,
+    allocation: Allocation,
     reserve: Mark | None,
     outcome: SealingOutcome,
 ) -> ReactionTimeline:
     """Build only the reaction events justified by current inputs.
 
-    Contact time needs an exact block point and delay duration needs an assessed
-    effect. Neither exists in the current model, so both remain named gaps.
+    Contact is timed only after the operator chooses a point on this inlet.
+    Delay duration still needs an assessed effect and remains a named gap.
     """
     commencement = (
         reserve.timing.commencement_minutes()
@@ -264,13 +388,23 @@ def _reaction_timeline(
         if reserve is not None and reserve.timing is not None
         else None
     )
-    unknowns = ["contact time needs an exact block position"]
+    contact = (
+        commencement + allocation.block_point.enemy_movement_seconds / 60
+        if commencement is not None and allocation.block_point is not None
+        else None
+    )
+    unknowns: list[str] = []
+    if allocation.block_point is None:
+        unknowns.append("contact time needs an operator-set block position")
+    elif commencement is None:
+        unknowns.append("contact time needs reserve commencement")
     if commencement is None:
         unknowns.append("commencement needs decision and readiness time")
 
     if outcome is SealingOutcome.DESTROYED:
         return ReactionTimeline(
             commencement_minutes=commencement,
+            contact_minutes=contact,
             remnant_continued=False,
             objective_outcome=ObjectiveOutcome.DID_NOT_REACH,
             unknowns=unknowns,
@@ -280,6 +414,7 @@ def _reaction_timeline(
             unknowns.append("objective arrival needs complete reserve timing")
         return ReactionTimeline(
             commencement_minutes=commencement,
+            contact_minutes=contact,
             delay_minutes=0,
             remnant_continued=True,
             objective_arrival_minutes=task_complete,
@@ -291,6 +426,7 @@ def _reaction_timeline(
         unknowns.append("objective arrival cannot be timed until delay is assessed")
         return ReactionTimeline(
             commencement_minutes=commencement,
+            contact_minutes=contact,
             remnant_continued=True,
             objective_outcome=ObjectiveOutcome.REACHED,
             unknowns=unknowns,
@@ -298,6 +434,7 @@ def _reaction_timeline(
     unknowns.append("continuation and objective outcome need a sealing result")
     return ReactionTimeline(
         commencement_minutes=commencement,
+        contact_minutes=contact,
         objective_outcome=ObjectiveOutcome.UNKNOWN,
         unknowns=unknowns,
     )
@@ -323,7 +460,7 @@ def _assess_sealing(
             effective_weapon_count=0,
             outcome=outcome,
             reason="reserve is not present in the supplied assessment",
-            reaction=_reaction_timeline(block, reserve, outcome),
+            reaction=_reaction_timeline(block, allocation, reserve, outcome),
         )
 
     hardest = _hardest_platforms(reserve)
@@ -339,7 +476,7 @@ def _assess_sealing(
             effective_weapon_count=0,
             outcome=outcome,
             reason="reserve has no catalogued platform hardness to assess",
-            reaction=_reaction_timeline(block, reserve, outcome),
+            reaction=_reaction_timeline(block, allocation, reserve, outcome),
         )
 
     hardness, platforms = hardest
@@ -380,7 +517,7 @@ def _assess_sealing(
         remaining_platform_count=_exact(remaining),
         outcome=outcome,
         reason=reason,
-        reaction=_reaction_timeline(block, reserve, outcome),
+        reaction=_reaction_timeline(block, allocation, reserve, outcome),
     )
 
 
@@ -389,12 +526,30 @@ def plan_blocks(
     corridors: list[CorridorOut],
     orbat: Orbat,
     reserves: list[Mark] | None = None,
+    block_points: list[BlockPointInput] | None = None,
 ) -> BlockPlan:
     """Block options and a maximum-coverage allocation for every axis/inlet."""
     available = orbat.available()
 
     blocks: list[InletBlock] = []
     unblockable: list[Unblockable] = []
+    rejected_block_points: list[RejectedBlockPoint] = []
+    requested_by_id: dict[str, BlockPointInput] = {}
+    duplicate_point_ids: set[str] = set()
+    for point in block_points or []:
+        if point.inlet_id in requested_by_id:
+            duplicate_point_ids.add(point.inlet_id)
+            continue
+        requested_by_id[point.inlet_id] = point
+    for inlet_id in sorted(duplicate_point_ids):
+        requested_by_id.pop(inlet_id, None)
+        rejected_block_points.append(
+            RejectedBlockPoint(
+                inlet_id=inlet_id,
+                reason="block point was supplied more than once",
+            )
+        )
+    located_points: dict[str, BlockPoint] = {}
     urgency: dict[str, tuple[float, float, str]] = {}
     edges_by_id = {edge.id: edge for edge in graph.edges}
 
@@ -403,6 +558,18 @@ def plan_blocks(
             inlet_id = _inlet_id(route.reserve_id, route.objective_id, route.edge_ids)
             urgency[inlet_id] = (route.seconds, corridor.fastest_seconds, inlet_id)
             points = _route_points(edges_by_id, route.edge_ids)
+            requested = requested_by_id.pop(inlet_id, None)
+            if requested is not None:
+                located = _locate_block_point(route, requested, edges_by_id, graph)
+                if located is None:
+                    rejected_block_points.append(
+                        RejectedBlockPoint(
+                            inlet_id=inlet_id,
+                            reason="requested point is more than 500 m from this inlet",
+                        )
+                    )
+                else:
+                    located_points[inlet_id] = located
             candidates: list[BlockCandidate] = []
             if not points:
                 unblockable.append(
@@ -491,6 +658,7 @@ def plan_blocks(
                 unit_id=taken.unit_id,
                 unit_name=taken.unit_name,
                 distance_meters=taken.distance_meters,
+                block_point=located_points.get(block.inlet_id),
             )
         )
         spent |= orbat.commits(taken.unit_id)
@@ -498,6 +666,14 @@ def plan_blocks(
     blocks.sort(key=lambda block: (block.corridor_id, block.inlet_number, block.inlet_id))
     unblockable.sort(key=lambda entry: (entry.corridor_id, entry.inlet_id))
     uncovered.sort(key=lambda entry: (entry.corridor_id, entry.inlet_id))
+    rejected_block_points.extend(
+        RejectedBlockPoint(
+            inlet_id=inlet_id,
+            reason="block point names an inlet outside this study",
+        )
+        for inlet_id in sorted(requested_by_id)
+    )
+    rejected_block_points.sort(key=lambda entry: (entry.inlet_id, entry.reason))
     blocks_by_inlet = {block.inlet_id: block for block in blocks}
     reserves_by_id = {reserve.id: reserve for reserve in reserves or []}
     sealing = [
@@ -514,4 +690,6 @@ def plan_blocks(
         unblockable=unblockable,
         uncovered=uncovered,
         sealing=sealing,
+        block_points=sorted(located_points.values(), key=lambda point: point.inlet_id),
+        rejected_block_points=rejected_block_points,
     )

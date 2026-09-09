@@ -114,4 +114,13 @@ describe('blockForcesBody', () => {
       },
     })).success).toBe(false)
   })
+
+  test('accepts bounded unique operator block points', () => {
+    const point = { inlet_id: 'inlet-1', lon: 103.8, lat: 1.35 }
+    expect(blockForcesBody.parse(body({ blockPoints: [point] })).blockPoints).toEqual([point])
+    expect(blockForcesBody.safeParse(body({ blockPoints: [point, point] })).success).toBe(false)
+    expect(blockForcesBody.safeParse(body({
+      blockPoints: [{ ...point, lon: 999 }],
+    })).success).toBe(false)
+  })
 })

@@ -325,6 +325,19 @@ def test_block_force_response_assesses_sealing_against_the_reserve() -> None:
     assert "delay duration is not assessed" in assessment["reaction"]["unknowns"]
 
 
+def test_block_force_endpoint_accepts_an_operator_block_point() -> None:
+    first = client.post("/v1/block-forces", json=block_request())
+    inlet_id = first.json()["inlets"][0]["inlet_id"]
+
+    response = client.post(
+        "/v1/block-forces",
+        json=block_request(block_points=[{"inlet_id": inlet_id, "lon": 0.5, "lat": 0}]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["block_points"][0]["inlet_id"] == inlet_id
+
+
 def test_an_invalid_orbat_tree_is_rejected() -> None:
     broken = {
         "units": [

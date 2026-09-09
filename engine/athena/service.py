@@ -9,9 +9,9 @@ every endpoint but the courses-of-action pass, the one place a model reasons.
 import os
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from athena.blocking import BlockPlan, plan_blocks
+from athena.blocking import BlockPlan, BlockPointInput, plan_blocks
 from athena.client import fetch_graph
 from athena.eca import (
     CourseGenerator,
@@ -173,12 +173,29 @@ class BlockRequest(BaseModel):
     corridors: list[CorridorOut]
     orbat: Orbat
     reserves: list[Mark] = Field(default_factory=list)
+    block_points: list[BlockPointInput] = Field(default_factory=list, max_length=128)
+
+    @field_validator("block_points")
+    @classmethod
+    def block_point_inlets_are_unique(
+        cls, points: list[BlockPointInput]
+    ) -> list[BlockPointInput]:
+        inlet_ids = [point.inlet_id for point in points]
+        if len(inlet_ids) != len(set(inlet_ids)):
+            raise ValueError("block point inlet ids must be unique")
+        return points
 
 
 @app.post("/v1/block-forces", response_model=BlockPlan)
 async def block_forces(request: BlockRequest) -> BlockPlan:
     graph = await _resolve_graph(request.area_id, request.graph_revision, request.graph)
-    return plan_blocks(graph, request.corridors, request.orbat, request.reserves)
+    return plan_blocks(
+        graph,
+        request.corridors,
+        request.orbat,
+        request.reserves,
+        request.block_points,
+    )
 
 
 class CoursesRequest(BaseModel):

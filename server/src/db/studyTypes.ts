@@ -173,6 +173,18 @@ export interface BlockAllocation {
   unit_id: string
   unit_name: string
   distance_meters: number
+  block_point?: BlockPoint | null
+}
+
+export interface BlockPointInput {
+  inlet_id: string
+  lon: number
+  lat: number
+}
+
+export interface BlockPoint extends BlockPointInput {
+  enemy_movement_seconds: number
+  snap_distance_meters: number
 }
 
 /** An inlet nothing can be put on. Distinct from `uncovered`, which is an
@@ -222,6 +234,8 @@ export interface BlockPlan {
   unblockable: UnblockableCorridor[]
   uncovered: { inlet_id?: string; corridor_id: string }[]
   sealing?: SealingAssessment[]
+  block_points?: BlockPoint[]
+  rejected_block_points?: { inlet_id: string; reason: string }[]
 }
 
 /** What the operator believes the enemy is trying to do. */

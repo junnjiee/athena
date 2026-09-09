@@ -1,6 +1,7 @@
 import { descendants, orbatRows, type OrbatRow } from './orbatTree'
 import type {
   BlockPlan,
+  BlockPointInput,
   ExactCount,
   InletBlock,
   OrbatUnit,
@@ -50,6 +51,23 @@ export function unblockableByInlet(plan: BlockPlan): Map<string, string> {
 
 export function sealingByInlet(plan: BlockPlan): Map<string, SealingAssessment> {
   return new Map((plan.sealing ?? []).map((assessment) => [assessment.inlet_id, assessment]))
+}
+
+export function blockPointInputs(plan: BlockPlan | null): BlockPointInput[] {
+  return (plan?.block_points ?? []).map(({ inlet_id, lon, lat }) => ({ inlet_id, lon, lat }))
+}
+
+/** Preserve every accepted operator point while replacing or clearing one inlet. */
+export function replaceBlockPoint(
+  plan: BlockPlan | null,
+  inletId: string,
+  position: { longitude: number; latitude: number } | null,
+): BlockPointInput[] {
+  const retained = blockPointInputs(plan)
+    .filter((point) => point.inlet_id !== inletId)
+  return position
+    ? [...retained, { inlet_id: inletId, lon: position.longitude, lat: position.latitude }]
+    : retained
 }
 
 /** Preserve the engine's exact fractions instead of implying false precision
