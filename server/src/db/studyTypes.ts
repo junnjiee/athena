@@ -73,6 +73,14 @@ export interface StudyResult {
 export interface CorridorEdit {
   name?: string
   category?: string
+  /** Provenance shown when an edit was conservatively carried across a graph
+   *  revision by shared-ground overlap. */
+  reattachment?: {
+    from_corridor_id: string
+    from_revision: number
+    to_revision: number
+    overlap: number
+  }
 }
 
 /** The force available for blocking, as the operator supplied it.

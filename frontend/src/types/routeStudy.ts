@@ -140,6 +140,12 @@ export interface StudyResult {
 export interface CorridorEdit {
   name?: string
   category?: string
+  reattachment?: {
+    from_corridor_id: string
+    from_revision: number
+    to_revision: number
+    overlap: number
+  }
 }
 
 export interface RouteStudySummary {

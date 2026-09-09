@@ -103,7 +103,8 @@ function CorridorRow({
   onToggleChoke: Props['onToggleChoke']
 }) {
   const serverName = corridorLabel(corridor, index, study.corridorEdits)
-  const serverCategory = study.corridorEdits[corridor.id]?.category ?? ''
+  const edit = study.corridorEdits[corridor.id]
+  const serverCategory = edit?.category ?? ''
   const [name, setName] = useState(serverName)
   const [category, setCategory] = useState(serverCategory)
   const [lastServerName, setLastServerName] = useState(serverName)
@@ -196,6 +197,15 @@ function CorridorRow({
         <span>·</span>
         <span>{corridorMinutes(corridor)} min fastest</span>
       </div>
+
+      {edit?.reattachment && (
+        <div
+          className="mt-1 text-[9px] tracking-wide text-(--accent)"
+          title={`Carried from ${edit.reattachment.from_corridor_id}`}
+        >
+          REATTACHED {Math.round(edit.reattachment.overlap * 100)}% · REV {edit.reattachment.from_revision}→{edit.reattachment.to_revision}
+        </div>
+      )}
 
       {timedReserves.length > 0 && (
         <div className="mt-1 space-y-0.5 text-[10px] text-(--text-dim)">

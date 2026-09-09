@@ -20,6 +20,7 @@ import {
   runRouteStudy,
 } from '../services/engineClient'
 import { loadOperationalAreaRevision } from '../services/operationalAreaStore'
+import { reattachCorridorEdits } from '../services/corridorEdits'
 
 const markSchema = z.object({
   id: z.string().min(1),
@@ -88,7 +89,16 @@ const updateBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   marks: marksSchema.optional(),
   edgeOverrides: z.array(z.string()).optional(),
-  corridorEdits: z.record(z.object({ name: z.string().max(80).optional(), category: z.string().max(40).optional() })).optional(),
+  corridorEdits: z.record(z.object({
+    name: z.string().max(80).optional(),
+    category: z.string().max(40).optional(),
+    reattachment: z.object({
+      from_corridor_id: z.string().min(1),
+      from_revision: z.number().int().positive(),
+      to_revision: z.number().int().positive(),
+      overlap: z.number().min(0).max(1),
+    }).optional(),
+  })).optional(),
 })
 
 
@@ -301,7 +311,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
 
     const marks = parsed.data.marks ?? row.marks
     const edgeOverrides = parsed.data.edgeOverrides ?? row.edgeOverrides
-    const corridorEdits: Record<string, CorridorEdit> =
+    let corridorEdits: Record<string, CorridorEdit> =
       parsed.data.corridorEdits ?? row.corridorEdits
 
     let result = row.result
@@ -314,6 +324,15 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
           marks,
           excludedEdgeIds: edgeOverrides,
         })
+        if (row.graphRevision !== currentGraphRevision) {
+          corridorEdits = reattachCorridorEdits(
+            row.result,
+            result,
+            corridorEdits,
+            row.graphRevision,
+            currentGraphRevision,
+          )
+        }
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {
           return reply.status(503).send({ error: error.message })
