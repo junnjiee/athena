@@ -42,8 +42,10 @@ import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import type { SelectionResult } from '../types/selection'
 import type { LonLat, PlaceableMode, ToolMode } from '../types/entities'
 import type { MovementLoadout, MovementType } from '../types/movement'
+import { useRailOffset } from '../state/shell'
 
 export function BattlegroundSelectorPage() {
+  const railOffset = useRailOffset()
   const [toolMode, setToolMode] = useState<ToolMode>('navigate')
   // A loaded plan's meta/grid/features are already restored into the store by
   // loadSaved() before this page mounts -- synthesize a matching `selection`
@@ -457,7 +459,7 @@ export function BattlegroundSelectorPage() {
 
       <Sidebar />
 
-      <div className="absolute top-4 right-4 left-60 z-30">
+      <div className={`absolute top-4 right-4 z-30 ${railOffset}`}>
         <TopHeader
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -477,7 +479,7 @@ export function BattlegroundSelectorPage() {
           back-to-back from the top, which is exactly what sent TerrainInfoPanel
           sinking off the bottom edge on shorter viewports. */}
       <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-none absolute top-24 right-4 left-60 flex items-start justify-between gap-3">
+            <div className={`pointer-events-none absolute top-24 right-4 flex items-start justify-between gap-3 ${railOffset}`}>
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {canPlan && (
                   <PlanRosterPanel
@@ -527,7 +529,7 @@ export function BattlegroundSelectorPage() {
               </div>
             </div>
 
-            <div className="pointer-events-none absolute right-4 bottom-30 left-60 flex items-end justify-between">
+            <div className={`pointer-events-none absolute right-4 bottom-30 flex items-end justify-between ${railOffset}`}>
               <div className="pointer-events-auto flex max-h-[calc(100vh-13.5rem)] flex-col gap-3 overflow-y-auto">
                 {phase === 'ready' ? (
                   <>
@@ -578,7 +580,7 @@ export function BattlegroundSelectorPage() {
         </div>
       )}
 
-      <div className="pointer-events-none absolute right-4 bottom-4 left-60 z-30">
+      <div className={`pointer-events-none absolute right-4 bottom-4 z-30 ${railOffset}`}>
         <BottomBar
           planReady={phase === 'ready'}
           planName={battlegroundName}

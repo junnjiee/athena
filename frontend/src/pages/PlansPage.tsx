@@ -8,6 +8,7 @@ import { usePlan } from '../state/plan'
 import { useMission } from '../state/mission'
 import { filterPlans, sortPlans, SORT_LABELS, type SortKey } from '../lib/planSort'
 import type { PlanSummary } from '../types/plan'
+import { useRailOffset } from '../state/shell'
 
 type LoadState =
   | { kind: 'loading' }
@@ -19,6 +20,7 @@ function formatDate(iso: string): string {
 }
 
 export function PlansPage() {
+  const railOffset = useRailOffset()
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [busyId, setBusyId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -135,7 +137,7 @@ export function PlansPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
       <Sidebar />
-      <div className="absolute top-4 right-4 bottom-4 left-60">
+      <div className={`absolute top-4 right-4 bottom-4 ${railOffset}`}>
         <div className="glass-deep flex h-full flex-col rounded-2xl p-6">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-sm tracking-wide text-(--text-dim)">

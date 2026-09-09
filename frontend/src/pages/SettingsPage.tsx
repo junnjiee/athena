@@ -5,6 +5,7 @@ import { WEIGHT_HINT, WEIGHT_KEYS, WEIGHT_LABEL, weightBias } from '../lib/cours
 import { useRouteStudy } from '../state/routeStudy'
 import { useSettings, type DefaultLoadPreset } from '../state/settings'
 import { LOAD_PRESETS, MOVEMENT_ORDER, MOVEMENT_PROFILES } from '../types/movement'
+import { useRailOffset } from '../state/shell'
 
 /** What the server reports about its own configuration — booleans only, never
  *  key material (see server/src/routes/assistant.ts). */
@@ -128,6 +129,7 @@ function WeightRow({ name, weight }: { name: (typeof WEIGHT_KEYS)[number]; weigh
 }
 
 export function SettingsPage() {
+  const railOffset = useRailOffset()
   const [statusState, setStatusState] = useState<StatusState>({ kind: 'loading' })
   const settings = useSettings()
   const preferences = useRouteStudy((state) => state.preferences)
@@ -167,7 +169,7 @@ export function SettingsPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
       <Sidebar />
-      <div className="absolute top-4 right-4 bottom-4 left-60">
+      <div className={`absolute top-4 right-4 bottom-4 ${railOffset}`}>
         <div className="glass-deep flex h-full flex-col rounded-2xl p-6">
           <div className="mb-5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-sm tracking-wide text-(--text-dim)">
