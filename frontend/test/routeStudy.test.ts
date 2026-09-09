@@ -29,6 +29,29 @@ describe('placing marks', () => {
     expect(store().draftMarks.reserves[0].name).toBe('Depot')
   })
 
+  test('new reserves start assessed until the operator confirms two sources', () => {
+    store().addMark('reserve', 0, 0)
+    expect(store().draftMarks.reserves[0].intelligence_status).toBe('assessed')
+  })
+
+  test('reserve intelligence fields update without moving the mark', () => {
+    const id = store().addMark('reserve', 1, 2)
+    store().updateMark('reserve', id, {
+      level: 'K3',
+      owning_formation: '1/903',
+      intelligence_status: 'confirmed',
+      locality: 'TOMA 1b',
+    })
+    expect(store().draftMarks.reserves[0]).toMatchObject({
+      lon: 1,
+      lat: 2,
+      level: 'K3',
+      owning_formation: '1/903',
+      intelligence_status: 'confirmed',
+      locality: 'TOMA 1b',
+    })
+  })
+
   test('an objective drawn as ground keeps its bounds', () => {
     const bbox = { west: 1, south: 2, east: 3, north: 4 }
     store().addMark('objective', 2, 3, { bbox })

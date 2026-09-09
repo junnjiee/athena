@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { syncEntityGroups } from '../lib/entitySync'
 import { objectiveStarIcon, reserveMarkerIcon } from '../lib/markerIcons'
-import { ACCENT_HEX, HOSTILE_HEX } from '../lib/colors'
+import { ACCENT_HEX, ASSESSED_HEX, HOSTILE_HEX } from '../lib/colors'
 import type { StudyMark, StudyMarks } from '../types/routeStudy'
 
 interface DisplayMark extends StudyMark {
@@ -42,7 +42,8 @@ export function useStudyMarkEntities({
 
     syncEntityGroups(viewer, displayMarks, entityMapRef, (mark) => {
       const reserve = mark.kind === 'reserve'
-      const color = Cesium.Color.fromCssColorString(reserve ? HOSTILE_HEX : ACCENT_HEX)
+      const reserveColor = mark.intelligence_status === 'confirmed' ? HOSTILE_HEX : ASSESSED_HEX
+      const color = Cesium.Color.fromCssColorString(reserve ? reserveColor : ACCENT_HEX)
 
       let placedAt = pulseStartRef.current.get(mark.id)
       if (placedAt === undefined) {
@@ -62,7 +63,7 @@ export function useStudyMarkEntities({
       const marker: Cesium.Entity.ConstructorOptions = {
         position: Cesium.Cartesian3.fromDegrees(mark.lon, mark.lat),
         billboard: {
-          image: reserve ? reserveMarkerIcon(HOSTILE_HEX) : objectiveStarIcon(ACCENT_HEX),
+          image: reserve ? reserveMarkerIcon(reserveColor) : objectiveStarIcon(ACCENT_HEX),
           width: reserve ? 30 : 28,
           height: reserve ? 30 : 28,
           scale,
@@ -70,7 +71,7 @@ export function useStudyMarkEntities({
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
-          text: mark.name,
+          text: reserve && mark.level ? `${mark.level} · ${mark.name}` : mark.name,
           font: '600 12px system-ui, sans-serif',
           fillColor: color,
           showBackground: true,

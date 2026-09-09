@@ -12,7 +12,6 @@ import {
 import { chokeToggle } from '../lib/corridors'
 import { emptyIntent } from '../lib/courses'
 import { DEFAULT_STRENGTH, ECHELON_DEPTH, nextUnitName, orbatIssues } from '../lib/orbatTree'
-import type { BBoxDeg } from '../types/terrain'
 import type {
   Availability,
   Corridor,
@@ -58,10 +57,11 @@ interface RouteStudyState {
   lastMarkId: string | null
   selectedCorridorId: string | null
 
-  addMark: (kind: MarkKind, lon: number, lat: number, options?: { name?: string; bbox?: BBoxDeg }) => void
+  addMark: (kind: MarkKind, lon: number, lat: number, options?: Partial<Omit<Mark, 'id' | 'lon' | 'lat'>>) => string
   clearLastMark: () => void
   removeMark: (kind: MarkKind, id: string) => void
   renameMark: (kind: MarkKind, id: string, name: string) => void
+  updateMark: (kind: MarkKind, id: string, patch: Partial<Mark>) => void
   clearDraft: () => void
 
   selectCorridor: (id: string | null) => void
@@ -156,9 +156,12 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       name: options?.name ?? fallback,
       lon,
       lat,
+      ...(kind === 'reserve' ? { intelligence_status: 'assessed' as const } : {}),
+      ...options,
       ...(options?.bbox ? { bbox: options.bbox } : {}),
     }
     set({ draftMarks: withList(marks, kind, [...existing, mark]), lastMarkId: mark.id })
+    return mark.id
   },
 
   removeMark: (kind, id) => {
@@ -179,6 +182,17 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
         marks,
         kind,
         listFor(marks, kind).map((mark) => (mark.id === id ? { ...mark, name } : mark)),
+      ),
+    })
+  },
+
+  updateMark: (kind, id, patch) => {
+    const marks = get().draftMarks
+    set({
+      draftMarks: withList(
+        marks,
+        kind,
+        listFor(marks, kind).map((mark) => (mark.id === id ? { ...mark, ...patch } : mark)),
       ),
     })
   },

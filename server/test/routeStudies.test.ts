@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { needsResearch } from '../src/routes/routeStudies'
+import { needsResearch, reserveMarkSchema } from '../src/routes/routeStudies'
 import type { StudyMarks } from '../src/db/studyTypes'
 
 const MARKS: StudyMarks = {
@@ -32,6 +32,21 @@ describe('needsResearch', () => {
     expect(needsResearch(current, { marks: extra })).toBe(true)
   })
 
+  test('reserve intelligence edits persist without re-running the graph search', () => {
+    const assessed: StudyMarks = {
+      ...MARKS,
+      reserves: [{
+        ...MARKS.reserves[0],
+        name: '302 Div Res 1',
+        level: 'K4',
+        owning_formation: '301 Div',
+        intelligence_status: 'confirmed',
+        locality: 'TOMA 1b',
+      }],
+    }
+    expect(needsResearch(current, { marks: assessed })).toBe(false)
+  })
+
   test('marking ground impassable re-runs it', () => {
     expect(needsResearch(current, { edgeOverrides: ['1:0', '2:0'] })).toBe(true)
   })
@@ -62,5 +77,31 @@ describe('needsResearch', () => {
 
   test('presentation edits do not silently advance a stale study', () => {
     expect(needsResearch({ ...current, graphRevision: 2 }, {}, 3)).toBe(false)
+  })
+})
+
+describe('reserve deployment intelligence', () => {
+  test('accepts the fixed K ladder and two-source status', () => {
+    expect(reserveMarkSchema.parse({
+      id: 'r1',
+      name: '302 Div Res 1',
+      lon: 103.7,
+      lat: 1.4,
+      level: 'K4',
+      owning_formation: '301 Div',
+      intelligence_status: 'confirmed',
+      locality: 'TOMA 1b',
+    })).toMatchObject({ level: 'K4', intelligence_status: 'confirmed' })
+  })
+
+  test('legacy and new unconfirmed marks default to assessed', () => {
+    expect(reserveMarkSchema.parse({ id: 'r1', name: 'Reserve 1', lon: 0, lat: 0 }))
+      .toMatchObject({ intelligence_status: 'assessed' })
+  })
+
+  test('rejects invented levels and intelligence states', () => {
+    expect(reserveMarkSchema.safeParse({
+      id: 'r1', name: 'Reserve', lon: 0, lat: 0, level: 'K5', intelligence_status: 'rumoured',
+    }).success).toBe(false)
   })
 })

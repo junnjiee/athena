@@ -22,7 +22,7 @@ from athena.eca import (
 )
 from athena.params import ECA_API_KEY_ENV_VAR, ECA_MODEL, ECA_MODEL_ENV_VAR
 from athena.intent import EnemyIntent
-from athena.study import CorridorOut, Mark, RouteOut
+from athena.study import CorridorOut, IntelligenceStatus, Mark, ReserveLevel, RouteOut
 
 
 def route(reserve: str = "res1", objective: str = "obj1") -> RouteOut:
@@ -91,6 +91,25 @@ def test_route_geometry_is_withheld() -> None:
 
     assert "e1" not in described
     assert "node" not in described.lower()
+
+
+def test_reserve_intelligence_fields_reach_the_assessment() -> None:
+    reserves = [
+        Mark(
+            id="res1",
+            name="302 Div Res 1",
+            lon=0,
+            lat=0,
+            level=ReserveLevel.DIVISION_RESERVE,
+            owning_formation="301 Div",
+            intelligence_status=IntelligenceStatus.CONFIRMED,
+            locality="TOMA 1b",
+        )
+    ]
+
+    described = describe_corridors(CORRIDORS, reserves)
+
+    assert "302 Div Res 1, K4, owned by 301 Div, confirmed, IVO TOMA 1b" in described
 
 
 def test_the_prompt_carries_the_intent_narrative_unedited() -> None:
