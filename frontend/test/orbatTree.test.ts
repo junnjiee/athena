@@ -86,6 +86,13 @@ describe('orbatRows', () => {
       ['2-sec', 2],
       ['2-pl', 1],
     ])
+    expect(rows.map((row) => [row.unit.unit_id, row.isLast, row.ancestorHasNext, row.hasChildren])).toEqual([
+      ['a-coy', true, [], true],
+      ['1-pl', false, [], true],
+      ['1-sec', false, [true], false],
+      ['2-sec', true, [true], false],
+      ['2-pl', true, [], false],
+    ])
   })
 
   test('a unit whose parent is missing still shows, at the root', () => {

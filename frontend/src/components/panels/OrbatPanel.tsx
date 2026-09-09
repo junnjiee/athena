@@ -105,18 +105,48 @@ export function OrbatPanel({
           </div>
         )}
 
-        {rows.map(({ unit, depth }) => (
-          <UnitRow
+        {rows.map(({ unit, depth, isLast, ancestorHasNext, hasChildren }) => (
+          <div
             key={unit.unit_id}
-            unit={unit}
-            depth={depth}
-            units={units}
-            selected={selectedUnitId === unit.unit_id}
-            onSelect={() => onSelectUnit(selectedUnitId === unit.unit_id ? null : unit.unit_id)}
-            onUpdate={(patch) => onUpdateUnit(unit.unit_id, patch)}
-            onRemove={() => onRemoveUnit(unit.unit_id)}
-            onLocate={() => onLocateUnit(unit)}
-          />
+            className="relative"
+            style={{ paddingLeft: depth * 14 }}
+          >
+            {ancestorHasNext.map((continues, level) => continues && (
+              <span
+                key={level}
+                aria-hidden="true"
+                className="absolute top-0 bottom-0 w-px bg-white/15"
+                style={{ left: level * 14 + 6 }}
+              />
+            ))}
+            {depth > 0 && (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="absolute top-0 w-px bg-white/20"
+                  style={{
+                    left: (depth - 1) * 14 + 6,
+                    height: isLast ? 16 : '100%',
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute h-px w-2 bg-white/20"
+                  style={{ left: (depth - 1) * 14 + 6, top: 16 }}
+                />
+              </>
+            )}
+            <UnitRow
+              unit={unit}
+              hasChildren={hasChildren}
+              units={units}
+              selected={selectedUnitId === unit.unit_id}
+              onSelect={() => onSelectUnit(selectedUnitId === unit.unit_id ? null : unit.unit_id)}
+              onUpdate={(patch) => onUpdateUnit(unit.unit_id, patch)}
+              onRemove={() => onRemoveUnit(unit.unit_id)}
+              onLocate={() => onLocateUnit(unit)}
+            />
+          </div>
         ))}
       </div>
     </div>
@@ -127,7 +157,7 @@ const AVAILABILITY_ORDER: Availability[] = ['uncommitted', 'committed', 'reserve
 
 function UnitRow({
   unit,
-  depth,
+  hasChildren,
   units,
   selected,
   onSelect,
@@ -136,7 +166,7 @@ function UnitRow({
   onLocate,
 }: {
   unit: OrbatUnit
-  depth: number
+  hasChildren: boolean
   units: OrbatUnit[]
   selected: boolean
   onSelect: () => void
@@ -161,7 +191,6 @@ function UnitRow({
           onSelect()
         }
       }}
-      style={{ marginLeft: depth * 12 }}
       className={`group rounded-lg border p-2 transition-colors ${
         selected
           ? 'border-(--accent-border) bg-(--accent-bg)'
@@ -206,6 +235,7 @@ function UnitRow({
 
       <div className="mt-1 flex items-center gap-1.5 text-[10px] text-(--text-dim)">
         <span>{ECHELON_LABEL[unit.echelon]}</span>
+        {hasChildren && <span>· Commands</span>}
         <span>·</span>
         <span>{unit.strength} strong</span>
         <span>·</span>

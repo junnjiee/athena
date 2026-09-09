@@ -1043,7 +1043,7 @@ export function RouteStudiesPage() {
           </div>
         )}
 
-        {area && !(study && branch === 'ground' && groundPanel === 'roads') && (
+        {area && (!study || branch === 's2') && (
           <MarksPanel
             area={area}
             studyName={studyName}
