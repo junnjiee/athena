@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { needsResearch, reserveMarkSchema } from '../src/routes/routeStudies'
+import { needsResearch, objectiveMarkSchema, reserveMarkSchema } from '../src/routes/routeStudies'
 import type { StudyMarks } from '../src/db/studyTypes'
 
 const MARKS: StudyMarks = {
@@ -45,6 +45,14 @@ describe('needsResearch', () => {
       }],
     }
     expect(needsResearch(current, { marks: assessed })).toBe(false)
+  })
+
+  test('objective locality edits persist without re-running the graph search', () => {
+    const named: StudyMarks = {
+      ...MARKS,
+      objectives: [{ ...MARKS.objectives[0], locality: 'MATO 1b' }],
+    }
+    expect(needsResearch(current, { marks: named })).toBe(false)
   })
 
   test('marking ground impassable re-runs it', () => {
@@ -134,5 +142,13 @@ describe('reserve deployment intelligence', () => {
     expect(reserveMarkSchema.safeParse({
       id: 'r1', name: 'Reserve', lon: 0, lat: 0, timing: { readiness_minutes: -1 },
     }).success).toBe(false)
+  })
+})
+
+describe('objective terrain references', () => {
+  test('accepts a named locality on an objective', () => {
+    expect(objectiveMarkSchema.parse({
+      id: 'o1', name: 'Bridge', lon: 0, lat: 0, locality: 'MATO 1b',
+    })).toMatchObject({ locality: 'MATO 1b' })
   })
 })

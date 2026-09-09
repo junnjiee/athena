@@ -98,6 +98,12 @@ describe('placing marks', () => {
     expect(store().draftMarks.objectives[0].bbox).toEqual(bbox)
   })
 
+  test('an objective keeps its named terrain reference', () => {
+    const id = store().addMark('objective', 2, 3)
+    store().updateMark('objective', id, { locality: 'MATO 1b' })
+    expect(store().draftMarks.objectives[0].locality).toBe('MATO 1b')
+  })
+
   test('an objective clicked as a point carries no bounds', () => {
     store().addMark('objective', 2, 3)
     expect(store().draftMarks.objectives[0].bbox).toBeUndefined()

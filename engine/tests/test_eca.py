@@ -175,6 +175,14 @@ def test_the_prompt_carries_the_intent_narrative_unedited() -> None:
     assert "They want the bridge by dawn." in prompt
 
 
+def test_objective_named_terrain_reference_reaches_the_assessment() -> None:
+    objectives = [Mark(id="obj1", name="Bridge", lon=1, lat=0, locality="MATO 1b")]
+
+    prompt = build_prompt(CORRIDORS, RESERVES, objectives, EnemyIntent())
+
+    assert "obj1: Bridge, IVO MATO 1b" in prompt
+
+
 def test_unstated_objectives_are_declared_in_play_rather_than_omitted() -> None:
     prompt = build_prompt(CORRIDORS, RESERVES, OBJECTIVES, EnemyIntent())
 

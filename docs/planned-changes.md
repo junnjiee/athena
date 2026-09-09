@@ -287,9 +287,9 @@ doctrine defines.
     manpower but is still a company, because the company HQ is present. Anything
     deriving echelon from headcount will misread every reduced formation. See
     [`DOCTRINE.md` §1](DOCTRINE.md).
-- ~~**Location as a named terrain reference**~~ **Done for reserves** — reserves
-  carry an operator-editable IVO/locality field, auto-suggested from the shared
-  place lookup. Objectives at `MATO 1b` remain to be wired.
+- ~~**Location as a named terrain reference**~~ **Done** — reserves and
+  objectives carry an operator-editable IVO/locality field, auto-suggested from
+  the shared place lookup without overwriting operator text.
 - ~~**Timing model** (p.62), the largest single gap:~~ **Done** — reserve
   records accept operator-supplied decision, readiness and deployment stages,
   normalized to minutes without invented level defaults. Athena calculates

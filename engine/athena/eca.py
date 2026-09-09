@@ -182,7 +182,11 @@ def build_prompt(
     intent: EnemyIntent,
 ) -> str:
     """Everything the model is given. Pure, so it can be asserted on."""
-    objective_lines = "\n".join(f"- {m.id}: {m.name}" for m in objectives)
+    objective_lines = "\n".join(
+        f"- {mark.id}: {mark.name}"
+        + (f", IVO {mark.locality}" if mark.locality else "")
+        for mark in objectives
+    )
     wanted = (
         ", ".join(intent.objective_ids)
         if intent.objective_ids

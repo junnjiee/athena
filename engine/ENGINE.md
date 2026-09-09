@@ -230,13 +230,14 @@ so every mark is snapped to the **nearest node**. Distance is equirectangular at
 the mark's own latitude; ties break on node id, so a mark equidistant from two
 junctions always snaps to the same one. Marks are *scenario input*.
 
-A reserve mark also carries its deployment intelligence: optional K level
-(`K` through `K4`), owning formation, assessed/confirmed status, and IVO
-locality. These fields do not alter snapping or routing; they are preserved for
-the deployment overlay and supplied to the enemy-course assessment. New and
-legacy reserves default to **assessed**. Only the operator can assert
-**confirmed**, reflecting the two-independent-source rule. Objectives do not
-carry reserve metadata.
+Every mark may carry an IVO locality: a named terrain reference suggested by
+the terrain service and editable by the operator. Reserve marks additionally
+carry their deployment intelligence: optional K level (`K` through `K4`),
+owning formation, and assessed/confirmed status. These fields do not alter
+snapping or routing; they are preserved for the deployment overlay and supplied
+to the enemy-course assessment. New and legacy reserves default to **assessed**.
+Only the operator can assert **confirmed**, reflecting the
+two-independent-source rule. Objectives do not carry reserve-only metadata.
 
 Reserve composition is an ordered task organisation. Each element keeps its
 own designation, aggressor echelon, exact modifier (`(=)` = 1/3, `(-)` = 2/3,
@@ -318,9 +319,10 @@ does not refuse.
 
 ### What the model is shown
 
-Corridor id, fastest time, how many routes, which reserves can use it, and
-whether it has a choke point. **Route geometry is withheld** — it would fill the
-context without changing any judgement being asked for.
+Corridor id, fastest time, how many routes, which reserves can use it, reserve
+deployment intelligence, objective IVO localities, and whether each corridor
+has a choke point. **Route geometry is withheld** — it would fill the context
+without changing any judgement being asked for.
 
 ### Which model, and how it is configured
 

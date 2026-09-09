@@ -534,13 +534,24 @@ export function RouteStudiesPage() {
       return
     }
     const markId = addMark('reserve', position.longitude, position.latitude)
-    void lookupNearestPlace(position.longitude, position.latitude, 10_000).then((place) => {
+    suggestMarkLocality('reserve', markId, position.longitude, position.latitude)
+  }
+
+  function suggestMarkLocality(
+    kind: StudyMarkKind,
+    markId: string,
+    longitude: number,
+    latitude: number,
+  ) {
+    void lookupNearestPlace(longitude, latitude, 10_000).then((place) => {
       if (!place) return
       // A slow lookup is only a suggestion. If the operator has typed an IVO
       // reference in the meantime, that field is already authoritative.
-      const current = useRouteStudy.getState().draftMarks.reserves.find((mark) => mark.id === markId)
+      const draft = useRouteStudy.getState().draftMarks
+      const current = (kind === 'reserve' ? draft.reserves : draft.objectives)
+        .find((mark) => mark.id === markId)
       if (current && !current.locality?.trim()) {
-        useRouteStudy.getState().updateMark('reserve', markId, { locality: place.name })
+        useRouteStudy.getState().updateMark(kind, markId, { locality: place.name })
       }
     }).catch(() => {})
   }
@@ -558,7 +569,7 @@ export function RouteStudiesPage() {
     setWorkspaceError(null)
     const isArea =
       widthMeters >= OBJECTIVE_MIN_EXTENT_METERS && heightMeters >= OBJECTIVE_MIN_EXTENT_METERS
-    addMark('objective', centerLongitude, centerLatitude, {
+    const markId = addMark('objective', centerLongitude, centerLatitude, {
       bbox: isArea
         ? {
             west: Cesium.Math.toDegrees(result.rectangle.west),
@@ -568,6 +579,7 @@ export function RouteStudiesPage() {
           }
         : undefined,
     })
+    suggestMarkLocality('objective', markId, centerLongitude, centerLatitude)
   }
 
   async function submitStudy() {
@@ -1438,6 +1450,18 @@ function MarkGroup({
                   <ReserveCompositionEditor mark={mark} onUpdate={(patch) => onUpdate(kind, mark.id, patch)} />
                 </div>
               </div>
+            )}
+            {kind === 'objective' && (
+              <input
+                value={mark.locality ?? ''}
+                maxLength={120}
+                aria-label={`${mark.name} IVO locality`}
+                placeholder="IVO / locality"
+                onChange={(event) => onUpdate(kind, mark.id, {
+                  locality: event.target.value || undefined,
+                })}
+                className="mt-1 ml-2.5 block w-[calc(100%_-_0.625rem)] rounded border border-(--border) bg-transparent px-1.5 py-1 text-[10px] text-(--text-h) placeholder:text-(--text-dim) focus:outline-none"
+              />
             )}
           </div>
         ))}

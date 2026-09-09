@@ -26,6 +26,7 @@ const markSchema = z.object({
   name: z.string().trim().min(1).max(80),
   lon: z.number().gte(-180).lte(180),
   lat: z.number().gte(-85).lte(85),
+  locality: z.string().trim().min(1).max(120).optional(),
   /** Present when an objective was dragged as ground rather than clicked as a
    *  point. lon/lat stays the centre, so the engine is none the wiser. */
   bbox: z
@@ -37,6 +38,8 @@ const markSchema = z.object({
     })
     .optional(),
 })
+
+export const objectiveMarkSchema = markSchema
 
 const platformCountSchema = z.object({
   id: z.string().min(1),
@@ -65,14 +68,13 @@ export const reserveMarkSchema = markSchema.extend({
   /** Confirmed is an operator assertion backed by the two-source rule. New and
    *  legacy reserve marks therefore enter as assessed unless explicitly set. */
   intelligence_status: z.enum(['assessed', 'confirmed']).default('assessed'),
-  locality: z.string().trim().min(1).max(120).optional(),
   task_organization: z.array(taskOrganizationElementSchema).max(100).optional(),
   timing: reserveTimingSchema.optional(),
 })
 
 const marksSchema = z.object({
   reserves: z.array(reserveMarkSchema).min(1),
-  objectives: z.array(markSchema).min(1),
+  objectives: z.array(objectiveMarkSchema).min(1),
 })
 
 const createBody = z.object({

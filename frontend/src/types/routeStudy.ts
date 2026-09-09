@@ -60,11 +60,12 @@ export interface StudyMark {
   name: string
   lon: number
   lat: number
+  /** Named terrain reference for reserves and objectives. */
+  locality?: string
   /** Reserve-only S2 fields. Older saved marks legitimately omit them. */
   level?: ReserveLevel
   owning_formation?: string
   intelligence_status?: IntelligenceStatus
-  locality?: string
   task_organization?: TaskOrganizationElement[]
   timing?: ReserveTiming
   /** Objectives are usually ground, not a pin. When the operator dragged an
