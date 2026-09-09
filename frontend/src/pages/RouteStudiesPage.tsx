@@ -577,8 +577,8 @@ export function RouteStudiesPage() {
   }
 
   /** An objective drawn as ground. A drag too small to be ground was a click,
-   *  so it lands as a plain point — the engine routes to the centre either way,
-   *  and a bridge should not acquire a footprint it does not have. */
+   *  so it lands as a plain point. Area objectives route to live junctions in
+   *  their footprint; a bridge should not acquire a footprint it does not have. */
   function handleObjectiveArea(result: SelectionResult) {
     if (!area) return
     const { centerLongitude, centerLatitude, widthMeters, heightMeters } = result.stats

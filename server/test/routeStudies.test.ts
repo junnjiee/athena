@@ -60,6 +60,25 @@ describe('needsResearch', () => {
     expect(needsResearch(current, { marks: named })).toBe(false)
   })
 
+  test('changing objective ground re-runs the graph search even when its centre stays put', () => {
+    const currentGround: StudyMarks = {
+      ...MARKS,
+      objectives: [{
+        ...MARKS.objectives[0],
+        bbox: { west: 0.5, south: -0.5, east: 1.5, north: 0.5 },
+      }],
+    }
+    const expanded: StudyMarks = {
+      ...currentGround,
+      objectives: [{
+        ...currentGround.objectives[0],
+        bbox: { west: 0.25, south: -0.5, east: 1.5, north: 0.5 },
+      }],
+    }
+
+    expect(needsResearch({ ...current, marks: currentGround }, { marks: expanded })).toBe(true)
+  })
+
   test('marking ground impassable re-runs it', () => {
     expect(needsResearch(current, { edgeOverrides: ['1:0', '2:0'] })).toBe(true)
   })
@@ -174,5 +193,17 @@ describe('objective terrain references', () => {
     expect(objectiveMarkSchema.parse({
       id: 'o1', name: 'Bridge', lon: 0, lat: 0, locality: 'MATO 1b',
     })).toMatchObject({ locality: 'MATO 1b' })
+  })
+
+  test('accepts real ground and rejects degenerate bounds', () => {
+    const objective = {
+      id: 'o1', name: 'Area', lon: 1, lat: 0,
+      bbox: { west: 0.5, south: -0.5, east: 1.5, north: 0.5 },
+    }
+    expect(objectiveMarkSchema.safeParse(objective).success).toBe(true)
+    expect(objectiveMarkSchema.safeParse({
+      ...objective,
+      bbox: { ...objective.bbox, north: objective.bbox.south },
+    }).success).toBe(false)
   })
 })

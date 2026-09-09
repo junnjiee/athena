@@ -67,6 +67,7 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         "locality": "TOMA 1b",
         "task_organization": [],
         "timing": None,
+        "bbox": None,
     }
 
 
@@ -183,6 +184,55 @@ def test_an_unreachable_objective_is_reported_not_dropped() -> None:
     assert result.corridors == []
     assert len(result.unreachable) == 1
     assert result.unreachable[0].reserve_id == "res1"
+
+
+def test_an_area_objective_routes_to_reachable_ground_inside_its_bounds() -> None:
+    split = RoadGraph(
+        nodes=(node(1, 0), node(2, 1), node(3, 2), node(4, 3)),
+        edges=(edge("1:0", 1, 2, 100), edge("2:0", 3, 4, 100)),
+    )
+
+    point_result = run_study(
+        split,
+        reserves=[Mark(id="res1", name="Assembly", lon=0, lat=0)],
+        objectives=[Mark(id="obj1", name="Point", lon=3, lat=0)],
+    )
+    area_result = run_study(
+        split,
+        reserves=[Mark(id="res1", name="Assembly", lon=0, lat=0)],
+        objectives=[
+            Mark(
+                id="obj1",
+                name="Area",
+                lon=3,
+                lat=0,
+                bbox={"west": 0.5, "south": -1, "east": 3.1, "north": 1},
+            )
+        ],
+    )
+
+    assert len(point_result.unreachable) == 1
+    assert area_result.unreachable == []
+    assert area_result.corridors[0].routes[0].node_ids[-1] == 2
+
+
+def test_objective_bounds_must_have_positive_latitude_and_longitude_extent() -> None:
+    with pytest.raises(ValueError, match="north must be above south"):
+        Mark(
+            id="obj1",
+            name="Area",
+            lon=0,
+            lat=0,
+            bbox={"west": 0, "south": 1, "east": 2, "north": 1},
+        )
+    with pytest.raises(ValueError, match="longitude width"):
+        Mark(
+            id="obj1",
+            name="Area",
+            lon=0,
+            lat=0,
+            bbox={"west": 1, "south": 0, "east": 1, "north": 2},
+        )
 
 
 def test_two_reserves_into_one_valley_share_a_corridor(corridor_pair: RoadGraph) -> None:

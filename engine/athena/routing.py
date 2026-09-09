@@ -62,7 +62,7 @@ def edge_travel_seconds(
 def _search(
     graph: RoadGraph,
     start: int,
-    goal: int,
+    goals: frozenset[int],
     penalties: dict[str, float],
     excluded: frozenset[str] = frozenset(),
 ) -> Route | None:
@@ -72,9 +72,10 @@ def _search(
     corridor identity downstream depends on that.
     """
     nodes = graph.nodes_by_id()
-    if start not in nodes or goal not in nodes:
+    valid_goals = goals & nodes.keys()
+    if start not in nodes or not valid_goals:
         return None
-    if start == goal:
+    if start in valid_goals:
         return Route(edges=(), nodes=(start,), seconds=0.0, length_meters=0.0)
 
     links = graph.adjacency()
@@ -82,13 +83,15 @@ def _search(
     came: dict[int, tuple[int, Edge]] = {}
     queue: list[tuple[float, int]] = [(0.0, start)]
     seen: set[int] = set()
+    reached: int | None = None
 
     while queue:
         cost, current = heapq.heappop(queue)
         if current in seen:
             continue
         seen.add(current)
-        if current == goal:
+        if current in valid_goals:
+            reached = current
             break
 
         for neighbour, edge, reverse in links[current]:
@@ -103,12 +106,12 @@ def _search(
                 came[neighbour] = (current, edge)
                 heapq.heappush(queue, (step, neighbour))
 
-    if goal not in came:
+    if reached is None:
         return None
 
     edges: list[Edge] = []
-    path: list[int] = [goal]
-    cursor = goal
+    path: list[int] = [reached]
+    cursor = reached
     while cursor != start:
         previous, edge = came[cursor]
         edges.append(edge)
@@ -138,7 +141,17 @@ def shortest_route(
     excluded: frozenset[str] = frozenset(),
 ) -> Route | None:
     """The quickest way through, ignoring diversity."""
-    return _search(graph, start, goal, {}, excluded)
+    return _search(graph, start, frozenset({goal}), {}, excluded)
+
+
+def shortest_route_to_any(
+    graph: RoadGraph,
+    start: int,
+    goals: frozenset[int],
+    excluded: frozenset[str] = frozenset(),
+) -> Route | None:
+    """The quickest route to any named goal, stopping at the first reached."""
+    return _search(graph, start, goals, {}, excluded)
 
 
 def shared_fraction(route: Route, other: Route) -> float:
@@ -161,6 +174,31 @@ def find_diverse_routes(
     max_iterations: int = MAX_SEARCH_ITERATIONS,
     excluded: frozenset[str] = frozenset(),
 ) -> list[Route]:
+    """Up to ``k`` genuinely different routes to one goal, fastest first."""
+    return find_diverse_routes_to_any(
+        graph,
+        start,
+        frozenset({goal}),
+        k=k,
+        max_stretch=max_stretch,
+        max_sharing=max_sharing,
+        penalty_factor=penalty_factor,
+        max_iterations=max_iterations,
+        excluded=excluded,
+    )
+
+
+def find_diverse_routes_to_any(
+    graph: RoadGraph,
+    start: int,
+    goals: frozenset[int],
+    k: int = ROUTES_PER_PAIR,
+    max_stretch: float = MAX_STRETCH,
+    max_sharing: float = MAX_SHARING,
+    penalty_factor: float = PENALTY_FACTOR,
+    max_iterations: int = MAX_SEARCH_ITERATIONS,
+    excluded: frozenset[str] = frozenset(),
+) -> list[Route]:
     """Up to ``k`` genuinely different approaches, fastest first.
 
     Iterative penalty search: take the quickest route, make its edges
@@ -171,7 +209,7 @@ def find_diverse_routes(
     That pair of bounds is the guarantee the S2 product rests on, and it is
     deliberately narrow: complete within these limits, silent outside them.
     """
-    fastest = _search(graph, start, goal, {}, excluded)
+    fastest = _search(graph, start, goals, {}, excluded)
     if fastest is None:
         return []
 
@@ -185,7 +223,7 @@ def find_diverse_routes(
         for edge in accepted[-1].edges:
             penalties[edge.id] = penalties.get(edge.id, 1.0) * penalty_factor
 
-        candidate = _search(graph, start, goal, penalties, excluded)
+        candidate = _search(graph, start, goals, penalties, excluded)
         if candidate is None:
             break
         if candidate.seconds > limit:

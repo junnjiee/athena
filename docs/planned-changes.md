@@ -297,7 +297,11 @@ doctrine defines.
     [`DOCTRINE.md` §1](DOCTRINE.md).
 - ~~**Location as a named terrain reference**~~ **Done** — reserves and
   objectives carry an operator-editable IVO/locality field, auto-suggested from
-  the shared place lookup without overwriting operator text.
+  the shared place lookup without overwriting operator text. Objective ground
+  is also operational rather than display-only: an area supplies every live
+  junction inside its bounds to one multi-goal route search, so the route ends
+  at the fastest reachable part of the objective. Point objectives and areas
+  without an internal live junction retain the deterministic centre snap.
 - ~~**Timing model** (p.62), the largest single gap:~~ **Done** — reserve
   records accept operator-supplied decision, readiness and deployment stages,
   normalized to minutes without invented level defaults. Athena calculates

@@ -234,10 +234,14 @@ rule.*
 
 ## Marks and snapping
 
-An operator marks a reserve location or objective on the map, not on a junction,
-so every mark is snapped to the **nearest node**. Distance is equirectangular at
-the mark's own latitude; ties break on node id, so a mark equidistant from two
-junctions always snaps to the same one. Marks are *scenario input*.
+An operator marks a reserve location or point objective on the map, not on a
+junction, so those marks are snapped to the **nearest node**. Distance is
+equirectangular at the mark's own latitude; ties break on node id, so a mark
+equidistant from two junctions always snaps to the same one. An area objective
+instead supplies every live junction inside its bounds as a goal, and one
+multi-goal search stops at the fastest ground reached. Diverse searches may
+reach different junctions in the same objective. If no live junction lies
+inside, the centre snap preserves point behavior. Marks are *scenario input*.
 
 Every mark may carry an IVO locality: a named terrain reference suggested by
 the terrain service and editable by the operator. Reserve marks additionally
@@ -779,9 +783,9 @@ Under Docker the variables are passed in by compose, so no file is read.
 - **The model's scores are judgement, not measurement.** Likelihood and danger
   are its opinion on a scale, not probabilities derived from anything. They order
   courses; they do not quantify risk.
-- **An objective's area is not modelled.** An objective drawn as ground routes to
-  its centre like any other mark; the engine does not consider approaches to its
-  edges or its extent.
+- **Area-objective reach is road-junction based.** Routing can stop at any live
+  junction inside the bounds, but it does not terminate mid-edge or model
+  off-road movement across the rest of the objective polygon.
 - **Learned weights are one deployment's taste, not doctrine.** They reflect
   whoever has been giving verdicts on this instance. Reset them when the operator
   changes, or read them and decide whether they still describe the commander
