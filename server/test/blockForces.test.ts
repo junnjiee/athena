@@ -27,6 +27,7 @@ describe('blockForcesBody', () => {
     const parsed = blockForcesBody.parse(body())
 
     expect(parsed.orbat.units[0].availability).toBe('uncommitted')
+    expect(parsed.orbat.units[0].weapons).toEqual([])
   })
 
   test('keeps an explicit availability', () => {
@@ -80,5 +81,37 @@ describe('blockForcesBody', () => {
     )
 
     expect(parsed.success).toBe(true)
+  })
+
+  test('accepts structured generic weapon holdings and rejects invented systems', () => {
+    const parsed = blockForcesBody.parse(body({
+      orbat: {
+        units: [unit({
+          weapons: [
+            { id: 'atgm', weapon: 'ATGM', count: 2 },
+            { id: 'law', weapon: 'LAW', count: 3 },
+          ],
+        })],
+      },
+    }))
+
+    expect(parsed.orbat.units[0].weapons).toEqual([
+      { id: 'atgm', weapon: 'ATGM', count: 2 },
+      { id: 'law', weapon: 'LAW', count: 3 },
+    ])
+    expect(blockForcesBody.safeParse(body({
+      orbat: { units: [unit({ weapons: [{ id: 'laser', weapon: 'Laser', count: 1 }] })] },
+    })).success).toBe(false)
+  })
+
+  test('rejects duplicate holdings for one weapon system', () => {
+    expect(blockForcesBody.safeParse(body({
+      orbat: {
+        units: [unit({ weapons: [
+          { id: 'law-1', weapon: 'LAW', count: 1 },
+          { id: 'law-2', weapon: 'LAW', count: 2 },
+        ] })],
+      },
+    })).success).toBe(false)
   })
 })

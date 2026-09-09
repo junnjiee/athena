@@ -8,10 +8,11 @@ import {
   blockSummary,
   unblockableByInlet,
 } from '../../lib/blockForces'
-import { ECHELON_LABEL, availabilitySummary } from '../../lib/orbatTree'
+import { ECHELON_LABEL, availabilitySummary, weaponSummary } from '../../lib/orbatTree'
 import { formatRouteDistance } from '../../lib/routeStudy'
 import type {
   BlockAllocation,
+  BlockCandidate,
   InletBlock,
   OrbatUnit,
   RouteStudy,
@@ -120,8 +121,8 @@ export function BlockForcePanel({
           <p className="px-0.5 pt-1 text-[10px] leading-relaxed text-(--text-dim)">
             Every axis is an inlet. Distances are straight-line to that inlet, not road distance or
             time. Nothing
-            here says a block force arrives first, or that it can hold what is coming — that timing
-            is yours to make.
+            here says a block force arrives first, or that its weapons can hold what is coming —
+            timing and weapon matching remain separate judgements.
           </p>
         )}
       </div>
@@ -166,6 +167,9 @@ function InletBlockRow({
   onSelect: () => void
 }) {
   const forceRows = allocation ? blockForceOrbat(units, allocation.unit_id) : []
+  const assignedCandidate = allocation
+    ? block.candidates.find((candidate) => candidate.unit_id === allocation.unit_id)
+    : undefined
 
   return (
     <div
@@ -206,6 +210,9 @@ function InletBlockRow({
             <ShieldCheck className="h-3.5 w-3.5" />
             {allocation.unit_name} · {formatRouteDistance(allocation.distance_meters)} out
           </div>
+          <div className="mt-1 text-[10px] text-(--text)">
+            {candidateWeapons(assignedCandidate)}
+          </div>
           {forceRows.length > 0 ? (
             <div className="mt-2 rounded-md border border-(--border) bg-black/15 px-2 py-1.5">
               <div className="mb-1 text-[9px] tracking-wide text-(--text-dim)">
@@ -223,6 +230,11 @@ function InletBlockRow({
                   <span className="min-w-0 flex-1 truncate text-(--text-h)">{unit.name}</span>
                   <span className="text-(--text-dim)">{ECHELON_LABEL[unit.echelon]}</span>
                   {unit.redcon != null && <span className="text-(--accent)">R{unit.redcon}</span>}
+                  {(unit.weapons?.length ?? 0) > 0 && (
+                    <span className="max-w-24 truncate text-(--text-dim)">
+                      {weaponSummary(unit.weapons)}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -261,20 +273,32 @@ function InletBlockRow({
           {block.candidates.map((candidate) => (
             <div
               key={candidate.unit_id}
-              className={`mt-1 flex items-center gap-1.5 text-[11px] ${
+              className={`mt-1 text-[11px] ${
                 allocation && candidate.unit_name === allocation.unit_name
                   ? 'text-(--accent)'
                   : 'text-(--text)'
               }`}
             >
-              <span className="min-w-0 flex-1 truncate">{candidate.unit_name}</span>
-              <span className="text-(--text-dim)">{ECHELON_LABEL[candidate.echelon]}</span>
-              <span className="text-(--text-dim)">{candidate.strength}</span>
-              <span className="tabular-nums">{formatRouteDistance(candidate.distance_meters)}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate">{candidate.unit_name}</span>
+                <span className="text-(--text-dim)">{ECHELON_LABEL[candidate.echelon]}</span>
+                <span className="tabular-nums">{formatRouteDistance(candidate.distance_meters)}</span>
+              </div>
+              <div className="truncate text-[10px] text-(--text-dim)">
+                {candidateWeapons(candidate)}
+              </div>
             </div>
           ))}
         </div>
       )}
     </div>
   )
+}
+
+function candidateWeapons(candidate: BlockCandidate | undefined): string {
+  if (!candidate) return 'No weapons recorded'
+  if (candidate.weapons) return weaponSummary(candidate.weapons)
+  return candidate.strength != null
+    ? `${candidate.strength} strong · legacy result; re-run to measure weapons`
+    : 'No weapons recorded'
 }

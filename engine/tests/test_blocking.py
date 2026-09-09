@@ -2,7 +2,7 @@
 
 from athena.blocking import plan_blocks
 from athena.graph import Edge, RoadGraph
-from athena.orbat import Availability, Orbat, Unit
+from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
 from athena.study import CorridorOut, RouteOut
 from athena.units import Echelon
 
@@ -15,6 +15,7 @@ def unit(
     lon: float,
     parent_id: str | None = None,
     availability: Availability = Availability.UNCOMMITTED,
+    weapons: tuple[WeaponHolding, ...] = (),
 ) -> Unit:
     return Unit(
         unit_id=unit_id,
@@ -24,6 +25,7 @@ def unit(
         lon=lon,
         lat=0.0,
         strength=7,
+        weapons=weapons,
         availability=availability,
     )
 
@@ -125,6 +127,43 @@ def test_all_available_echelons_are_offered() -> None:
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
     assert [c.unit_id for c in plan.inlets[0].candidates] == ["coy", "sec"]
+
+
+def test_candidate_weapons_aggregate_the_task_organised_force() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "pl",
+                Echelon.PLATOON,
+                0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=2),),
+            ),
+            unit(
+                "sec",
+                Echelon.SECTION,
+                0,
+                parent_id="pl",
+                weapons=(
+                    WeaponHolding(id="law", weapon=WeaponSystem.LAW, count=3),
+                    WeaponHolding(id="gpmg", weapon=WeaponSystem.GPMG, count=1),
+                ),
+            ),
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [WEST], orbat)
+    by_unit = {candidate.unit_id: candidate for candidate in plan.inlets[0].candidates}
+
+    assert [(entry.weapon, entry.count) for entry in by_unit["pl"].weapons] == [
+        (WeaponSystem.ATGM, 2),
+        (WeaponSystem.LAW, 3),
+        (WeaponSystem.GPMG, 1),
+    ]
+    assert [(entry.weapon, entry.count) for entry in by_unit["sec"].weapons] == [
+        (WeaponSystem.LAW, 3),
+        (WeaponSystem.GPMG, 1),
+    ]
+    assert "strength" not in by_unit["pl"].model_dump()
 
 
 # Corridors that cannot be blocked

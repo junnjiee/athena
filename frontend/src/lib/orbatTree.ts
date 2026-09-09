@@ -1,4 +1,10 @@
-import type { Availability, Echelon, OrbatUnit } from '../types/routeStudy'
+import type {
+  Availability,
+  BlockWeapon,
+  Echelon,
+  OrbatUnit,
+  WeaponSystem,
+} from '../types/routeStudy'
 
 /**
  * The order of battle the operator builds to block with.
@@ -40,6 +46,25 @@ export const AVAILABILITY_LABEL: Record<Availability, string> = {
   reserve: 'Reserve',
 }
 
+export const WEAPON_SYSTEMS: WeaponSystem[] = [
+  'ATGM',
+  'Light RR',
+  'LAW',
+  '40mm AGL',
+  '12.7mm HMG',
+  'GPMG',
+  'SAW',
+  '81mm mortar',
+  '60mm mortar',
+  'mini UAV',
+]
+
+/** Compact doctrinal notation for a holding or aggregated block force. */
+export function weaponSummary(weapons: BlockWeapon[] | undefined): string {
+  if (!weapons || weapons.length === 0) return 'No weapons recorded'
+  return weapons.map(({ count, weapon }) => `${count}× ${weapon}`).join(' · ')
+}
+
 /** What the engine would refuse, phrased for the operator. Empty means the
  *  ORBAT is sendable. */
 export function orbatIssues(units: OrbatUnit[]): string[] {
@@ -56,6 +81,21 @@ export function orbatIssues(units: OrbatUnit[]): string[] {
     if (unit.name.trim() === '') issues.push(`${unit.unit_id}: needs a name`)
     if (!Number.isFinite(unit.strength) || unit.strength < 1) {
       issues.push(`${label}: strength must be at least one soldier`)
+    }
+    const holdingIds = new Set<string>()
+    const weaponSystems = new Set<WeaponSystem>()
+    for (const holding of unit.weapons ?? []) {
+      if (!holding.id || holdingIds.has(holding.id)) {
+        issues.push(`${label}: weapon holding ids must be unique`)
+      }
+      holdingIds.add(holding.id)
+      if (weaponSystems.has(holding.weapon)) {
+        issues.push(`${label}: combine duplicate ${holding.weapon} holdings`)
+      }
+      weaponSystems.add(holding.weapon)
+      if (!Number.isInteger(holding.count) || holding.count < 1) {
+        issues.push(`${label}: ${holding.weapon} count must be a positive whole number`)
+      }
     }
     if (unit.parent_id == null) continue
     const parent = byId.get(unit.parent_id)

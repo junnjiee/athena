@@ -400,10 +400,12 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   common choke, and guards every distance-preferred assignment with the ORBAT's
   exact remaining independent commitment capacity. It therefore maximises
   inlets held before distance and never strips one inlet to reinforce another.
-- **Measure block forces in weapons, not manpower.** `strength: int` is a
-  headcount (defaults 90/24/7/4) and says nothing about what a force can stop.
-  What matters is how many weapons can defeat the reserve's platforms. Replaces
-  `strength` on `BlockCandidate` as the ranking quantity.
+- ~~**Measure block forces in weapons, not manpower.**~~ **Done** — own-force
+  ORBAT nodes now carry structured, capability-generic organic weapon holdings.
+  Each `BlockCandidate` aggregates the assigned unit and its descendants by
+  weapon system; it no longer emits or displays personnel `strength` as the
+  force measure. Legacy units remain valid with no invented holdings. Effective
+  weapons are deliberately deferred to the matching pass below.
 - **Sealing becomes computable, and non-binary.** With F's structured
   composition and pairing table, block force effective weapons vs reserve
   platforms yields exactly the outcome chain from the Reaction to Ops Plan
@@ -472,8 +474,9 @@ pairing table, and §6 for the platform catalogue.
   which of the force's weapon systems can achieve it, which are acceptable, and
   which would be wasteful or ineffective. Natural home is the engine, alongside
   the block-force pass, since both answer "what can I put on this".
-- Nothing in the engine models weapons or platforms today. `engine/athena/units.py`
-  covers echelon and command role only; `strength` is a bare integer.
+- ~~Nothing in the engine models weapons or platforms today.~~ Own-force weapon
+  holdings are now structured on the ORBAT and aggregated into block candidates.
+  The platform catalogue, hardness, and matching rules remain to be built.
 
 ### Attrition — the arithmetic downstream of matching
 

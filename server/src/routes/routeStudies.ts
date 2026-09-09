@@ -103,23 +103,55 @@ const updateBody = z.object({
 
 
 const echelonSchema = z.enum(['company', 'platoon', 'section', 'group'])
+const weaponSystemSchema = z.enum([
+  'ATGM',
+  'Light RR',
+  'LAW',
+  '40mm AGL',
+  '12.7mm HMG',
+  'GPMG',
+  'SAW',
+  '81mm mortar',
+  '60mm mortar',
+  'mini UAV',
+])
+
+const weaponHoldingSchema = z.object({
+  id: z.string().min(1),
+  weapon: weaponSystemSchema,
+  count: z.number().int().positive().max(10_000),
+})
+
+const orbatUnitSchema = z.object({
+  unit_id: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  echelon: echelonSchema,
+  parent_id: z.string().min(1).nullish(),
+  lon: z.number().gte(-180).lte(180),
+  lat: z.number().gte(-85).lte(85),
+  strength: z.number().int().positive(),
+  weapons: z.array(weaponHoldingSchema).max(100).default([]),
+  availability: z.enum(['uncommitted', 'committed', 'reserve']).default('uncommitted'),
+  redcon: z.union([
+    z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5),
+  ]).nullish(),
+}).superRefine((unit, ctx) => {
+  const ids = new Set<string>()
+  const systems = new Set<string>()
+  unit.weapons.forEach((holding, index) => {
+    if (ids.has(holding.id)) {
+      ctx.addIssue({ code: 'custom', path: ['weapons', index, 'id'], message: 'duplicate holding id' })
+    }
+    if (systems.has(holding.weapon)) {
+      ctx.addIssue({ code: 'custom', path: ['weapons', index, 'weapon'], message: 'duplicate weapon system' })
+    }
+    ids.add(holding.id)
+    systems.add(holding.weapon)
+  })
+})
 
 const orbatSchema = z.object({
-  units: z.array(
-    z.object({
-      unit_id: z.string().min(1),
-      name: z.string().trim().min(1).max(80),
-      echelon: echelonSchema,
-      parent_id: z.string().min(1).nullish(),
-      lon: z.number().gte(-180).lte(180),
-      lat: z.number().gte(-85).lte(85),
-      strength: z.number().int().positive(),
-      availability: z.enum(['uncommitted', 'committed', 'reserve']).default('uncommitted'),
-      redcon: z.union([
-        z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5),
-      ]).nullish(),
-    }),
-  ),
+  units: z.array(orbatUnitSchema),
 })
 
 export const blockForcesBody = z.object({

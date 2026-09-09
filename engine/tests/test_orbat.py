@@ -2,7 +2,7 @@
 
 import pytest
 
-from athena.orbat import Availability, Orbat, Unit
+from athena.orbat import Availability, Orbat, Unit, WeaponHolding, WeaponSystem
 from athena.units import Echelon, Role
 
 
@@ -111,6 +111,36 @@ def test_redcon_is_optional_display_only_readiness() -> None:
     assert Orbat(units=(ready,)).available() == [ready]
     with pytest.raises(ValueError):
         Unit(**{**ready.model_dump(), "redcon": 6})
+
+
+def test_weapon_holdings_are_structured_and_capability_generic() -> None:
+    armed = Unit(
+        **{
+            **unit("armed", Echelon.SECTION).model_dump(),
+            "weapons": [
+                {"id": "law", "weapon": "LAW", "count": 2},
+                {"id": "gpmg", "weapon": "GPMG", "count": 1},
+            ],
+        }
+    )
+
+    assert armed.weapons == (
+        WeaponHolding(id="law", weapon=WeaponSystem.LAW, count=2),
+        WeaponHolding(id="gpmg", weapon=WeaponSystem.GPMG, count=1),
+    )
+
+
+def test_duplicate_weapon_systems_on_one_unit_are_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate weapon system"):
+        Unit(
+            **{
+                **unit("armed", Echelon.SECTION).model_dump(),
+                "weapons": [
+                    {"id": "law-1", "weapon": "LAW", "count": 1},
+                    {"id": "law-2", "weapon": "LAW", "count": 1},
+                ],
+            }
+        )
 
 
 def test_available_offers_the_formed_body_before_its_parts() -> None:

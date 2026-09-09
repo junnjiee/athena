@@ -464,11 +464,24 @@ input*.
 
 Athena models organisation down from a company — company, platoon, section,
 group. Nothing above a company exists, so a company is always the root of a tree.
-Each unit carries its location, strength, availability and optional REDCON.
-Availability answers whether the unit is free to receive the task. REDCON 1–5
-answers how ready it is to move (1 highest, 5 lowest); it is display-only and
-does not constrain allocation or feed the timing model. Missing REDCON remains
-unreported rather than being guessed.
+Each unit carries its location, personnel strength, organic weapon holdings,
+availability and optional REDCON. Availability answers whether the unit is free
+to receive the task. REDCON 1–5 answers how ready it is to move (1 highest, 5
+lowest); it is display-only and does not constrain allocation or feed the timing
+model. Missing REDCON remains unreported rather than being guessed.
+
+### Weapons are organic holdings
+
+Weapon rows use the capability-generic catalogue from doctrine: ATGM, Light RR,
+LAW, 40mm AGL, 12.7mm HMG, GPMG, SAW, 81mm and 60mm mortars, and mini UAV. A row
+belongs only to the ORBAT node on which it is entered. When a formed unit is
+offered as a block force, its candidate weapon list aggregates that unit and all
+of its descendants, by system. This makes the task-organised force measurable
+without storing the same weapon twice on both a section and its parent.
+
+Legacy units with no weapon rows stay valid and read as *no weapons recorded*;
+Athena never invents an establishment from echelon. Personnel strength remains
+ORBAT context, but it is not emitted as the measure of a block candidate.
 
 ### Role follows the echelon commanded
 
@@ -530,14 +543,19 @@ every unit against every approach. **The race remains the commander's judgement.
 
 ### Allocation
 
-**Coverage is the first optimisation objective.** Each axis is an inlet and receives its own
-block position, including axes in a corridor with no common choke. The allocator
+**Coverage is the first optimisation objective.** Each axis is an inlet and
+receives its own block position, including axes in a corridor with no common choke. The allocator
 computes the ORBAT's maximum independent commitment capacity, then chooses the
 nearest force for each urgent inlet only when that choice leaves enough capacity
 to achieve the maximum. A nearby parent formation is therefore skipped when
 committing it would consume descendants needed to hold other inlets. If there is
 only one inlet, that same parent remains eligible: this is a coverage rule, not
 an echelon ceiling. Ties break on unit id, so the result is deterministic.
+
+The candidate's weapon list describes what the allocated force brings. It does
+not yet decide whether those systems defeat the reserve's platforms; matching
+and sufficiency are separate downstream judgements, and neither may reduce
+inlet coverage.
 
 ### Two kinds of absence, kept apart
 

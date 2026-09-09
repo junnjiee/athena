@@ -4,13 +4,21 @@ import {
   DEFAULT_STRENGTH,
   ECHELON_LABEL,
   ECHELON_ORDER,
+  WEAPON_SYSTEMS,
   availabilitySummary,
   commitsWith,
   orbatIssues,
   orbatRows,
   validParents,
+  weaponSummary,
 } from '../../lib/orbatTree'
-import type { Availability, Echelon, OrbatUnit, Redcon } from '../../types/routeStudy'
+import type {
+  Availability,
+  Echelon,
+  OrbatUnit,
+  Redcon,
+  WeaponSystem,
+} from '../../types/routeStudy'
 
 interface Props {
   units: OrbatUnit[]
@@ -248,6 +256,11 @@ function UnitRow({
           REDCON {unit.redcon ?? '—'}
         </span>
       </div>
+      {(unit.weapons?.length ?? 0) > 0 && (
+        <div className="mt-1 truncate text-[10px] text-(--text)">
+          {weaponSummary(unit.weapons)}
+        </div>
+      )}
 
       {selected && (
         <div
@@ -297,6 +310,8 @@ function UnitRow({
             </select>
           </label>
 
+          <WeaponHoldingsEditor unit={unit} onUpdate={onUpdate} />
+
           <div>
             <div className="text-[10px] tracking-wide text-(--text-dim)">AVAILABILITY</div>
             <div className="mt-1 flex items-center gap-1 rounded-lg bg-black/20 p-1">
@@ -345,6 +360,96 @@ function UnitRow({
           </label>
         </div>
       )}
+    </div>
+  )
+}
+
+function WeaponHoldingsEditor({
+  unit,
+  onUpdate,
+}: {
+  unit: OrbatUnit
+  onUpdate: (patch: Partial<OrbatUnit>) => void
+}) {
+  const holdings = unit.weapons ?? []
+  const used = new Set(holdings.map((holding) => holding.weapon))
+  const nextWeapon = WEAPON_SYSTEMS.find((weapon) => !used.has(weapon))
+
+  const update = (id: string, patch: { weapon?: WeaponSystem; count?: number }) => {
+    onUpdate({
+      weapons: holdings.map((holding) =>
+        holding.id === id ? { ...holding, ...patch } : holding,
+      ),
+    })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] tracking-wide text-(--text-dim)">
+        <span>WEAPONS · ORGANIC HOLDINGS</span>
+        <button
+          type="button"
+          disabled={!nextWeapon}
+          onClick={() => {
+            if (!nextWeapon) return
+            onUpdate({
+              weapons: [
+                ...holdings,
+                { id: crypto.randomUUID(), weapon: nextWeapon, count: 1 },
+              ],
+            })
+          }}
+          className="normal-case tracking-normal hover:text-(--text-h) disabled:opacity-30"
+        >
+          + weapon
+        </button>
+      </div>
+      {holdings.length === 0 && (
+        <div className="mt-1 text-[10px] text-(--text-dim)">
+          No weapon holdings recorded. Allocation still covers the inlet; sufficiency is not yet
+          assessed.
+        </div>
+      )}
+      {holdings.map((holding) => (
+        <div
+          key={holding.id}
+          className="mt-1 grid grid-cols-[1fr_3.5rem_auto] items-center gap-1"
+        >
+          <select
+            value={holding.weapon}
+            aria-label={`${unit.name} weapon system`}
+            onChange={(event) => update(holding.id, { weapon: event.target.value as WeaponSystem })}
+            className="min-w-0 rounded-md border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
+          >
+            {WEAPON_SYSTEMS.filter(
+              (weapon) => weapon === holding.weapon || !used.has(weapon),
+            ).map((weapon) => (
+              <option key={weapon} value={weapon}>{weapon}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={1}
+            value={holding.count}
+            aria-label={`${holding.weapon} count`}
+            onChange={(event) => update(holding.id, { count: Number(event.target.value) })}
+            className="rounded-md border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-right text-[10px] text-(--text-h) focus:outline-none"
+          />
+          <button
+            type="button"
+            title={`Remove ${holding.weapon}`}
+            onClick={() => onUpdate({
+              weapons: holdings.filter((candidate) => candidate.id !== holding.id),
+            })}
+            className="text-(--text-dim) hover:text-(--hostile)"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+      <div className="mt-1 text-[9px] normal-case tracking-normal text-(--text-dim)">
+        Record this unit's own holdings only; a parent block force includes its descendants.
+      </div>
     </div>
   )
 }
