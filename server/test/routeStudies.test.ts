@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   blockInputsForRoutes,
+  courseAssessmentInputsChanged,
   coursesRemainGrounded,
   corridorsForCourseAssessment,
   needsResearch,
@@ -345,6 +346,36 @@ describe('rerouted course reconciliation', () => {
       courses: [{ ...courses.courses[0], efforts: [] }],
     }
     expect(coursesRemainGrounded(empty, result)).toBe(false)
+  })
+
+  test('invalidates when any model assessment input changes', () => {
+    const current = { result, marks: MARKS, corridorEdits: {} }
+    expect(courseAssessmentInputsChanged(current, current)).toBe(false)
+    expect(courseAssessmentInputsChanged(current, {
+      ...current,
+      marks: {
+        ...MARKS,
+        reserves: [{ ...MARKS.reserves[0], timing: { decision_minutes: 5 } }],
+      },
+    })).toBe(true)
+    expect(courseAssessmentInputsChanged(current, {
+      ...current,
+      marks: {
+        ...MARKS,
+        objectives: [{ ...MARKS.objectives[0], locality: 'MATO 1b' }],
+      },
+    })).toBe(true)
+    expect(courseAssessmentInputsChanged(current, {
+      ...current,
+      corridorEdits: { cor_a: { name: 'COBRA' } },
+    })).toBe(true)
+    expect(courseAssessmentInputsChanged(current, {
+      ...current,
+      result: {
+        ...result,
+        corridors: [{ ...result.corridors[0], fastest_seconds: 90 }],
+      },
+    })).toBe(true)
   })
 })
 
