@@ -211,6 +211,9 @@ export interface GraphEdge {
   from: number
   to: number
   roadClass: MountedRoadClass
+  /** Source labels kept for an operator-editable route code prefill. */
+  name?: string | null
+  lanes?: string | null
   /** every node id from `from` to `to` inclusive, interior shape points included */
   nodes: number[]
   points: [number, number][]
