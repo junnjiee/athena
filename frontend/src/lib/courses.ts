@@ -1,7 +1,6 @@
 import type {
   CourseOfAction,
   EnemyIntent,
-  Posture,
   RankedCourses,
   RankingWeights,
   RejectedReference,
@@ -14,22 +13,6 @@ import type {
  * it. The scores are opinion on a scale rather than probability, so they are
  * shown as the model's numbers and never rounded into confidence language.
  */
-
-export const POSTURE_LABEL: Record<Posture, string> = {
-  attacking: 'Attacking',
-  defending: 'Defending',
-  delaying: 'Delaying',
-  withdrawing: 'Withdrawing',
-  unknown: 'Unknown',
-}
-
-export const POSTURE_ORDER: Posture[] = [
-  'attacking',
-  'defending',
-  'delaying',
-  'withdrawing',
-  'unknown',
-]
 
 export const WEIGHT_LABEL: Record<keyof RankingWeights, string> = {
   speed: 'Speed',
@@ -48,15 +31,14 @@ export const WEIGHT_HINT: Record<keyof RankingWeights, string> = {
 }
 
 export function emptyIntent(): EnemyIntent {
-  return { posture: 'unknown', objective_ids: [], narrative: '' }
+  return { objective_ids: [], narrative: '' }
 }
 
-/** With no posture, no named objective and no narrative, the model has nothing
- *  but terrain and what comes back is geography rather than intelligence. The
- *  panel warns rather than refuses, exactly as the engine does. */
+/** With no named objective and no narrative, the model has nothing but terrain
+ *  and what comes back is geography rather than intelligence. The panel warns
+ *  rather than refuses, exactly as the engine does. */
 export function intentIsEmpty(intent: EnemyIntent): boolean {
   return (
-    intent.posture === 'unknown' &&
     intent.objective_ids.length === 0 &&
     intent.narrative.trim() === ''
   )

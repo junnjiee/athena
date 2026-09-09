@@ -279,20 +279,16 @@ name, so the same scores always name the same course. *Hardcoded rule.*
 
 Two halves, because a staff officer works in both:
 
-- **Structured** — posture from a fixed set (attacking, defending, delaying,
-  withdrawing, unknown) and which marked objectives the enemy is believed to
-  want. An unstated posture stays `unknown` rather than being guessed, and no
+- **Structured** — which marked objectives the enemy is believed to want. No
   named objectives means every objective is in play, stated as such in the
-  prompt.
+  prompt. Posture is deliberately absent: control of the designated objective
+  is the scenario assumption, not another field for the operator to guess.
 - **Prose** — free text as an S2 would write it, passed to the model unedited.
   It is the half no schema holds.
 
-Intent is *scenario input*. The posture set is deliberately short: it steers
-judgement rather than parameterising a calculation, and a longer list would imply
-a precision the engine has not got.
-
-Intent is **empty** when the posture is unknown and the narrative blank. The
-engine names that condition and still answers; it does not refuse.
+Intent is *scenario input*. It is **empty** when no objective is selected and
+the narrative is blank. The engine names that condition and still answers; it
+does not refuse.
 
 ### What the model is shown
 
@@ -597,10 +593,10 @@ Under Docker the variables are passed in by compose, so no file is read.
   identical ground and identical intent may name different courses. Where a
   decision needs to be defended later, record the assessment rather than
   expecting to regenerate it.
-- **An assessment is only as good as the intent it was given.** With no posture
-  and no narrative the model has nothing but terrain, and what comes back is
-  geography rather than intelligence. The engine reports when intent is empty; it
-  does not refuse.
+- **An assessment is only as good as the intent it was given.** With no selected
+  objective and no narrative the model has nothing but terrain, and what comes
+  back is geography rather than intelligence. The engine reports when intent is
+  empty; it does not refuse.
 - **The model's scores are judgement, not measurement.** Likelihood and danger
   are its opinion on a scale, not probabilities derived from anything. They order
   courses; they do not quantify risk.

@@ -21,7 +21,7 @@ from athena.eca import (
     resolve_model,
 )
 from athena.params import ECA_API_KEY_ENV_VAR, ECA_MODEL, ECA_MODEL_ENV_VAR
-from athena.intent import EnemyIntent, Posture
+from athena.intent import EnemyIntent
 from athena.study import CorridorOut, Mark, RouteOut
 
 
@@ -94,12 +94,11 @@ def test_route_geometry_is_withheld() -> None:
 
 
 def test_the_prompt_carries_the_intent_narrative_unedited() -> None:
-    intent = EnemyIntent(posture=Posture.ATTACKING, narrative="They want the bridge by dawn.")
+    intent = EnemyIntent(narrative="They want the bridge by dawn.")
 
     prompt = build_prompt(CORRIDORS, RESERVES, OBJECTIVES, intent)
 
     assert "They want the bridge by dawn." in prompt
-    assert "attacking" in prompt
 
 
 def test_unstated_objectives_are_declared_in_play_rather_than_omitted() -> None:
@@ -264,7 +263,7 @@ def test_no_corridors_means_the_model_is_never_asked() -> None:
 
 def test_an_empty_intent_is_recognisable() -> None:
     assert EnemyIntent().is_empty()
-    assert not EnemyIntent(posture=Posture.ATTACKING).is_empty()
+    assert not EnemyIntent(objective_ids=["obj1"]).is_empty()
     assert not EnemyIntent(narrative="They want the bridge.").is_empty()
 
 

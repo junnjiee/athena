@@ -140,7 +140,6 @@ def build_prompt(
         "## Objectives\n"
         f"{objective_lines}\n\n"
         "## Enemy intent\n"
-        f"Posture: {intent.posture}\n"
         f"Objectives believed sought: {wanted}\n"
         f"Assessment from the S2:\n{narrative}\n\n"
         "## Task\n"

@@ -205,7 +205,7 @@ def courses_request(**overrides: object) -> dict[str, object]:
         "corridors": [CORRIDOR],
         "reserves": [RESERVE],
         "objectives": [OBJECTIVE],
-        "intent": {"posture": "attacking", "narrative": "They want the bridge."},
+        "intent": {"objective_ids": ["obj1"], "narrative": "They want the bridge."},
     }
     body.update(overrides)
     return body

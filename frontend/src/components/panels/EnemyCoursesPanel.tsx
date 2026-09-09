@@ -1,8 +1,6 @@
 import { AlertTriangle, Brain, Loader2, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { corridorColor, corridorLabel } from '../../lib/corridors'
 import {
-  POSTURE_LABEL,
-  POSTURE_ORDER,
   courseTags,
   formatScore,
   intentIsEmpty,
@@ -11,7 +9,6 @@ import {
 import type {
   CourseOfAction,
   EnemyIntent,
-  Posture,
   Preferences,
   RouteStudy,
   Verdict,
@@ -71,21 +68,6 @@ export function EnemyCoursesPanel({
       </div>
 
       <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
-        <label className="block text-[10px] tracking-wide text-(--text-dim)">
-          ENEMY POSTURE
-          <select
-            value={intent.posture}
-            onChange={(event) => onSetIntent({ posture: event.target.value as Posture })}
-            className="mt-1 w-full rounded-md border border-(--border) bg-(--panel-bg-solid) px-2 py-1.5 text-xs text-(--text-h) focus:outline-none"
-          >
-            {POSTURE_ORDER.map((posture) => (
-              <option key={posture} value={posture}>
-                {POSTURE_LABEL[posture]}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <div>
           <div className="px-0.5 text-[10px] tracking-wide text-(--text-dim)">
             WHAT THE ENEMY WANTS ({intent.objective_ids.length})
@@ -126,8 +108,8 @@ export function EnemyCoursesPanel({
         {blind && (
           <div className="flex items-start gap-1.5 rounded-md bg-amber-400/10 p-2 text-[11px] text-amber-300">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            With no posture, objective or narrative the model has only terrain, and what comes back
-            is geography rather than intelligence.
+            With no objective or narrative the model has only terrain, and what comes back is
+            geography rather than intelligence.
           </div>
         )}
 
