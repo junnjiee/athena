@@ -71,8 +71,8 @@ export interface StudyMark {
   intelligence_evidence?: IntelligenceEvidence[]
   task_organization?: TaskOrganizationElement[]
   timing?: ReserveTiming
-  /** Objectives are usually ground, not a pin. When the operator dragged an
-   *  area, routing stops at the first live junction reached inside its bounds;
+  /** Objectives are usually ground, not a pin. Routing stops at the first live
+   *  road point reached inside its bounds, including midway along an edge;
    *  lon/lat remains the centre and fallback snap. */
   bbox?: BBoxDeg
 }
@@ -126,6 +126,14 @@ export interface StudyRoute {
   node_ids: number[]
   seconds: number
   length_meters: number
+  /** Exact area boundary reached part-way along the final graph edge. */
+  terminal?: {
+    edge_id: string
+    lon: number
+    lat: number
+    /** Fraction of stored edge geometry measured from its `from` node. */
+    edge_fraction: number
+  } | null
 }
 
 export interface Corridor {

@@ -214,15 +214,56 @@ def _inlet_id(reserve_id: str, objective_id: str, edge_ids: list[str]) -> str:
     return f"inlet_{digest[:16]}"
 
 
-def _route_points(
-    edges_by_id: dict[str, Edge], edge_ids: list[str]
+def _clip_points(
+    points: list[tuple[float, float]],
+    fraction: float,
+    endpoint: tuple[float, float],
 ) -> list[tuple[float, float]]:
-    """Every graph vertex on an inlet, in route order where possible."""
+    """The oriented shape up to a fractional mid-edge route endpoint."""
+    if len(points) < 2:
+        return points
+    segment_lengths = [
+        _segment_meters(start, end) for start, end in zip(points, points[1:])
+    ]
+    target = sum(segment_lengths) * fraction
+    covered = 0.0
+    clipped = [points[0]]
+    for end, segment_length in zip(points[1:], segment_lengths):
+        if covered + segment_length >= target - 1e-9:
+            clipped.append(endpoint)
+            return clipped
+        clipped.append(end)
+        covered += segment_length
+    clipped[-1] = endpoint
+    return clipped
+
+
+def _route_points(
+    edges_by_id: dict[str, Edge], route: RouteOut
+) -> list[tuple[float, float]]:
+    """Every graph vertex actually traversed by an inlet, in route order."""
     points: list[tuple[float, float]] = []
-    for edge_id in edge_ids:
+    for index, edge_id in enumerate(route.edge_ids):
         edge = edges_by_id.get(edge_id)
         if edge is not None:
-            points.extend(edge.points)
+            reverse = index < len(route.node_ids) and edge.to_node == route.node_ids[index]
+            edge_points = list(reversed(edge.points)) if reverse else list(edge.points)
+            if (
+                route.terminal is not None
+                and index == len(route.edge_ids) - 1
+                and route.terminal.edge_id == edge_id
+            ):
+                fraction = (
+                    1 - route.terminal.edge_fraction
+                    if reverse
+                    else route.terminal.edge_fraction
+                )
+                edge_points = _clip_points(
+                    edge_points,
+                    fraction,
+                    (route.terminal.lon, route.terminal.lat),
+                )
+            points.extend(edge_points)
     return points
 
 
@@ -294,6 +335,22 @@ def _locate_block_point(
         travel_seconds = edge_travel_seconds(edge, nodes, reverse=reverse)
         if travel_seconds is None or len(points) < 2:
             continue
+        if (
+            route.terminal is not None
+            and index == len(route.edge_ids) - 1
+            and route.terminal.edge_id == edge_id
+        ):
+            fraction = (
+                1 - route.terminal.edge_fraction
+                if reverse
+                else route.terminal.edge_fraction
+            )
+            points = _clip_points(
+                points,
+                fraction,
+                (route.terminal.lon, route.terminal.lat),
+            )
+            travel_seconds *= fraction
         segment_lengths = [
             _segment_meters(start, end) for start, end in zip(points, points[1:])
         ]
@@ -680,7 +737,7 @@ def plan_blocks(
         for inlet_number, route in enumerate(corridor.routes, start=1):
             inlet_id = _inlet_id(route.reserve_id, route.objective_id, route.edge_ids)
             urgency[inlet_id] = (route.seconds, corridor.fastest_seconds, inlet_id)
-            points = _route_points(edges_by_id, route.edge_ids)
+            points = _route_points(edges_by_id, route)
             requested = requested_by_id.pop(inlet_id, None)
             if requested is not None:
                 located = _locate_block_point(route, requested, edges_by_id, graph)

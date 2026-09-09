@@ -16,6 +16,36 @@ function appendPoints(target: [number, number][], points: [number, number][]): v
   }
 }
 
+function segmentLength(start: [number, number], end: [number, number]): number {
+  const latitude = (start[1] + end[1]) / 2
+  let deltaLongitude = end[0] - start[0]
+  if (deltaLongitude > 180) deltaLongitude -= 360
+  if (deltaLongitude < -180) deltaLongitude += 360
+  return Math.hypot(deltaLongitude * Math.cos(latitude * Math.PI / 180), end[1] - start[1])
+}
+
+function clipPoints(
+  points: [number, number][],
+  fraction: number,
+  endpoint: [number, number],
+): [number, number][] {
+  if (points.length < 2) return points
+  const lengths = points.slice(1).map((end, index) => segmentLength(points[index], end))
+  const target = lengths.reduce((total, length) => total + length, 0) * fraction
+  const clipped: [number, number][] = [points[0]]
+  let covered = 0
+  for (let index = 0; index < lengths.length; index += 1) {
+    if (covered + lengths[index] >= target - 1e-12) {
+      clipped.push(endpoint)
+      return clipped
+    }
+    clipped.push(points[index + 1])
+    covered += lengths[index]
+  }
+  clipped[clipped.length - 1] = endpoint
+  return clipped
+}
+
 /** Resolves the engine's compact edge-id route back into display geometry. Each
  *  edge follows the route's corresponding junction pair; this is important for
  *  westbound/southbound routes because graph edge points are stored in one
@@ -28,7 +58,19 @@ export function routePoints(route: StudyRoute, graph: RoadGraph): [number, numbe
     const edge = edges.get(edgeId)
     if (!edge) return
     const fromNode = route.node_ids[index]
-    const oriented = edge.to === fromNode ? [...edge.points].reverse() : edge.points
+    const reverse = edge.to === fromNode
+    let oriented = reverse ? [...edge.points].reverse() : edge.points
+    if (
+      route.terminal
+      && index === route.edge_ids.length - 1
+      && route.terminal.edge_id === edgeId
+    ) {
+      oriented = clipPoints(
+        oriented,
+        reverse ? 1 - route.terminal.edge_fraction : route.terminal.edge_fraction,
+        [route.terminal.lon, route.terminal.lat],
+      )
+    }
     appendPoints(points, oriented)
   })
   return points

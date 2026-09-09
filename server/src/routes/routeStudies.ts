@@ -37,7 +37,7 @@ const markSchema = z.object({
   lon: z.number().gte(-180).lte(180),
   lat: z.number().gte(-85).lte(85),
   locality: z.string().trim().min(1).max(120).optional(),
-  /** Area objectives route to the first live junction reached inside these bounds. */
+  /** Area objectives route to the first live road point reached inside these bounds. */
   bbox: markBoundsSchema.optional(),
 })
 

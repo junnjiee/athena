@@ -45,6 +45,22 @@ describe('route study geometry', () => {
     expect(lines[1].points).toEqual([[104, 1], [105, 1]])
     expect(lines[0].color).toBe(lines[1].color)
   })
+
+  test('stops display geometry at a mid-edge objective boundary', () => {
+    expect(routePoints(route({
+      edge_ids: ['a'],
+      node_ids: [1],
+      terminal: { edge_id: 'a', lon: 103.75, lat: 1, edge_fraction: 0.75 },
+    }), graph)).toEqual([[103, 1], [103.5, 1], [103.75, 1]])
+  })
+
+  test('clips a reverse route using the stored edge fraction', () => {
+    expect(routePoints(route({
+      edge_ids: ['a'],
+      node_ids: [2],
+      terminal: { edge_id: 'a', lon: 103.25, lat: 1, edge_fraction: 0.25 },
+    }), graph)).toEqual([[104, 1], [103.5, 1], [103.25, 1]])
+  })
 })
 
 describe('route study labels', () => {

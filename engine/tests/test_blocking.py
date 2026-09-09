@@ -1,5 +1,7 @@
 """Which forces a commander can put on which approach."""
 
+import pytest
+
 from athena.blocking import (
     BlockEstablishmentInput,
     BlockPointInput,
@@ -16,6 +18,7 @@ from athena.study import (
     PlatformCount,
     ReserveTiming,
     RouteOut,
+    RouteTerminalOut,
     TaskOrganizationElement,
 )
 from athena.units import Echelon
@@ -165,6 +168,50 @@ def test_an_operator_block_point_times_enemy_contact_on_the_inlet() -> None:
     assert result.allocation[0].block_point == point
     assert reaction.contact_minutes == 30 + point.enemy_movement_seconds / 60
     assert not any("block position" in unknown for unknown in reaction.unknowns)
+
+
+def test_a_block_point_cannot_snap_past_a_mid_edge_objective_endpoint() -> None:
+    force = Orbat(units=(unit("near", Echelon.SECTION, 0.0),))
+    route = CorridorOut(
+        id="cor_partial",
+        routes=[
+            RouteOut(
+                reserve_id="res1",
+                objective_id="obj1",
+                edge_ids=["11:0"],
+                node_ids=[1],
+                seconds=36,
+                length_meters=500,
+                terminal=RouteTerminalOut(
+                    edge_id="11:0",
+                    lon=0.005,
+                    lat=0,
+                    edge_fraction=0.5,
+                ),
+            )
+        ],
+        choke_edge_ids=["11:0"],
+        fastest_seconds=36,
+    )
+    inlet_id = plan_blocks(GRAPH, [route], force).inlets[0].inlet_id
+
+    result = plan_blocks(
+        GRAPH,
+        [route],
+        force,
+        block_points=[BlockPointInput(inlet_id=inlet_id, lon=0.01, lat=0)],
+    )
+
+    assert result.block_points == []
+    assert result.rejected_block_points[0].inlet_id == inlet_id
+
+    at_boundary = plan_blocks(
+        GRAPH,
+        [route],
+        force,
+        block_points=[BlockPointInput(inlet_id=inlet_id, lon=0.005, lat=0)],
+    )
+    assert at_boundary.block_points[0].enemy_movement_seconds == pytest.approx(36)
 
 
 def test_operator_establishment_time_compares_the_block_force_with_contact() -> None:

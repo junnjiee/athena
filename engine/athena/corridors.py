@@ -43,6 +43,20 @@ class Corridor:
 METERS_PER_DEGREE = 111_320.0
 
 
+def _route_positions(route: Route, nodes: dict[int, Node]) -> list[Node]:
+    positions = [nodes[node_id] for node_id in route.nodes if node_id in nodes]
+    if route.terminal is not None:
+        positions.append(
+            Node(
+                id=-1,
+                lon=route.terminal.lon,
+                lat=route.terminal.lat,
+                elevation=0.0,
+            )
+        )
+    return positions
+
+
 def _meters_between(one: Node, other: Node) -> float:
     """Equirectangular, projected at the latitude of the pair.
 
@@ -67,8 +81,8 @@ def axis_separation_meters(
     approaches that merely touch at a shared objective are not thereby close
     along their length, and minimum would say they were.
     """
-    here = [nodes[n] for n in one.nodes if n in nodes]
-    there = [nodes[n] for n in other.nodes if n in nodes]
+    here = _route_positions(one, nodes)
+    there = _route_positions(other, nodes)
     if not here or not there:
         return math.inf
 
@@ -91,12 +105,10 @@ def axis_heading_difference_degrees(
     """
 
     def vector(route: Route) -> tuple[float, float] | None:
-        if not route.nodes:
+        positions = _route_positions(route, nodes)
+        if not positions:
             return None
-        start = nodes.get(route.nodes[0])
-        end = nodes.get(route.nodes[-1])
-        if start is None or end is None:
-            return None
+        start, end = positions[0], positions[-1]
         lat_scale = math.cos(math.radians((start.lat + end.lat) / 2))
         dx = (end.lon - start.lon) * lat_scale
         dy = end.lat - start.lat
