@@ -297,10 +297,12 @@ for. An empty corridor list returns an empty assessment without a model call.
 
 ### The model may not invent ground
 
-Every effort names a corridor id and a reserve id from the study. Anything else
-is rejected and **reported** in `rejected`, never rendered as a real approach. A
-model inventing a corridor is the failure this whole boundary exists to catch, so
-suppressing it would destroy the only evidence that it happened.
+Every effort names a corridor id, reserve id, and objective id from one exact
+routed combination in the study. A model cannot take three individually real
+ids and recombine them into a movement the graph never found. Anything else is
+rejected and **reported** in `rejected`, never rendered as a real approach. A
+model inventing or recombining ground is the failure this whole boundary exists
+to catch, so suppressing it would destroy the only evidence that it happened.
 
 A course failing the check is **dropped whole, not repaired**. Removing one
 effort leaves a scheme the model never proposed and nobody has judged.
@@ -335,8 +337,8 @@ does not refuse.
 ### What the model is shown
 
 Corridor id, bounded operator name/category where present, fastest time, how many
-routes, which reserves can use it, reserve deployment intelligence, objective
-IVO localities, and whether each corridor has a choke point. Operator labels are
+routes, each routed reserve→objective pair, reserve deployment intelligence,
+objective IVO localities, and whether each corridor has a choke point. Operator labels are
 explicitly delimited as scenario data; the stable id remains the only reference
 the model may return. **Route geometry is withheld** — it would fill the context
 without changing any judgement being asked for.

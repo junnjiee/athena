@@ -470,7 +470,13 @@ A_COURSE = {
     "name": "Northern push",
     "narrative": "They come north.",
     "efforts": [
-        {"kind": "main", "corridor_id": "cor_a", "reserve_id": "res1", "rationale": "fastest"}
+        {
+            "kind": "main",
+            "corridor_id": "cor_a",
+            "reserve_id": "res1",
+            "objective_id": "obj1",
+            "rationale": "fastest",
+        }
     ],
     "likelihood": 0.8,
     "danger": 0.6,
@@ -535,6 +541,7 @@ def test_invented_ground_is_reported_rather_than_rendered() -> None:
                 "kind": "main",
                 "corridor_id": "cor_nowhere",
                 "reserve_id": "res1",
+                "objective_id": "obj1",
                 "rationale": "-",
             }
         ],
@@ -651,6 +658,7 @@ def test_feedback_moves_the_weights_and_says_why() -> None:
                         "kind": "main",
                         "corridor_id": "cor_a",
                         "reserve_id": "res1",
+                        "objective_id": "obj1",
                         "rationale": "-",
                     }
                 ],
@@ -683,6 +691,7 @@ def test_a_rejection_moves_the_weights_the_other_way() -> None:
                             "kind": "main",
                             "corridor_id": "cor_a",
                             "reserve_id": "res1",
+                            "objective_id": "obj1",
                             "rationale": "-",
                         }
                     ],

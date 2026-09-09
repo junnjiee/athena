@@ -54,6 +54,7 @@ export function EnemyCoursesPanel({
     ]),
   )
   const reserveNames = new Map(study.marks.reserves.map((mark) => [mark.id, mark.name]))
+  const objectiveNames = new Map(study.marks.objectives.map((mark) => [mark.id, mark.name]))
   const rejected = rejectedSummary(ranked?.rejected ?? [])
   const blind = intentIsEmpty(intent)
 
@@ -153,6 +154,7 @@ export function EnemyCoursesPanel({
             selected={selectedCourseName === course.name}
             corridorNames={corridorNames}
             reserveNames={reserveNames}
+            objectiveNames={objectiveNames}
             onSelect={() => onSelectCourse(selectedCourseName === course.name ? null : course.name)}
             onJudge={(verdict) => onJudge(course.name, verdict)}
           />
@@ -184,6 +186,7 @@ function CourseRow({
   selected,
   corridorNames,
   reserveNames,
+  objectiveNames,
   onSelect,
   onJudge,
 }: {
@@ -192,6 +195,7 @@ function CourseRow({
   selected: boolean
   corridorNames: Map<string, { label: string; color: string }>
   reserveNames: Map<string, string>
+  objectiveNames: Map<string, string>
   onSelect: () => void
   onJudge: (verdict: Verdict) => void
 }) {
@@ -262,6 +266,9 @@ function CourseRow({
                     </div>
                     <div className="text-[10px] text-(--text-dim)">
                       {reserveNames.get(effort.reserve_id) ?? effort.reserve_id}
+                      {effort.objective_id
+                        ? ` → ${objectiveNames.get(effort.objective_id) ?? effort.objective_id}`
+                        : ''}
                       {effort.rationale ? ` — ${effort.rationale}` : ''}
                     </div>
                   </div>
