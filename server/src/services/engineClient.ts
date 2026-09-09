@@ -11,6 +11,7 @@ import type {
   StudyResult,
   Verdict,
 } from '../db/studyTypes'
+import type { DocumentIntelligence, SourceDocument } from '../types/documentIntelligence'
 
 /**
  * Calls the planning engine.
@@ -148,6 +149,25 @@ export async function runEnemyCourses(request: CoursesRequest): Promise<RankedCo
   }
 
   return (await response.json()) as RankedCourses
+}
+
+/** Sends extracted plain text—not source file bytes—to the grounded document
+ * intelligence boundary. This is a model call and uses the longer timeout. */
+export async function runDocumentIntelligence(
+  documents: SourceDocument[],
+): Promise<DocumentIntelligence> {
+  if (!config.engineUrl) {
+    throw new EngineUnavailableError('ENGINE_URL is not set')
+  }
+
+  const response = await fetch(`${config.engineUrl}/v1/document-intelligence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documents }),
+    signal: AbortSignal.timeout(config.engineReasoningTimeoutMs),
+  })
+  if (!response.ok) throw await engineFailure(response)
+  return (await response.json()) as DocumentIntelligence
 }
 
 export const NEUTRAL_WEIGHTS: RankingWeights = {

@@ -100,6 +100,20 @@ def test_document_intelligence_returns_grounded_reserve_proposals() -> None:
     assert proposal["source_document_ids"] == ["sitrep"]
 
 
+def test_document_intelligence_caps_aggregate_source_text() -> None:
+    response = client.post(
+        "/v1/document-intelligence",
+        json={
+            "documents": [
+                {"id": f"source-{index}", "name": "SITREP", "text": "x" * 100_000}
+                for index in range(6)
+            ]
+        },
+    )
+
+    assert response.status_code == 413
+
+
 def test_runs_a_study_over_a_supplied_graph() -> None:
     response = client.post(
         "/v1/route-study",

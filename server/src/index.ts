@@ -10,6 +10,7 @@ import { registerAssistantRoutes } from './routes/assistant'
 import { registerOperationalAreaRoutes } from './routes/operationalAreas'
 import { registerRouteStudyRoutes } from './routes/routeStudies'
 import { registerPlaceRoutes } from './routes/places'
+import { registerDocumentIntelligenceRoutes } from './routes/documentIntelligence'
 import { getJob } from './services/pipeline'
 import type { ProgressEvent } from './types'
 
@@ -62,6 +63,7 @@ registerAssistantRoutes(app)
 registerOperationalAreaRoutes(app, emitProgress)
 registerRouteStudyRoutes(app)
 registerPlaceRoutes(app)
+registerDocumentIntelligenceRoutes(app)
 
 try {
   await app.listen({ port: config.port, host: config.host })

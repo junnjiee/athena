@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 process.env.ENGINE_URL = 'http://engine.test'
-const { EngineUnavailableError, runBlockForces, runEnemyCourses, runRouteStudy } = await import(
+const { EngineUnavailableError, runBlockForces, runDocumentIntelligence, runEnemyCourses, runRouteStudy } = await import(
   '../src/services/engineClient'
 )
 
@@ -90,5 +90,24 @@ describe('revision-pinned engine calls', () => {
 
     expect(sent.graph_revision).toBe(4)
     expect(sent.reserves).toEqual([])
+  })
+})
+
+describe('document intelligence engine calls', () => {
+  test('sends extracted text without source bytes', async () => {
+    let sent: Record<string, unknown> = {}
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({ proposals: [], rejected: [] })
+    }) as typeof fetch
+
+    await runDocumentIntelligence([{ id: 'sitrep', name: 'sitrep.txt', text: 'Reserve IVO Kranji' }])
+
+    expect(sent.documents).toEqual([{ id: 'sitrep', name: 'sitrep.txt', text: 'Reserve IVO Kranji' }])
+  })
+
+  test('surfaces model configuration failures', async () => {
+    respondWith(JSON.stringify({ detail: 'set ATHENA_MODEL and PROVIDER_API_KEY' }), 503)
+    await expect(runDocumentIntelligence([])).rejects.toThrow('set ATHENA_MODEL and PROVIDER_API_KEY')
   })
 })

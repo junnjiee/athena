@@ -206,6 +206,9 @@ class DocumentIntelligenceRequest(BaseModel):
     documents: list[SourceDocument] = Field(min_length=1, max_length=20)
 
 
+MAX_DOCUMENT_INTELLIGENCE_TEXT = 500_000
+
+
 def get_claim_generator() -> ClaimGenerator:
     return model_claim_generator()
 
@@ -216,6 +219,12 @@ def document_intelligence(
     generator: ClaimGenerator = Depends(get_claim_generator),
 ) -> DocumentIntelligence:
     """Propose grounded reserve records; the operator still accepts them."""
+    total_text = sum(len(document.text) for document in request.documents)
+    if total_text > MAX_DOCUMENT_INTELLIGENCE_TEXT:
+        raise HTTPException(
+            status_code=413,
+            detail="documents exceed the 500,000-character combined limit",
+        )
     try:
         return extract_document_intelligence(request.documents, generator)
     except NotConfiguredError as error:

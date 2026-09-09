@@ -439,12 +439,16 @@ Connections to the rest of the work:
   a document outside the request are rejected and surfaced. Repeated mentions
   in one document count once; matching designation/locality claims from two
   independent documents become *Confirmed*, otherwise they remain *Assessed*.
-  Upload storage, text conversion, place resolution, and operator acceptance
-  remain separate follow-on work.
-- Extracted location references need to resolve to coordinates — the same place
-  lookup as A's AO auto-naming and C's IVO/locality field. One capability,
-  three consumers.
-- Extraction output should populate C's reserve record directly.
+  Source bytes never reach the model and are not stored.
+- ~~**Upload, conversion, locality resolution, and operator review.**~~ **Done** —
+  S2 accepts up to 20 PDF, DOCX, Markdown, or text files, converts them in
+  memory, and enforces per-file, combined-byte, and combined-text limits before
+  sending bounded plain text to the configured model provider. The panel warns
+  the operator that this text leaves the machine. Every proposal shows its
+  cited excerpts, resolves an exact named locality inside the AO, and remains
+  inert until the operator accepts it. Unresolved places cannot be accepted,
+  one lookup failure does not discard other proposals, and only facts on which
+  the cited claims agree populate the reserve mark.
 - ~~**The two-source rule becomes computable.**~~ **Done** — if two independent documents
   report the same reserve position, that reserve is *Confirmed* rather than
   *Assessed*, exactly as p.56 defines it. Document count is the evidence.
@@ -526,9 +530,10 @@ distance, giving all three consumers one vocabulary:
 2. C — the IVO / locality field on reserves
 3. E — resolving location references extracted from documents
 
-Implemented with a bounded Overpass `place=*` query, reusing the existing
-identified mirror pool and failure handling. AO titles are the first consumer;
-the reserve IVO and document-location consumers remain to be wired.
+Implemented with bounded Overpass `place=*` queries, reusing the existing
+identified mirror pool and failure handling. AO titles and editable reserve
+localities use nearest-place lookup; document proposals use exact-name lookup
+inside the AO so an unresolved reference can never acquire a guessed position.
 
 ---
 
