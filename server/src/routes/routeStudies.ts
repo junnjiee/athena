@@ -22,22 +22,23 @@ import {
 import { loadOperationalAreaRevision } from '../services/operationalAreaStore'
 import { reattachCorridorEdits } from '../services/corridorEdits'
 
+const markBoundsSchema = z.object({
+  west: z.number().gte(-180).lte(180),
+  south: z.number().gte(-85).lte(85),
+  east: z.number().gte(-180).lte(180),
+  north: z.number().gte(-85).lte(85),
+}).refine((bounds) => bounds.north > bounds.south && bounds.east !== bounds.west, {
+  message: 'objective bounds must have positive latitude and longitude extent',
+})
+
 const markSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(80),
   lon: z.number().gte(-180).lte(180),
   lat: z.number().gte(-85).lte(85),
   locality: z.string().trim().min(1).max(120).optional(),
-  /** Present when an objective was dragged as ground rather than clicked as a
-   *  point. lon/lat stays the centre, so the engine is none the wiser. */
-  bbox: z
-    .object({
-      west: z.number().gte(-180).lte(180),
-      south: z.number().gte(-85).lte(85),
-      east: z.number().gte(-180).lte(180),
-      north: z.number().gte(-85).lte(85),
-    })
-    .optional(),
+  /** Area objectives route to the first live junction reached inside these bounds. */
+  bbox: markBoundsSchema.optional(),
 })
 
 export const objectiveMarkSchema = markSchema
@@ -266,11 +267,11 @@ export function needsResearch(
   }
   if (next.marks) {
     // Names and reserve intelligence annotate the deployment overlay; the
-    // graph search only sees mark identity and position. Saving an assessment
-    // must not churn corridor identities when no pin moved.
+    // graph search sees mark identity, position, and objective ground. Saving
+    // an assessment must not churn corridor identities when none changed.
     const routingMarks = (marks: StudyMarks) => ({
       reserves: marks.reserves.map(({ id, lon, lat }) => ({ id, lon, lat })),
-      objectives: marks.objectives.map(({ id, lon, lat }) => ({ id, lon, lat })),
+      objectives: marks.objectives.map(({ id, lon, lat, bbox }) => ({ id, lon, lat, bbox })),
     })
     if (JSON.stringify(routingMarks(next.marks)) !== JSON.stringify(routingMarks(current.marks))) {
       return true

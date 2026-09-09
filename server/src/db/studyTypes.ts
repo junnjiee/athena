@@ -34,8 +34,8 @@ export interface Mark {
     deployment_minutes?: number
   }
   /** Objectives are ground, not pins: when the operator dragged an area rather
-   *  than clicking a point, its bounds ride along and lon/lat is the centre.
-   *  The engine still routes to the centre, so this is display only. */
+   *  than clicking a point, routing stops at the first live junction reached
+   *  inside these bounds. lon/lat remains the centre and fallback snap. */
   bbox?: { west: number; south: number; east: number; north: number }
 }
 

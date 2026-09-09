@@ -7,7 +7,7 @@ later and sit on top of what this produces; nothing here guesses.
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from athena.corridors import cluster_into_corridors
 from athena.graph import RoadGraph, nearest_node
@@ -19,7 +19,7 @@ from athena.params import (
     MAX_STRETCH,
     ROUTES_PER_PAIR,
 )
-from athena.routing import Route, find_diverse_routes
+from athena.routing import Route, find_diverse_routes_to_any
 
 
 class ReserveLevel(StrEnum):
@@ -108,8 +108,32 @@ class IntelligenceEvidence(BaseModel):
     excerpt: str = Field(min_length=1, max_length=500)
 
 
+class MarkBounds(BaseModel):
+    """Geographic ground occupied by an area objective."""
+
+    west: float = Field(ge=-180, le=180)
+    south: float = Field(ge=-85, le=85)
+    east: float = Field(ge=-180, le=180)
+    north: float = Field(ge=-85, le=85)
+
+    @model_validator(mode="after")
+    def has_area(self) -> "MarkBounds":
+        if self.north <= self.south:
+            raise ValueError("objective bounds north must be above south")
+        if self.east == self.west:
+            raise ValueError("objective bounds must have longitude width")
+        return self
+
+    def contains(self, lon: float, lat: float) -> bool:
+        if not self.south <= lat <= self.north:
+            return False
+        if self.west <= self.east:
+            return self.west <= lon <= self.east
+        return lon >= self.west or lon <= self.east
+
+
 class Mark(BaseModel):
-    """A point the operator placed: a suspected reserve, or an objective."""
+    """A suspected reserve point or an objective point/area."""
 
     id: str
     name: str
@@ -124,6 +148,7 @@ class Mark(BaseModel):
     locality: str | None = None
     task_organization: list[TaskOrganizationElement] = Field(default_factory=list)
     timing: ReserveTiming | None = None
+    bbox: MarkBounds | None = None
 
     @field_validator("intelligence_evidence")
     @classmethod
@@ -134,6 +159,21 @@ class Mark(BaseModel):
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("intelligence evidence source ids must be unique")
         return evidence
+
+
+def _objective_goal_nodes(graph: RoadGraph, objective: Mark) -> frozenset[int]:
+    """Every live junction in objective ground, or today's centre snap fallback."""
+    if objective.bbox is not None:
+        links = graph.adjacency()
+        inside = frozenset(
+            node.id
+            for node in graph.nodes
+            if links.get(node.id) and objective.bbox.contains(node.lon, node.lat)
+        )
+        if inside:
+            return inside
+    centre = nearest_node(graph, objective.lon, objective.lat)
+    return frozenset({centre.id}) if centre is not None else frozenset()
 
 
 class RouteOut(BaseModel):
@@ -193,8 +233,8 @@ def run_study(
     for reserve in reserves:
         start = nearest_node(graph, reserve.lon, reserve.lat)
         for objective in objectives:
-            goal = nearest_node(graph, objective.lon, objective.lat)
-            if start is None or goal is None:
+            goals = _objective_goal_nodes(graph, objective)
+            if start is None or not goals:
                 unreachable.append(
                     UnreachablePair(
                         reserve_id=reserve.id,
@@ -204,10 +244,10 @@ def run_study(
                 )
                 continue
 
-            found = find_diverse_routes(
+            found = find_diverse_routes_to_any(
                 graph,
                 start.id,
-                goal.id,
+                goals,
                 k=k,
                 max_stretch=max_stretch,
                 max_sharing=max_sharing,

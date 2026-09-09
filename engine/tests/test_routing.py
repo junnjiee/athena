@@ -7,7 +7,9 @@ from athena.routing import (
     Route,
     edge_travel_seconds,
     find_diverse_routes,
+    find_diverse_routes_to_any,
     shortest_route,
+    shortest_route_to_any,
 )
 
 from .conftest import edge, node
@@ -90,6 +92,21 @@ def test_start_and_end_together_is_an_empty_route(ladder: RoadGraph) -> None:
     assert route is not None
     assert route.edges == ()
     assert route.seconds == 0
+
+
+def test_multi_goal_search_stops_at_the_fastest_reachable_objective_junction() -> None:
+    graph = RoadGraph(
+        nodes=(node(1, 0), node(2, 1), node(3, 2)),
+        edges=(edge("1:0", 1, 2, 1000), edge("2:0", 1, 3, 100)),
+    )
+
+    route = shortest_route_to_any(graph, 1, frozenset({2, 3}))
+    diverse = find_diverse_routes_to_any(graph, 1, frozenset({2, 3}), k=2)
+
+    assert route is not None
+    assert route.nodes[-1] == 3
+    assert ids(route) == ["2:0"]
+    assert diverse[0].nodes[-1] == 3
 
 
 # Diverse routes

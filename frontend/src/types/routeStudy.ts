@@ -72,8 +72,8 @@ export interface StudyMark {
   task_organization?: TaskOrganizationElement[]
   timing?: ReserveTiming
   /** Objectives are usually ground, not a pin. When the operator dragged an
-   *  area, its bounds ride along and lon/lat is the centre — the engine still
-   *  routes to the centre, so this only changes what is drawn. */
+   *  area, routing stops at the first live junction reached inside its bounds;
+   *  lon/lat remains the centre and fallback snap. */
   bbox?: BBoxDeg
 }
 
