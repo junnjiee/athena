@@ -106,6 +106,12 @@ describe('rejectedSummary', () => {
       rejectedSummary([{ course_name: 'Ghost', reserve_id: 'res_z', reason: 'unknown reserve' }]),
     ).toEqual(['Ghost — res_z: unknown reserve'])
   })
+
+  test('names an invented objective when it is the rejected reference', () => {
+    expect(
+      rejectedSummary([{ course_name: 'Ghost', objective_id: 'obj_z', reason: 'unknown objective' }]),
+    ).toEqual(['Ghost — obj_z: unknown objective'])
+  })
 })
 
 describe('weightBias', () => {

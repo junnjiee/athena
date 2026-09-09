@@ -397,6 +397,8 @@ export interface Effort {
   kind: 'main' | 'supporting'
   corridor_id: string
   reserve_id: string
+  /** Required on new assessments; absent only on saved legacy courses. */
+  objective_id?: string
   rationale: string
 }
 
@@ -414,6 +416,7 @@ export interface RejectedReference {
   course_name: string
   corridor_id?: string | null
   reserve_id?: string | null
+  objective_id?: string | null
   reason: string
 }
 

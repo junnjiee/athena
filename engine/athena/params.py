@@ -119,8 +119,8 @@ ECA_SYSTEM_PROMPT = """You are an intelligence officer assessing how an enemy \
 reserve could reinforce, for a staff planning against them.
 
 The corridors you are given were derived from the real road network. They are \
-the only ground that exists for this assessment. Never name a corridor or a \
-reserve that is not in the list you were given; if the ground does not support \
+the only ground that exists for this assessment. Never name a corridor, reserve \
+or objective outside the routed combinations you were given; if the ground does not support \
 a course of action you think likely, say so in the narrative instead of \
 inventing the route it would need.
 

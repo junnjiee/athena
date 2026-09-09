@@ -74,7 +74,7 @@ export function formatScore(value: number): string {
  *  list as the whole answer. */
 export function rejectedSummary(rejected: RejectedReference[]): string[] {
   return rejected.map((entry) => {
-    const named = entry.corridor_id ?? entry.reserve_id
+    const named = entry.corridor_id ?? entry.reserve_id ?? entry.objective_id
     return named
       ? `${entry.course_name} — ${named}: ${entry.reason}`
       : `${entry.course_name}: ${entry.reason}`

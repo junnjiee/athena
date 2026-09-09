@@ -57,8 +57,19 @@ def corridor(corridor_id: str, choke: list[str] | None = None, seconds: float = 
     )
 
 
-def effort(corridor_id: str = "cor_a", reserve: str = "res1", kind: str = "main") -> Effort:
-    return Effort(kind=kind, corridor_id=corridor_id, reserve_id=reserve, rationale="because")
+def effort(
+    corridor_id: str = "cor_a",
+    reserve: str = "res1",
+    objective: str = "obj1",
+    kind: str = "main",
+) -> Effort:
+    return Effort(
+        kind=kind,
+        corridor_id=corridor_id,
+        reserve_id=reserve,
+        objective_id=objective,
+        rationale="because",
+    )
 
 
 def course(
@@ -85,11 +96,12 @@ OBJECTIVES = [Mark(id="obj1", name="Bridge", lon=1, lat=0)]
 
 
 def test_corridors_are_described_by_id_time_and_choke() -> None:
-    described = describe_corridors(CORRIDORS, RESERVES)
+    described = describe_corridors(CORRIDORS, RESERVES, OBJECTIVES)
 
     assert "cor_a" in described
     assert "10 min" in described
     assert "Depot (res1)" in described
+    assert "Depot (res1) -> Bridge (obj1)" in described
 
 
 def test_operator_corridor_context_reaches_the_model_without_replacing_identity() -> None:
@@ -99,7 +111,7 @@ def test_operator_corridor_context_reaches_the_model_without_replacing_identity(
         operator_category="main approach",
     )
 
-    described = describe_corridors([named], RESERVES)
+    described = describe_corridors([named], RESERVES, OBJECTIVES)
     prompt = build_prompt([named], RESERVES, OBJECTIVES, EnemyIntent())
 
     assert 'cor_a (operator name "COBRA"; operator category "main approach")' in described
@@ -108,12 +120,14 @@ def test_operator_corridor_context_reaches_the_model_without_replacing_identity(
 
 def test_a_corridor_with_no_choke_point_says_so() -> None:
     """The model should not propose blocking ground that cannot be blocked."""
-    assert "cannot be blocked at a single point" in describe_corridors(CORRIDORS, RESERVES)
+    assert "cannot be blocked at a single point" in describe_corridors(
+        CORRIDORS, RESERVES, OBJECTIVES
+    )
 
 
 def test_route_geometry_is_withheld() -> None:
     # It would fill the context without changing any judgement being asked for.
-    described = describe_corridors(CORRIDORS, RESERVES)
+    described = describe_corridors(CORRIDORS, RESERVES, OBJECTIVES)
 
     assert "e1" not in described
     assert "node" not in described.lower()
@@ -154,7 +168,7 @@ def test_reserve_intelligence_fields_reach_the_assessment() -> None:
         )
     ]
 
-    described = describe_corridors(CORRIDORS, reserves)
+    described = describe_corridors(CORRIDORS, reserves, OBJECTIVES)
 
     assert "302 Div Res 1, K4, owned by 301 Div, confirmed, IVO TOMA 1b" in described
     assert "order of move 1. DRC [company]: 10 x BTR-90 establishment; 2. ABG(-) [battalion]" in described
@@ -175,7 +189,7 @@ def test_reserve_timing_reaches_the_assessment_with_corridor_completion() -> Non
         )
     ]
 
-    described = describe_corridors(CORRIDORS[:1], reserves)
+    described = describe_corridors(CORRIDORS[:1], reserves, OBJECTIVES)
 
     assert "decision 5 min, readiness 10 min, deployment 15 min" in described
     assert "commences move +15 min" in described
@@ -214,7 +228,9 @@ def test_the_prompt_forbids_inventing_ground() -> None:
 
 
 def test_a_course_over_real_ground_is_kept() -> None:
-    accepted, rejected = ground_courses(DraftCourses(courses=[course()]), CORRIDORS, RESERVES)
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[course()]), CORRIDORS, RESERVES, OBJECTIVES
+    )
 
     assert len(accepted) == 1
     assert rejected == []
@@ -224,7 +240,9 @@ def test_an_invented_corridor_is_rejected_and_reported() -> None:
     """The failure this whole design exists to catch."""
     invented = course(efforts=[effort(corridor_id="cor_imaginary")])
 
-    accepted, rejected = ground_courses(DraftCourses(courses=[invented]), CORRIDORS, RESERVES)
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[invented]), CORRIDORS, RESERVES, OBJECTIVES
+    )
 
     assert accepted == []
     assert rejected[0].corridor_id == "cor_imaginary"
@@ -234,24 +252,71 @@ def test_an_invented_corridor_is_rejected_and_reported() -> None:
 def test_an_invented_reserve_is_rejected() -> None:
     invented = course(efforts=[effort(reserve="res_ghost")])
 
-    accepted, rejected = ground_courses(DraftCourses(courses=[invented]), CORRIDORS, RESERVES)
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[invented]), CORRIDORS, RESERVES, OBJECTIVES
+    )
 
     assert accepted == []
     assert rejected[0].reserve_id == "res_ghost"
+
+
+def test_an_invented_objective_is_rejected() -> None:
+    invented = course(efforts=[effort(objective="obj_ghost")])
+
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[invented]), CORRIDORS, RESERVES, OBJECTIVES
+    )
+
+    assert accepted == []
+    assert rejected[0].objective_id == "obj_ghost"
+
+
+def test_a_legacy_effort_without_an_objective_is_not_accepted_as_grounded() -> None:
+    missing = course(
+        efforts=[
+            Effort(
+                kind="main",
+                corridor_id="cor_a",
+                reserve_id="res1",
+                rationale="legacy",
+            )
+        ]
+    )
+
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[missing]), CORRIDORS, RESERVES, OBJECTIVES
+    )
+
+    assert accepted == []
+    assert "must name the objective" in rejected[0].reason
+
+
+def test_known_ids_cannot_be_recombined_into_a_route_that_does_not_exist() -> None:
+    objectives = [*OBJECTIVES, Mark(id="obj2", name="Depot", lon=2, lat=0)]
+    recombined = course(efforts=[effort(objective="obj2")])
+
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[recombined]), CORRIDORS, RESERVES, objectives
+    )
+
+    assert accepted == []
+    assert "no route to this objective" in rejected[0].reason
 
 
 def test_a_bad_effort_drops_the_whole_course() -> None:
     """Removing one effort leaves a scheme nobody proposed and nobody judged."""
     mixed = course(efforts=[effort(), effort(corridor_id="cor_ghost", kind="supporting")])
 
-    accepted, _ = ground_courses(DraftCourses(courses=[mixed]), CORRIDORS, RESERVES)
+    accepted, _ = ground_courses(
+        DraftCourses(courses=[mixed]), CORRIDORS, RESERVES, OBJECTIVES
+    )
 
     assert accepted == []
 
 
 def test_a_course_with_no_effort_is_rejected() -> None:
     accepted, rejected = ground_courses(
-        DraftCourses(courses=[course(efforts=[])]), CORRIDORS, RESERVES
+        DraftCourses(courses=[course(efforts=[])]), CORRIDORS, RESERVES, OBJECTIVES
     )
 
     assert accepted == []
@@ -263,7 +328,9 @@ def test_a_scheme_needs_exactly_one_main_effort() -> None:
     none_main = course(efforts=[effort(kind="supporting")])
 
     for bad in (two_mains, none_main):
-        accepted, rejected = ground_courses(DraftCourses(courses=[bad]), CORRIDORS, RESERVES)
+        accepted, rejected = ground_courses(
+            DraftCourses(courses=[bad]), CORRIDORS, RESERVES, OBJECTIVES
+        )
         assert accepted == []
         assert any("one main effort" in r.reason for r in rejected)
 
@@ -272,7 +339,9 @@ def test_a_good_course_survives_alongside_a_bad_one() -> None:
     good = course(name="Real")
     bad = course(name="Invented", efforts=[effort(corridor_id="cor_ghost")])
 
-    accepted, rejected = ground_courses(DraftCourses(courses=[good, bad]), CORRIDORS, RESERVES)
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[good, bad]), CORRIDORS, RESERVES, OBJECTIVES
+    )
 
     assert [c.name for c in accepted] == ["Real"]
     assert rejected[0].course_name == "Invented"

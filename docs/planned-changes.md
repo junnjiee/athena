@@ -150,6 +150,10 @@ Consequences to handle deliberately:
   - Operator corridor names and categories now also reach the model-backed
     enemy-course assessment as bounded scenario context. Stable corridor ids
     remain the only valid references in model output, so grounding is unchanged.
+    The assessment also receives every exact reserve→objective pairing carried
+    by a corridor; each returned effort must name one real corridor/reserve/
+    objective combination, preventing valid ids from being recombined into a
+    movement the route substrate never found.
 - ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
   operator selects two cut points on one intact graph segment. Athena snaps the
   picks to that segment and writes a new immutable revision in which the edge is
