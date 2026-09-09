@@ -52,6 +52,33 @@ describe('placing marks', () => {
     })
   })
 
+  test('a reserve keeps structured task organisation and explicit order of move', () => {
+    const id = store().addMark('reserve', 1, 2)
+    store().updateMark('reserve', id, {
+      task_organization: [
+        {
+          id: 'drc',
+          designation: 'DRC',
+          echelon: 'company',
+          modifier: 'full',
+          order_of_move: 1,
+          platforms: [{ id: 'btr', platform: 'BTR-90', establishment_count: 10 }],
+        },
+        {
+          id: 'abg',
+          designation: 'ABG',
+          echelon: 'battalion',
+          modifier: '-',
+          order_of_move: 2,
+          platforms: [],
+        },
+      ],
+    })
+
+    expect(store().draftMarks.reserves[0].task_organization?.map((element) => element.designation))
+      .toEqual(['DRC', 'ABG'])
+  })
+
   test('an objective drawn as ground keeps its bounds', () => {
     const bbox = { west: 1, south: 2, east: 3, north: 4 }
     store().addMark('objective', 2, 3, { bbox })

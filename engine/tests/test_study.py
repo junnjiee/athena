@@ -1,7 +1,16 @@
 """Marked ground in, corridors out."""
 
 from athena.graph import RoadGraph, nearest_node
-from athena.study import IntelligenceStatus, Mark, ReserveLevel, run_study
+from athena.study import (
+    AggressorEchelon,
+    CompositionModifier,
+    IntelligenceStatus,
+    Mark,
+    PlatformCount,
+    ReserveLevel,
+    TaskOrganizationElement,
+    run_study,
+)
 
 from .conftest import edge, node
 
@@ -39,7 +48,22 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         "owning_formation": "301 Div",
         "intelligence_status": "assessed",
         "locality": "TOMA 1b",
+        "task_organization": [],
     }
+
+
+def test_composition_modifiers_are_exact_thirds_without_changing_echelon() -> None:
+    element = TaskOrganizationElement(
+        id="abg",
+        designation="ABG",
+        echelon=AggressorEchelon.BATTALION,
+        modifier=CompositionModifier.MINUS,
+        order_of_move=2,
+        platforms=[PlatformCount(id="btr", platform="BTR-90", establishment_count=10)],
+    )
+
+    assert element.echelon is AggressorEchelon.BATTALION
+    assert element.platforms[0].effective_fraction(element.modifier) == (20, 3)
 
 
 def test_a_tie_always_snaps_to_the_same_junction() -> None:

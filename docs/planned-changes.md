@@ -271,7 +271,10 @@ doctrine defines.
 
   Nothing in the current model carries this. Arguably the most important S2
   attribute on a mark.
-- **Composition as a task organisation**, not a strength integer. `Div Res 1` =
+- ~~**Composition as a task organisation**, not a strength integer.~~ **Done** —
+  reserve records now hold ordered formation elements, fixed echelons,
+  fractional-third modifiers, and structured full-establishment platform counts.
+  `Div Res 1` =
   `ABG(-)` + `DRB(-)`, "both task organised as Div Res 1". Splittable:
   `Div Res 1A` = **Anvil** force (`DRB(=)`), `Div Res 1B` = **Hammer /
   Destruction** force (`ABG(-)` + `DRC`), with an explicit **order of move**

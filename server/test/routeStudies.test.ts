@@ -91,6 +91,14 @@ describe('reserve deployment intelligence', () => {
       owning_formation: '301 Div',
       intelligence_status: 'confirmed',
       locality: 'TOMA 1b',
+      task_organization: [{
+        id: 'drc',
+        designation: 'DRC',
+        echelon: 'company',
+        modifier: 'full',
+        order_of_move: 1,
+        platforms: [{ id: 'btr', platform: 'BTR-90', establishment_count: 10 }],
+      }],
     })).toMatchObject({ level: 'K4', intelligence_status: 'confirmed' })
   })
 
@@ -102,6 +110,19 @@ describe('reserve deployment intelligence', () => {
   test('rejects invented levels and intelligence states', () => {
     expect(reserveMarkSchema.safeParse({
       id: 'r1', name: 'Reserve', lon: 0, lat: 0, level: 'K5', intelligence_status: 'rumoured',
+    }).success).toBe(false)
+  })
+
+  test('rejects free-text echelons, modifiers, and invalid platform counts', () => {
+    expect(reserveMarkSchema.safeParse({
+      id: 'r1',
+      name: 'Reserve',
+      lon: 0,
+      lat: 0,
+      task_organization: [{
+        id: 'x', designation: 'ABG', echelon: 'large', modifier: 'half', order_of_move: 0,
+        platforms: [{ id: 'p', platform: 'BTR-90', establishment_count: -1 }],
+      }],
     }).success).toBe(false)
   })
 })

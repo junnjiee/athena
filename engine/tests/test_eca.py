@@ -22,7 +22,17 @@ from athena.eca import (
 )
 from athena.params import ECA_API_KEY_ENV_VAR, ECA_MODEL, ECA_MODEL_ENV_VAR
 from athena.intent import EnemyIntent
-from athena.study import CorridorOut, IntelligenceStatus, Mark, ReserveLevel, RouteOut
+from athena.study import (
+    AggressorEchelon,
+    CompositionModifier,
+    CorridorOut,
+    IntelligenceStatus,
+    Mark,
+    PlatformCount,
+    ReserveLevel,
+    RouteOut,
+    TaskOrganizationElement,
+)
 
 
 def route(reserve: str = "res1", objective: str = "obj1") -> RouteOut:
@@ -104,12 +114,34 @@ def test_reserve_intelligence_fields_reach_the_assessment() -> None:
             owning_formation="301 Div",
             intelligence_status=IntelligenceStatus.CONFIRMED,
             locality="TOMA 1b",
+            task_organization=[
+                TaskOrganizationElement(
+                    id="drc",
+                    designation="DRC",
+                    echelon=AggressorEchelon.COMPANY,
+                    modifier=CompositionModifier.FULL,
+                    order_of_move=1,
+                    platforms=[
+                        PlatformCount(
+                            id="btr", platform="BTR-90", establishment_count=10
+                        )
+                    ],
+                ),
+                TaskOrganizationElement(
+                    id="abg",
+                    designation="ABG",
+                    echelon=AggressorEchelon.BATTALION,
+                    modifier=CompositionModifier.MINUS,
+                    order_of_move=2,
+                ),
+            ],
         )
     ]
 
     described = describe_corridors(CORRIDORS, reserves)
 
     assert "302 Div Res 1, K4, owned by 301 Div, confirmed, IVO TOMA 1b" in described
+    assert "order of move 1. DRC [company]: 10 x BTR-90 establishment; 2. ABG(-) [battalion]" in described
 
 
 def test_the_prompt_carries_the_intent_narrative_unedited() -> None:

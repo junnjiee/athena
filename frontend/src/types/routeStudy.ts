@@ -65,6 +65,7 @@ export interface StudyMark {
   owning_formation?: string
   intelligence_status?: IntelligenceStatus
   locality?: string
+  task_organization?: TaskOrganizationElement[]
   /** Objectives are usually ground, not a pin. When the operator dragged an
    *  area, its bounds ride along and lon/lat is the centre — the engine still
    *  routes to the centre, so this only changes what is drawn. */
@@ -73,6 +74,27 @@ export interface StudyMark {
 
 export type ReserveLevel = 'K' | 'K1' | 'K2' | 'K3' | 'K4'
 export type IntelligenceStatus = 'assessed' | 'confirmed'
+
+export type AggressorEchelon = 'division' | 'regiment' | 'battalion' | 'company' | 'platoon' | 'section'
+export type CompositionModifier = '=' | '-' | 'full' | '+'
+
+export interface PlatformCount {
+  id: string
+  platform: string
+  /** Full-establishment count. The formation modifier supplies the exact
+   *  fractional-third multiplier; it is never rounded into another echelon. */
+  establishment_count: number
+}
+
+export interface TaskOrganizationElement {
+  id: string
+  designation: string
+  echelon: AggressorEchelon
+  modifier: CompositionModifier
+  /** 1 is the lead element. Ordering is explicit, never inferred from type. */
+  order_of_move: number
+  platforms: PlatformCount[]
+}
 
 export interface StudyMarks {
   reserves: StudyMark[]
