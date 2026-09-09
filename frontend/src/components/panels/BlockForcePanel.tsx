@@ -11,6 +11,7 @@ import {
   unblockableByInlet,
 } from '../../lib/blockForces'
 import { ECHELON_LABEL, availabilitySummary, weaponSummary } from '../../lib/orbatTree'
+import { formatOperationalOffset } from '../../lib/reserveTiming'
 import { formatRouteDistance } from '../../lib/routeStudy'
 import type {
   BlockAllocation,
@@ -219,7 +220,9 @@ function InletBlockRow({
           <div className="mt-1 text-[10px] text-(--text)">
             {candidateWeapons(assignedCandidate)}
           </div>
-          {sealing && <SealingResult assessment={sealing} />}
+          {sealing && (
+            <SealingResult assessment={sealing} contactUnitName={allocation.unit_name} />
+          )}
           {forceRows.length > 0 ? (
             <div className="mt-2 rounded-md border border-(--border) bg-black/15 px-2 py-1.5">
               <div className="mb-1 text-[9px] tracking-wide text-(--text-dim)">
@@ -308,7 +311,13 @@ const HARDNESS_LABEL: Record<NonNullable<SealingAssessment['target_hardness']>, 
   hard_skin_heavy: 'heavy armour',
 }
 
-function SealingResult({ assessment }: { assessment: SealingAssessment }) {
+function SealingResult({
+  assessment,
+  contactUnitName,
+}: {
+  assessment: SealingAssessment
+  contactUnitName: string
+}) {
   const presentation = {
     destroyed_at_block: {
       label: 'Reserve destroyed at block',
@@ -356,6 +365,49 @@ function SealingResult({ assessment }: { assessment: SealingAssessment }) {
           EFFECTIVE · {assessment.effective_weapon_count > 0
             ? weaponSummary(assessment.effective_weapons)
             : 'none recorded'}
+        </div>
+      )}
+      {assessment.reaction && (
+        <ReactionChain assessment={assessment} contactUnitName={contactUnitName} />
+      )}
+    </div>
+  )
+}
+
+function ReactionChain({
+  assessment,
+  contactUnitName,
+}: {
+  assessment: SealingAssessment
+  contactUnitName: string
+}) {
+  const reaction = assessment.reaction!
+  const time = (minutes: number | null | undefined) =>
+    minutes == null ? 'time incomplete' : formatOperationalOffset(minutes)
+  const continuation = reaction.remnant_continued == null
+    ? 'continuation unknown'
+    : reaction.remnant_continued
+      ? 'remnant continued'
+      : 'no remnant continued'
+  const objective = reaction.objective_outcome === 'did_not_reach'
+    ? 'did not reach objective'
+    : reaction.objective_outcome === 'reached'
+      ? `reached objective · ${time(reaction.objective_arrival_minutes)}`
+      : 'objective outcome unknown'
+
+  return (
+    <div className="mt-1.5 border-t border-current/15 pt-1.5 text-[9px] text-(--text-dim)">
+      <div className="tracking-wide">REACTION CHAIN</div>
+      <div className="mt-0.5">COMMENCED · {time(reaction.commencement_minutes)}</div>
+      <div>CONTACTED BY {contactUnitName.toUpperCase()} · {time(reaction.contact_minutes)}</div>
+      {assessment.outcome === 'delayed_and_attrited' && (
+        <div>DELAY · {time(reaction.delay_minutes)}</div>
+      )}
+      <div>{continuation.toUpperCase()}</div>
+      <div>{objective.toUpperCase()}</div>
+      {reaction.unknowns.length > 0 && (
+        <div className="mt-1 normal-case leading-relaxed" title={reaction.unknowns.join('; ')}>
+          Incomplete: {reaction.unknowns.join(' · ')}
         </div>
       )}
     </div>

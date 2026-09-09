@@ -9,6 +9,7 @@ from athena.study import (
     CorridorOut,
     Mark,
     PlatformCount,
+    ReserveTiming,
     RouteOut,
     TaskOrganizationElement,
 )
@@ -99,12 +100,14 @@ def reserve(
     platform: str = "BTR-90",
     count: int = 10,
     modifier: CompositionModifier = CompositionModifier.FULL,
+    timing: ReserveTiming | None = None,
 ) -> Mark:
     return Mark(
         id="res1",
         name="Reserve 1",
         lon=0,
         lat=0,
+        timing=timing,
         task_organization=[
             TaskOrganizationElement(
                 id="rrc",
@@ -395,6 +398,8 @@ def test_effective_weapons_destroy_the_hardest_platforms_when_sufficient() -> No
     assert assessment.effective_weapon_count == 10
     assert assessment.remaining_platform_count is not None
     assert assessment.remaining_platform_count.numerator == 0
+    assert assessment.reaction.remnant_continued is False
+    assert assessment.reaction.objective_outcome == "did_not_reach"
 
 
 def test_fractional_reserve_composition_is_never_rounded() -> None:
@@ -422,6 +427,10 @@ def test_fractional_reserve_composition_is_never_rounded() -> None:
     assert assessment.target_platform_count.model_dump() == {"numerator": 10, "denominator": 3}
     assert assessment.remaining_platform_count is not None
     assert assessment.remaining_platform_count.model_dump() == {"numerator": 1, "denominator": 3}
+    assert assessment.reaction.remnant_continued is True
+    assert assessment.reaction.objective_outcome == "reached"
+    assert assessment.reaction.objective_arrival_minutes is None
+    assert "delay duration is not assessed" in assessment.reaction.unknowns
 
 
 def test_conditional_or_ineffective_weapons_do_not_claim_a_kill() -> None:
@@ -442,6 +451,36 @@ def test_conditional_or_ineffective_weapons_do_not_claim_a_kill() -> None:
     assert plan.sealing[0].effective_weapon_count == 0
 
 
+def test_unimpeded_reserve_reaction_has_a_computable_objective_arrival() -> None:
+    orbat = Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="gpmg", weapon=WeaponSystem.GPMG, count=20),),
+            ),
+        )
+    )
+    timed = reserve(
+        timing=ReserveTiming(
+            decision_minutes=10,
+            readiness_minutes=20,
+            deployment_minutes=15,
+        )
+    )
+
+    plan = plan_blocks(GRAPH, [WEST], orbat, [timed])
+
+    reaction = plan.sealing[0].reaction
+    assert reaction.commencement_minutes == 30
+    assert reaction.contact_minutes is None
+    assert reaction.delay_minutes == 0
+    assert reaction.objective_arrival_minutes == 30 + 301 / 60 + 15
+    assert reaction.objective_outcome == "reached"
+    assert reaction.unknowns == ["contact time needs an exact block position"]
+
+
 def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:
     orbat = Orbat(units=(unit("block", Echelon.SECTION, 0),))
 
@@ -455,3 +494,4 @@ def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:
     assert len(plan.allocation) == 1
     assert plan.sealing[0].outcome == "unknown"
     assert "no catalogued" in plan.sealing[0].reason
+    assert plan.sealing[0].reaction.objective_outcome == "unknown"

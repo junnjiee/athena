@@ -264,6 +264,8 @@ export interface InletBlock {
   reserve_id: string
   objective_id: string
   edge_ids: string[]
+  /** Enemy movement time over the complete inlet route. Missing on legacy plans. */
+  movement_seconds?: number
   candidates: BlockCandidate[]
 }
 
@@ -293,6 +295,16 @@ export interface ExactCount {
   denominator: number
 }
 
+export interface ReactionTimeline {
+  commencement_minutes?: number | null
+  contact_minutes?: number | null
+  delay_minutes?: number | null
+  remnant_continued?: boolean | null
+  objective_arrival_minutes?: number | null
+  objective_outcome: 'reached' | 'did_not_reach' | 'unknown'
+  unknowns: string[]
+}
+
 export interface SealingAssessment {
   inlet_id: string
   corridor_id: string
@@ -306,6 +318,8 @@ export interface SealingAssessment {
   remaining_platform_count?: ExactCount | null
   outcome: 'destroyed_at_block' | 'delayed_and_attrited' | 'passed' | 'unknown'
   reason: string
+  /** Missing on sealing assessments saved before the reaction-chain pass. */
+  reaction?: ReactionTimeline
 }
 
 export interface BlockPlan {
