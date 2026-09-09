@@ -214,6 +214,9 @@ export interface GraphEdge {
   /** Source labels kept for an operator-editable route code prefill. */
   name?: string | null
   lanes?: string | null
+  /** Terrain fact. Kept in the graph so the axis remains visible and named,
+   *  but excluded from routing in every study over this revision. */
+  destroyed?: boolean
   /** every node id from `from` to `to` inclusive, interior shape points included */
   nodes: number[]
   points: [number, number][]

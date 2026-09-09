@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   courseFeedback,
@@ -139,6 +139,66 @@ export async function updateOperationalRoadSettings(
       roadEdits: operationalAreas.roadEdits,
     })
   return rows[0] ?? null
+}
+
+/** Appends an immutable snapshot and moves the AO head only if it is still on
+ *  the revision the caller edited. The snapshot is written first so readers
+ *  can never observe a head whose bytes do not exist; a failed compare-and-set
+ *  removes that unreferenced snapshot again. */
+export async function persistOperationalGraphRevision(
+  id: string,
+  expectedRevision: number,
+  graph: RoadGraph,
+): Promise<OperationalAreaMeta | null> {
+  const revision = expectedRevision + 1
+  const graphBuffer = encodeGraph(graph)
+  const revisionId = `${id}:${revision}`
+  let inserted = false
+  try {
+    await db.insert(operationalAreaRevisions).values({
+      id: revisionId,
+      areaId: id,
+      revision,
+      graphBuffer,
+    })
+    inserted = true
+
+    const rows = await db
+      .update(operationalAreas)
+      .set({
+        currentRevision: revision,
+        graphBuffer,
+        nodeCount: graph.nodes.length,
+        edgeCount: graph.edges.length,
+      })
+      .where(
+        and(
+          eq(operationalAreas.id, id),
+          eq(operationalAreas.currentRevision, expectedRevision),
+        ),
+      )
+      .returning({
+        id: operationalAreas.id,
+        name: operationalAreas.name,
+        bbox: operationalAreas.bbox,
+        generatedAt: operationalAreas.generatedAt,
+        nodeCount: operationalAreas.nodeCount,
+        edgeCount: operationalAreas.edgeCount,
+        currentRevision: operationalAreas.currentRevision,
+        demResolutionMeters: operationalAreas.demResolutionMeters,
+        roadTheme: operationalAreas.roadTheme,
+        roadEdits: operationalAreas.roadEdits,
+      })
+
+    if (rows[0]) return rows[0]
+    await db.delete(operationalAreaRevisions).where(eq(operationalAreaRevisions.id, revisionId))
+    return null
+  } catch (error: unknown) {
+    if (inserted) {
+      await db.delete(operationalAreaRevisions).where(eq(operationalAreaRevisions.id, revisionId))
+    }
+    throw error
+  }
 }
 
 /** Removes an area and everything standing on it.

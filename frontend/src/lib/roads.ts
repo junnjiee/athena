@@ -10,6 +10,8 @@ export interface RoadIdentity {
   edgeIds: string[]
   points: [number, number][]
   lengthMeters: number
+  destroyed: boolean
+  partiallyDestroyed: boolean
 }
 
 const CLASS_ORDER: Record<string, number> = {
@@ -39,6 +41,8 @@ export function roadIdentities(graph: RoadGraph): RoadIdentity[] {
       current.points.push(...edge.points)
       if (!current.osmName && edge.name) current.osmName = edge.name
       if (!current.lanes && edge.lanes) current.lanes = edge.lanes
+      current.partiallyDestroyed ||= Boolean(edge.destroyed)
+      current.destroyed &&= Boolean(edge.destroyed)
       continue
     }
 
@@ -51,6 +55,8 @@ export function roadIdentities(graph: RoadGraph): RoadIdentity[] {
       edgeIds: [edge.id],
       points: [...edge.points],
       lengthMeters: edge.lengthMeters,
+      destroyed: Boolean(edge.destroyed),
+      partiallyDestroyed: Boolean(edge.destroyed),
     })
   }
 

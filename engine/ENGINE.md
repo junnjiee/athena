@@ -54,6 +54,9 @@ contract reads the same from either side.
   true length, its geometry, and the source OSM name and lane count when they
   exist. Name and lanes are operator-facing prefill metadata; the engine does
   not use either in routing.
+- A destroyed edge remains in the revision with `destroyed: true`, preserving
+  its axis identity for display and comparison, but is omitted from routing
+  adjacency. Destruction is a terrain state, never deletion.
 - Elevation lives on the **node**, so an edge's gradient is derived and signed.
 
 ### Modelling assumptions
@@ -61,9 +64,9 @@ contract reads the same from either side.
 - **`oneway` is ignored.** Every edge is traversable both ways; only the sign of
   the gradient changes with direction. A reinforcing enemy does not respect
   traffic direction. *Hardcoded rule.*
-- **Bridges and tunnels are ordinary edges.** No structural or demolition
-  modelling. A dropped bridge is an operator override — an excluded edge — not
-  engine knowledge. *Hardcoded rule.*
+- **Bridges and tunnels are ordinary edges.** The engine does not infer damage.
+  A confirmed loss is stored as destroyed ground in a graph revision; a study's
+  hypothetical loss remains an `excluded_edge_ids` override. *Hardcoded rule.*
 - **Only drivable ways exist.** Routing is mounted-only; footways, paths,
   cycleways, bridleways and steps are never fetched. The engine is therefore
   blind to dismounted infiltration. *Hardcoded rule.*

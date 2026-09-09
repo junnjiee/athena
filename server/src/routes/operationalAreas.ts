@@ -12,8 +12,10 @@ import {
   listOperationalAreas,
   loadOperationalArea,
   loadOperationalGraphBuffer,
+  persistOperationalGraphRevision,
   updateOperationalRoadSettings,
 } from '../services/operationalAreaStore'
+import { setRoadDestroyed } from '../services/graphMutations'
 
 const areaBody = z
   .object({
@@ -42,6 +44,8 @@ export const roadSettingsBody = z
   .refine((value) => value.roadTheme !== undefined || value.roadEdits !== undefined, {
     message: 'roadTheme or roadEdits is required',
   })
+
+export const roadStateBody = z.object({ destroyed: z.boolean() })
 
 export function registerOperationalAreaRoutes(
   app: FastifyInstance,
@@ -87,6 +91,36 @@ export function registerOperationalAreaRoutes(
     if (!updated) return reply.status(404).send({ error: 'unknown operational area' })
     return { meta: updated }
   })
+
+  app.patch<{ Params: { id: string; wayId: string } }>(
+    '/api/operational-area/:id/graph/roads/:wayId',
+    async (req, reply) => {
+      const parsed = roadStateBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+      const wayId = Number(req.params.wayId)
+      if (!Number.isSafeInteger(wayId)) {
+        return reply.status(400).send({ error: 'wayId must be an integer' })
+      }
+
+      const stored = await loadOperationalArea(req.params.id)
+      if (!stored) return reply.status(404).send({ error: 'unknown operational area' })
+      const mutation = setRoadDestroyed(stored.graph, wayId, parsed.data.destroyed)
+      if (!mutation.found) return reply.status(404).send({ error: 'unknown road' })
+      if (!mutation.changed) return { meta: stored.meta, changed: false }
+
+      const meta = await persistOperationalGraphRevision(
+        req.params.id,
+        stored.meta.currentRevision,
+        mutation.graph,
+      )
+      if (!meta) {
+        return reply.status(409).send({ error: 'road graph changed; reload and retry' })
+      }
+      return { meta, changed: true }
+    },
+  )
 
   /** Live job first, falling back to the stored row, so an area survives the
    *  process that built it. */

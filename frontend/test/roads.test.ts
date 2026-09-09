@@ -43,4 +43,24 @@ describe('road identities', () => {
   test('places a map label on the middle of the road identity', () => {
     expect(roadLabelPoint(roadIdentities(graph)[0])).toEqual([103.01, 1])
   })
+
+  test('keeps a destroyed road identity visible and reports its state', () => {
+    const destroyed: RoadGraph = {
+      ...graph,
+      edges: graph.edges.map((edge) => edge.wayId === 10 ? { ...edge, destroyed: true } : edge),
+    }
+
+    const road = roadIdentities(destroyed)[0]
+    expect(road).toMatchObject({ id: '10', destroyed: true, partiallyDestroyed: true })
+    expect(road.edgeIds).toEqual(['10:0', '10:1'])
+  })
+
+  test('distinguishes a partially destroyed road for future segment cuts', () => {
+    const partial: RoadGraph = {
+      ...graph,
+      edges: graph.edges.map((edge) => edge.id === '10:0' ? { ...edge, destroyed: true } : edge),
+    }
+
+    expect(roadIdentities(partial)[0]).toMatchObject({ destroyed: false, partiallyDestroyed: true })
+  })
 })
