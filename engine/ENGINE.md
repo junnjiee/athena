@@ -537,9 +537,10 @@ corridors they have already blocked — rather than a possibly different set.
 ### Distance is not time
 
 The engine **does not model arrival**. Candidates for an inlet are ordered by
-straight-line distance from the unit to the nearest sampled vertex of that
-axis — equirectangular at the unit's own latitude. When force is too scarce to
-hold every inlet, route time decides which inlets remain open.
+straight-line distance from the unit to the nearest point on that axis's full
+polyline — equirectangular at the unit's own latitude. This projection matters
+on long road segments whose stored vertices may be far apart. When force is too
+scarce to hold every inlet, route time decides which inlets remain open.
 
 Neither is a claim about who arrives first. Distance is not road distance and not
 travel time; it exists because with arrival time excluded nothing else
