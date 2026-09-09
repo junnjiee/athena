@@ -50,6 +50,7 @@ import {
   formatEffectiveCount,
   orderedTaskOrganization,
 } from '../lib/reserveComposition'
+import { formatOperationalOffset, reserveCommencementMinutes } from '../lib/reserveTiming'
 import { computeRectangleStats } from '../lib/selectionGeometry'
 import { subscribeBattleground } from '../lib/socket'
 import { useRouteStudy } from '../state/routeStudy'
@@ -1431,12 +1432,67 @@ function MarkGroup({
                   className="min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[10px] text-(--text-h) placeholder:text-(--text-dim) focus:outline-none"
                 />
                 <div className="col-span-2">
+                  <ReserveTimingEditor mark={mark} onUpdate={(patch) => onUpdate(kind, mark.id, patch)} />
+                </div>
+                <div className="col-span-2">
                   <ReserveCompositionEditor mark={mark} onUpdate={(patch) => onUpdate(kind, mark.id, patch)} />
                 </div>
               </div>
             )}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function ReserveTimingEditor({
+  mark,
+  onUpdate,
+}: {
+  mark: StudyMark
+  onUpdate: (patch: Partial<StudyMark>) => void
+}) {
+  const timing = mark.timing ?? {}
+  const commencement = reserveCommencementMinutes(timing)
+
+  function setStage(stage: keyof typeof timing, raw: string) {
+    const next = { ...timing }
+    if (raw === '') delete next[stage]
+    else next[stage] = Math.min(10_080, Math.max(0, Number(raw)))
+    onUpdate({ timing: Object.keys(next).length > 0 ? next : undefined })
+  }
+
+  return (
+    <div className="mt-1 border-t border-(--border) pt-1.5">
+      <div className="flex items-center justify-between text-[9px] tracking-wide text-(--text-dim)">
+        <span>TIMING · MINUTES</span>
+        <span>{commencement === null ? 'COMMENCEMENT INCOMPLETE' : `MOVE ${formatOperationalOffset(commencement)}`}</span>
+      </div>
+      <div className="mt-1 grid grid-cols-3 gap-1">
+        {([
+          ['decision_minutes', 'Decision'],
+          ['readiness_minutes', 'Readiness'],
+          ['deployment_minutes', 'Deployment'],
+        ] as const).map(([stage, label]) => (
+          <label key={stage} className="text-[8px] text-(--text-dim)">
+            {label.toUpperCase()}
+            <input
+              type="number"
+              min={0}
+              max={10_080}
+              step="any"
+              value={timing[stage] ?? ''}
+              aria-label={`${mark.name} ${label.toLowerCase()} minutes`}
+              placeholder="—"
+              onChange={(event) => setStage(stage, event.target.value)}
+              className="mt-0.5 w-full min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[9px] text-(--text-h) placeholder:text-(--text-dim)"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-1 text-[8px] text-(--text-dim)">
+        Decision + readiness starts movement; route movement + deployment completes the task.
       </div>
     </div>
   )

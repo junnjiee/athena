@@ -79,6 +79,19 @@ describe('placing marks', () => {
       .toEqual(['DRC', 'ABG'])
   })
 
+  test('a reserve keeps normalized doctrinal timing stages', () => {
+    const id = store().addMark('reserve', 1, 2)
+    store().updateMark('reserve', id, {
+      timing: { decision_minutes: 5, readiness_minutes: 10.5, deployment_minutes: 15 },
+    })
+
+    expect(store().draftMarks.reserves[0].timing).toEqual({
+      decision_minutes: 5,
+      readiness_minutes: 10.5,
+      deployment_minutes: 15,
+    })
+  })
+
   test('an objective drawn as ground keeps its bounds', () => {
     const bbox = { west: 1, south: 2, east: 3, north: 4 }
     store().addMark('objective', 2, 3, { bbox })

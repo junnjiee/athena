@@ -8,6 +8,7 @@ from athena.study import (
     Mark,
     PlatformCount,
     ReserveLevel,
+    ReserveTiming,
     TaskOrganizationElement,
     run_study,
 )
@@ -49,6 +50,7 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         "intelligence_status": "assessed",
         "locality": "TOMA 1b",
         "task_organization": [],
+        "timing": None,
     }
 
 
@@ -64,6 +66,24 @@ def test_composition_modifiers_are_exact_thirds_without_changing_echelon() -> No
 
     assert element.echelon is AggressorEchelon.BATTALION
     assert element.platforms[0].effective_fraction(element.modifier) == (20, 3)
+
+
+def test_reserve_timing_keeps_unknown_stages_out_of_the_arithmetic() -> None:
+    incomplete = ReserveTiming(decision_minutes=10, deployment_minutes=5)
+
+    assert incomplete.commencement_minutes() is None
+    assert incomplete.task_complete_minutes(600) is None
+
+
+def test_reserve_timing_combines_doctrinal_stages_with_route_movement() -> None:
+    timing = ReserveTiming(
+        decision_minutes=10,
+        readiness_minutes=20,
+        deployment_minutes=15,
+    )
+
+    assert timing.commencement_minutes() == 30
+    assert timing.task_complete_minutes(900) == 60
 
 
 def test_a_tie_always_snaps_to_the_same_junction() -> None:

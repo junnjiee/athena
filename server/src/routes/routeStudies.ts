@@ -53,6 +53,12 @@ const taskOrganizationElementSchema = z.object({
   platforms: z.array(platformCountSchema).max(100),
 })
 
+const reserveTimingSchema = z.object({
+  decision_minutes: z.number().nonnegative().max(10_080).optional(),
+  readiness_minutes: z.number().nonnegative().max(10_080).optional(),
+  deployment_minutes: z.number().nonnegative().max(10_080).optional(),
+})
+
 export const reserveMarkSchema = markSchema.extend({
   level: z.enum(['K', 'K1', 'K2', 'K3', 'K4']).optional(),
   owning_formation: z.string().trim().min(1).max(80).optional(),
@@ -61,6 +67,7 @@ export const reserveMarkSchema = markSchema.extend({
   intelligence_status: z.enum(['assessed', 'confirmed']).default('assessed'),
   locality: z.string().trim().min(1).max(120).optional(),
   task_organization: z.array(taskOrganizationElementSchema).max(100).optional(),
+  timing: reserveTimingSchema.optional(),
 })
 
 const marksSchema = z.object({

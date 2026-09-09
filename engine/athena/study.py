@@ -74,6 +74,31 @@ class TaskOrganizationElement(BaseModel):
     platforms: list[PlatformCount] = Field(default_factory=list)
 
 
+class ReserveTiming(BaseModel):
+    """Doctrinal reserve timings, normalized to minutes by the operator.
+
+    Source material expresses some levels in minutes and others in fractions of
+    an hour. Keeping the stored unit uniform makes the arithmetic explicit while
+    allowing incomplete assessments to remain incomplete instead of silently
+    treating an unknown stage as zero.
+    """
+
+    decision_minutes: float | None = Field(default=None, ge=0)
+    readiness_minutes: float | None = Field(default=None, ge=0)
+    deployment_minutes: float | None = Field(default=None, ge=0)
+
+    def commencement_minutes(self) -> float | None:
+        if self.decision_minutes is None or self.readiness_minutes is None:
+            return None
+        return self.decision_minutes + self.readiness_minutes
+
+    def task_complete_minutes(self, movement_seconds: float) -> float | None:
+        commencement = self.commencement_minutes()
+        if commencement is None or self.deployment_minutes is None:
+            return None
+        return commencement + movement_seconds / 60 + self.deployment_minutes
+
+
 class Mark(BaseModel):
     """A point the operator placed: a suspected reserve, or an objective."""
 
@@ -86,6 +111,7 @@ class Mark(BaseModel):
     intelligence_status: IntelligenceStatus | None = None
     locality: str | None = None
     task_organization: list[TaskOrganizationElement] = Field(default_factory=list)
+    timing: ReserveTiming | None = None
 
 
 class RouteOut(BaseModel):

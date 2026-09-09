@@ -99,6 +99,7 @@ describe('reserve deployment intelligence', () => {
         order_of_move: 1,
         platforms: [{ id: 'btr', platform: 'BTR-90', establishment_count: 10 }],
       }],
+      timing: { decision_minutes: 5, readiness_minutes: 10.5, deployment_minutes: 15 },
     })).toMatchObject({ level: 'K4', intelligence_status: 'confirmed' })
   })
 
@@ -123,6 +124,15 @@ describe('reserve deployment intelligence', () => {
         id: 'x', designation: 'ABG', echelon: 'large', modifier: 'half', order_of_move: 0,
         platforms: [{ id: 'p', platform: 'BTR-90', establishment_count: -1 }],
       }],
+    }).success).toBe(false)
+  })
+
+  test('accepts incomplete nonnegative timing but rejects negative stages', () => {
+    expect(reserveMarkSchema.safeParse({
+      id: 'r1', name: 'Reserve', lon: 0, lat: 0, timing: { decision_minutes: 12.5 },
+    }).success).toBe(true)
+    expect(reserveMarkSchema.safeParse({
+      id: 'r1', name: 'Reserve', lon: 0, lat: 0, timing: { readiness_minutes: -1 },
     }).success).toBe(false)
   })
 })
