@@ -4,14 +4,12 @@ import {
   AlertTriangle,
   Brain,
   Crosshair,
-  Flag,
   Loader2,
   Map as MapIcon,
   MapPinned,
   Plus,
   Radar,
   Route as RouteIcon,
-  ShieldAlert,
   ShieldCheck,
   Trash2,
   Users,
@@ -20,6 +18,7 @@ import { OperationalGlobe } from '../components/globe/OperationalGlobe'
 import { MapControls } from '../components/globe/MapControls'
 import { NextStepGuide } from '../components/panels/NextStepGuide'
 import { Sidebar } from '../components/layout/Sidebar'
+import { useRailOffset } from '../state/shell'
 import { BlockForcePanel } from '../components/panels/BlockForcePanel'
 import { CorridorEditorPanel } from '../components/panels/CorridorEditorPanel'
 import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
@@ -56,18 +55,23 @@ import type {
   StudyMarkKind,
 } from '../types/routeStudy'
 
-/** The four passes over one study, in the order a staff runs them: the ground,
- *  then what the enemy does with it, then what we have, then what we put on
- *  it. Tabs rather than stacked panels — they answer different questions and
- *  four at once is a wall. */
-type WorkspaceTab = 'corridors' | 'courses' | 'orbat' | 'block'
+/** The passes over one study, split the way a staff is.
+ *
+ *  Ground is neutral: the terrain belongs to neither branch and both read it.
+ *  S2 owns what the enemy does with that ground, S3 what we put on it. Grouping
+ *  by branch rather than listing four peer tabs means the surface says whose
+ *  question each panel answers. */
+type Branch = 'ground' | 's2' | 's3'
 
-const WORKSPACE_TABS: { id: WorkspaceTab; label: string; icon: typeof Radar }[] = [
-  { id: 'corridors', label: 'Ground', icon: RouteIcon },
-  { id: 'courses', label: 'Enemy', icon: Brain },
-  { id: 'orbat', label: 'ORBAT', icon: Users },
-  { id: 'block', label: 'Block', icon: ShieldCheck },
+const BRANCHES: { id: Branch; label: string; hint: string; icon: typeof Radar }[] = [
+  { id: 'ground', label: 'GROUND', hint: 'Terrain — neutral to both', icon: RouteIcon },
+  { id: 's2', label: 'S2', hint: 'Enemy courses of action', icon: Brain },
+  { id: 's3', label: 'S3', hint: 'Own force and the block', icon: ShieldCheck },
 ]
+
+/** S3 asks two questions -- what we have, and what we put on the ground -- and
+ *  both panels are too tall to stack in one column. */
+type S3Panel = 'orbat' | 'block'
 
 type LibraryState =
   | { kind: 'loading' }
@@ -139,6 +143,7 @@ function delay(ms: number): Promise<void> {
 }
 
 export function RouteStudiesPage() {
+  const railOffset = useRailOffset()
   const [library, setLibrary] = useState<LibraryState>({ kind: 'loading' })
   const [area, setArea] = useState<OperationalAreaMeta | null>(null)
   const [graph, setGraph] = useState<RoadGraph | null>(null)
@@ -152,7 +157,8 @@ export function RouteStudiesPage() {
   const [areaError, setAreaError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [tab, setTab] = useState<WorkspaceTab>('corridors')
+  const [branch, setBranch] = useState<Branch>('ground')
+  const [s3Panel, setS3Panel] = useState<S3Panel>('orbat')
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const areaGenerationRef = useRef(0)
   const areaUnsubscribeRef = useRef<(() => void) | null>(null)
@@ -226,8 +232,8 @@ export function RouteStudiesPage() {
   // use this ground", and leaving corridors faded behind an ORBAT edit would
   // dim the map for a question nobody is asking.
   const emphasis = useMemo(
-    () => (tab === 'courses' ? courseEmphasis(selectedCourse) : new Map<string, 'main' | 'supporting'>()),
-    [tab, selectedCourse],
+    () => (branch === 's2' ? courseEmphasis(selectedCourse) : new Map<string, 'main' | 'supporting'>()),
+    [branch, selectedCourse],
   )
 
   useEffect(() => {
@@ -250,7 +256,7 @@ export function RouteStudiesPage() {
         if (!cancelled) {
           setLibrary({
             kind: 'error',
-            message: error instanceof Error ? error.message : 'failed to load operational library',
+            message: error instanceof Error ? error.message : 'failed to load theater',
           })
         }
       })
@@ -310,11 +316,11 @@ export function RouteStudiesPage() {
       const rectangle = rectangleFor(nextArea)
       setSelection({ rectangle, stats: computeRectangleStats(rectangle) })
       setAreaName(nextArea.name)
-      if (!keepStudy) setStudyName(`${nextArea.name} Route Study`)
+      if (!keepStudy) setStudyName(`${nextArea.name} Terrain Study`)
       setToolMode('navigate')
       frameArea(nextArea)
     } catch (error: unknown) {
-      setWorkspaceError(error instanceof Error ? error.message : 'failed to load operational area')
+      setWorkspaceError(error instanceof Error ? error.message : 'failed to load AO')
     } finally {
       setBusyId(null)
     }
@@ -342,16 +348,10 @@ export function RouteStudiesPage() {
       setToolMode('navigate')
       frameArea(nextArea)
     } catch (error: unknown) {
-      setWorkspaceError(error instanceof Error ? error.message : 'failed to load route study')
+      setWorkspaceError(error instanceof Error ? error.message : 'failed to load terrain study')
     } finally {
       setBusyId(null)
     }
-  }
-
-  /** Tool buttons toggle. An armed rectangle tool holds the camera still, so
-   *  clicking the lit button has to be a way out of it, not a no-op. */
-  function armTool(mode: OperationalToolMode) {
-    setToolMode(toolMode === mode ? 'navigate' : mode)
   }
 
   function beginNewArea() {
@@ -377,8 +377,8 @@ export function RouteStudiesPage() {
     setArea(null)
     setGraph(null)
     setSelection(result)
-    setAreaName('New Operational Area')
-    setStudyName('New Route Study')
+    setAreaName('New AO')
+    setStudyName('New Terrain Study')
     setToolMode('navigate')
     setSelectionZoomCap(result.rectangle)
   }
@@ -395,13 +395,13 @@ export function RouteStudiesPage() {
         const rectangle = rectangleFor(meta)
         setSelection({ rectangle, stats: computeRectangleStats(rectangle) })
         setAreaName(meta.name)
-        setStudyName(`${meta.name} Route Study`)
+        setStudyName(`${meta.name} Terrain Study`)
         setAreaSteps((steps) => steps.map((step) => ({ ...step, status: 'done' })))
         setAreaPhase('idle')
         areaUnsubscribeRef.current?.()
         areaUnsubscribeRef.current = null
         void refreshLibrary().catch((error: unknown) => {
-          setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh operational library')
+          setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh theater')
         })
         frameArea(meta)
         return
@@ -429,7 +429,7 @@ export function RouteStudiesPage() {
           east: Cesium.Math.toDegrees(rectangle.east),
           north: Cesium.Math.toDegrees(rectangle.north),
         },
-        areaName.trim() || 'Untitled Operational Area',
+        areaName.trim() || 'Untitled AO',
       )
       areaUnsubscribeRef.current?.()
       areaUnsubscribeRef.current = subscribeBattleground(jobId, {
@@ -517,12 +517,12 @@ export function RouteStudiesPage() {
       return
     }
     setWorkspaceError(null)
-    await runStudy(area.id, studyName.trim() || `${area.name} Route Study`)
+    await runStudy(area.id, studyName.trim() || `${area.name} Terrain Study`)
     if (useRouteStudy.getState().phase === 'ready') {
       try {
         await refreshLibrary()
       } catch (error: unknown) {
-        setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh operational library')
+        setWorkspaceError(error instanceof Error ? error.message : 'failed to refresh theater')
       }
     }
   }
@@ -541,7 +541,7 @@ export function RouteStudiesPage() {
       if (area?.id === item.id) beginNewArea()
       await refreshLibrary()
     } catch (error: unknown) {
-      setWorkspaceError(error instanceof Error ? error.message : 'failed to delete operational area')
+      setWorkspaceError(error instanceof Error ? error.message : 'failed to delete AO')
     } finally {
       setBusyId(null)
     }
@@ -555,7 +555,7 @@ export function RouteStudiesPage() {
       if (study?.id === summary.id) resetStudy()
       await refreshLibrary()
     } catch (error: unknown) {
-      setWorkspaceError(error instanceof Error ? error.message : 'failed to delete route study')
+      setWorkspaceError(error instanceof Error ? error.message : 'failed to delete terrain study')
     } finally {
       setBusyId(null)
     }
@@ -619,10 +619,17 @@ export function RouteStudiesPage() {
             : step.id === 'run'
               ? { label: 'Run study', run: () => void submitStudy() }
               : step.id === 'enemy'
-                ? { label: 'Open Enemy', run: () => setTab('courses') }
+                ? { label: 'Open S2', run: () => setBranch('s2') }
                 : step.id === 'force'
-                  ? { label: 'Open ORBAT', run: () => { setTab('orbat'); setToolMode('place-orbat-unit') } }
-                  : { label: 'Open Block', run: () => setTab('block') }
+                  ? {
+                      label: 'Open ORBAT',
+                      run: () => {
+                        setBranch('s3')
+                        setS3Panel('orbat')
+                        setToolMode('place-orbat-unit')
+                      },
+                    }
+                  : { label: 'Open Block', run: () => { setBranch('s3'); setS3Panel('block') } }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
@@ -648,63 +655,15 @@ export function RouteStudiesPage() {
 
       <Sidebar />
 
-      <header className="glass-deep pointer-events-auto absolute top-4 right-4 left-60 z-30 flex h-16 items-center justify-between rounded-xl px-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs tracking-wide text-(--text-dim)">
-            <Radar className="h-3.5 w-3.5" strokeWidth={1.75} /> ROUTE SUBSTRATE
-          </div>
-          <div className="truncate text-base text-(--text-h)">
-            {study?.name ?? area?.name ?? (selection ? 'New Operational Area' : 'Select operational ground')}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <ToolButton
-            title="Select a 10–50 km operational area"
-            active={toolMode === 'select-area'}
-            disabled={areaPhase === 'generating'}
-            onClick={() => armTool('select-area')}
-          >
-            <Crosshair className="h-4 w-4" /> Select area
-          </ToolButton>
-          <ToolButton
-            title="Place enemy reserve"
-            active={toolMode === 'place-reserve'}
-            disabled={!area}
-            onClick={() => armTool('place-reserve')}
-          >
-            <ShieldAlert className="h-4 w-4" /> Reserve
-          </ToolButton>
-          <ToolButton
-            title="Drag a box over the objective"
-            active={toolMode === 'draw-objective-area'}
-            disabled={!area}
-            onClick={() => armTool('draw-objective-area')}
-          >
-            <Flag className="h-4 w-4" /> Objective
-          </ToolButton>
-          <ToolButton
-            title="Place a unit of the available force"
-            active={toolMode === 'place-orbat-unit'}
-            disabled={!study}
-            onClick={() => {
-              setTab('orbat')
-              armTool('place-orbat-unit')
-            }}
-          >
-            <Users className="h-4 w-4" /> Force
-          </ToolButton>
-        </div>
-      </header>
-
-      <aside className="glass-deep absolute top-24 bottom-4 left-60 z-20 flex w-72 flex-col rounded-xl p-3">
+      <aside className={`glass-deep absolute top-4 bottom-4 z-20 flex w-72 flex-col rounded-xl p-3 ${railOffset}`}>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs tracking-wide text-(--text-dim)">OPERATIONAL LIBRARY</span>
+          <span className="text-xs tracking-wide text-(--text-dim)">THEATER</span>
           <button
             type="button"
             onClick={beginNewArea}
             className="flex items-center gap-1 rounded-md bg-(--accent) px-2 py-1 text-xs font-medium text-(--panel-bg-solid) hover:bg-(--accent-hover)"
           >
-            <Plus className="h-3.5 w-3.5" /> New area
+            <Plus className="h-3.5 w-3.5" /> New AO
           </button>
         </div>
 
@@ -718,8 +677,8 @@ export function RouteStudiesPage() {
         )}
         {library.kind === 'ready' && (
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <LibraryHeading label="AREAS" count={library.areas.length} />
-            {library.areas.length === 0 && <EmptyLibraryRow>No ingested areas yet.</EmptyLibraryRow>}
+            <LibraryHeading label="AO" count={library.areas.length} />
+            {library.areas.length === 0 && <EmptyLibraryRow>No AO declared yet.</EmptyLibraryRow>}
             {library.areas.map((item) => (
               <div
                 key={item.id}
@@ -754,8 +713,8 @@ export function RouteStudiesPage() {
               </div>
             ))}
 
-            <LibraryHeading label="STUDIES" count={library.studies.length} />
-            {library.studies.length === 0 && <EmptyLibraryRow>No route studies yet.</EmptyLibraryRow>}
+            <LibraryHeading label="TERRAIN STUDY" count={library.studies.length} />
+            {library.studies.length === 0 && <EmptyLibraryRow>No terrain studies yet.</EmptyLibraryRow>}
             {library.studies.map((summary) => (
               <div
                 key={summary.id}
@@ -791,17 +750,25 @@ export function RouteStudiesPage() {
         )}
       </aside>
 
-      <div className="pointer-events-none absolute top-24 right-4 bottom-20 z-20 flex w-80 flex-col gap-3">
+      <div className="pointer-events-none absolute top-4 right-4 bottom-20 z-20 flex w-96 flex-col gap-3">
+        <div className="glass-deep pointer-events-auto rounded-xl px-4 py-2.5">
+          <div className="flex items-center gap-2 text-xs tracking-wide text-(--text-dim)">
+            <Radar className="h-3.5 w-3.5" strokeWidth={1.75} /> ROUTE SUBSTRATE
+          </div>
+          <div className="truncate text-base text-(--text-h)">
+            {study?.name ?? area?.name ?? (selection ? 'New AO' : 'Select operational ground')}
+          </div>
+        </div>
         {selection && !area && (
           <div className="glass pointer-events-auto rounded-xl p-3">
             <div className="mb-2 flex items-center gap-1.5 text-xs tracking-wide text-(--text-dim)">
-              <MapIcon className="h-3.5 w-3.5" /> AREA SELECTION
+              <MapIcon className="h-3.5 w-3.5" /> AO SELECTION
             </div>
             <input
               value={areaName}
               maxLength={80}
               onChange={(event) => setAreaName(event.target.value)}
-              aria-label="Operational area name"
+              aria-label="AO name"
               className="w-full border-b border-(--border) bg-transparent pb-1 text-sm text-(--text-h) focus:border-(--accent) focus:outline-none"
             />
             <div className="mt-2 flex justify-between text-xs text-(--text-dim)">
@@ -822,7 +789,7 @@ export function RouteStudiesPage() {
               className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md bg-(--accent) py-2 text-sm font-medium text-(--panel-bg-solid) hover:bg-(--accent-hover) disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-(--text-dim)"
             >
               {areaPhase === 'generating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPinned className="h-4 w-4" />}
-              Ingest road graph
+              Create road graph
             </button>
           </div>
         )}
@@ -849,13 +816,14 @@ export function RouteStudiesPage() {
         {study && (
           <div className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-2">
             <div className="glass flex items-center gap-0.5 rounded-xl p-1">
-              {WORKSPACE_TABS.map(({ id, label, icon: Icon }) => (
+              {BRANCHES.map(({ id, label, hint, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
-                  className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] transition-colors ${
-                    tab === id
+                  title={hint}
+                  onClick={() => setBranch(id)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-1.5 py-2 text-[11px] tracking-wide transition-colors ${
+                    branch === id
                       ? 'bg-white/10 text-(--text-h)'
                       : 'text-(--text-dim) hover:text-(--text)'
                   }`}
@@ -866,8 +834,35 @@ export function RouteStudiesPage() {
               ))}
             </div>
 
+            <div className="px-1 text-[10px] text-(--text-dim)">
+              {BRANCHES.find((entry) => entry.id === branch)?.hint}
+            </div>
+
+            {branch === "s3" && (
+              <div className="glass flex items-center gap-0.5 rounded-lg p-0.5">
+                {([
+                  ['orbat', 'ORBAT', Users],
+                  ['block', 'Block', ShieldCheck],
+                ] as const).map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setS3Panel(id)}
+                    className={`flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[11px] transition-colors ${
+                      s3Panel === id
+                        ? 'bg-white/10 text-(--text-h)'
+                        : 'text-(--text-dim) hover:text-(--text)'
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" strokeWidth={1.75} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="min-h-0 flex-1">
-              {tab === 'corridors' && (
+              {branch === 'ground' && (
                 <CorridorEditorPanel
                   study={study}
                   running={runningStudy}
@@ -880,7 +875,7 @@ export function RouteStudiesPage() {
                 />
               )}
 
-              {tab === 'courses' && (
+              {branch === 's2' && (
                 <EnemyCoursesPanel
                   study={study}
                   intent={intent}
@@ -895,7 +890,7 @@ export function RouteStudiesPage() {
                 />
               )}
 
-              {tab === 'orbat' && (
+              {branch === 's3' && s3Panel === 'orbat' && (
                 <OrbatPanel
                   units={orbatUnits}
                   selectedUnitId={selectedUnitId}
@@ -910,7 +905,7 @@ export function RouteStudiesPage() {
                 />
               )}
 
-              {tab === 'block' && (
+              {branch === 's3' && s3Panel === 'block' && (
                 <BlockForcePanel
                   study={study}
                   units={orbatUnits}
@@ -980,34 +975,6 @@ export function RouteStudiesPage() {
   )
 }
 
-function ToolButton({
-  title,
-  active,
-  disabled = false,
-  onClick,
-  children,
-}: {
-  title: string
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
-        active ? 'border-(--accent-border) bg-(--accent-bg) text-(--text-h)' : 'border-(--border) text-(--text) hover:text-(--text-h)'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
-
 function LibraryHeading({ label, count }: { label: string; count: number }) {
   return (
     <div className="mt-3 mb-1.5 flex items-center justify-between px-1 text-[10px] tracking-wide text-(--text-dim)">
@@ -1062,7 +1029,7 @@ function MarksPanel({
         value={studyName}
         maxLength={80}
         onChange={(event) => onStudyNameChange(event.target.value)}
-        aria-label="Route study name"
+        aria-label="Terrain study name"
         className="mb-2 w-full border-b border-(--border) bg-transparent pb-1 text-sm text-(--text-h) focus:border-(--accent) focus:outline-none"
       />
       <MarkGroup
@@ -1094,7 +1061,7 @@ function MarksPanel({
         className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-(--accent) py-2 text-sm font-medium text-(--panel-bg-solid) hover:bg-(--accent-hover) disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-(--text-dim)"
       >
         {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
-        {running ? 'Enumerating routes…' : hasStudy ? (dirty ? 'Re-run with marks' : 'Re-run study') : 'Run route study'}
+        {running ? 'Enumerating axes…' : hasStudy ? (dirty ? 'Re-run with marks' : 'Re-run terrain study') : 'Run terrain study'}
       </button>
     </div>
   )
