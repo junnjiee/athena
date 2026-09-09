@@ -11,6 +11,14 @@ export interface Mark {
   owning_formation?: string
   intelligence_status?: 'assessed' | 'confirmed'
   locality?: string
+  task_organization?: {
+    id: string
+    designation: string
+    echelon: 'division' | 'regiment' | 'battalion' | 'company' | 'platoon' | 'section'
+    modifier: '=' | '-' | 'full' | '+'
+    order_of_move: number
+    platforms: { id: string; platform: string; establishment_count: number }[]
+  }[]
   /** Objectives are ground, not pins: when the operator dragged an area rather
    *  than clicking a point, its bounds ride along and lon/lat is the centre.
    *  The engine still routes to the centre, so this is display only. */

@@ -38,6 +38,21 @@ const markSchema = z.object({
     .optional(),
 })
 
+const platformCountSchema = z.object({
+  id: z.string().min(1),
+  platform: z.string().trim().min(1).max(80),
+  establishment_count: z.number().int().positive().max(10_000),
+})
+
+const taskOrganizationElementSchema = z.object({
+  id: z.string().min(1),
+  designation: z.string().trim().min(1).max(80),
+  echelon: z.enum(['division', 'regiment', 'battalion', 'company', 'platoon', 'section']),
+  modifier: z.enum(['=', '-', 'full', '+']),
+  order_of_move: z.number().int().positive().max(100),
+  platforms: z.array(platformCountSchema).max(100),
+})
+
 export const reserveMarkSchema = markSchema.extend({
   level: z.enum(['K', 'K1', 'K2', 'K3', 'K4']).optional(),
   owning_formation: z.string().trim().min(1).max(80).optional(),
@@ -45,6 +60,7 @@ export const reserveMarkSchema = markSchema.extend({
    *  legacy reserve marks therefore enter as assessed unless explicitly set. */
   intelligence_status: z.enum(['assessed', 'confirmed']).default('assessed'),
   locality: z.string().trim().min(1).max(120).optional(),
+  task_organization: z.array(taskOrganizationElementSchema).max(100).optional(),
 })
 
 const marksSchema = z.object({

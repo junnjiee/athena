@@ -228,6 +228,14 @@ legacy reserves default to **assessed**. Only the operator can assert
 **confirmed**, reflecting the two-independent-source rule. Objectives do not
 carry reserve metadata.
 
+Reserve composition is an ordered task organisation. Each element keeps its
+own designation, aggressor echelon, exact modifier (`(=)` = 1/3, `(-)` = 2/3,
+full = 3/3, `(+)` = 4/3), convoy position, and `count × platform` establishment.
+The modifier changes the computed strength fraction, never the echelon: a
+company(=) remains a company. Non-integral equipment results remain rational
+thirds rather than being silently rounded. Order of move is explicit and is
+passed to the enemy-course assessment in that order.
+
 A mark may carry a bounding box — an objective the operator drew as ground
 rather than clicked as a point. The engine ignores it: `lon`/`lat` is the centre,
 and routing goes to the node nearest that centre. The footprint is for the

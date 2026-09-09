@@ -45,6 +45,11 @@ import { currentPlanningStep, planningSteps, type PlanningProgress } from '../li
 import { corridorLines, edgePoints } from '../lib/routeStudy'
 import type { RoadIdentity } from '../lib/roads'
 import { nextRoadName } from '../lib/roadNames'
+import {
+  MODIFIER_LABEL,
+  formatEffectiveCount,
+  orderedTaskOrganization,
+} from '../lib/reserveComposition'
 import { computeRectangleStats } from '../lib/selectionGeometry'
 import { subscribeBattleground } from '../lib/socket'
 import { useRouteStudy } from '../state/routeStudy'
@@ -53,6 +58,7 @@ import type { SelectionResult } from '../types/selection'
 import type { ProgressEvent, ReasoningStep } from '../types/terrain'
 import type {
   Corridor,
+  CompositionModifier,
   Echelon,
   OperationalAreaMeta,
   OperationalToolMode,
@@ -63,6 +69,7 @@ import type {
   RouteStudySummary,
   StudyMark,
   StudyMarkKind,
+  TaskOrganizationElement,
 } from '../types/routeStudy'
 
 /** The passes over one study, split the way a staff is.
@@ -1423,8 +1430,171 @@ function MarkGroup({
                   })}
                   className="min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[10px] text-(--text-h) placeholder:text-(--text-dim) focus:outline-none"
                 />
+                <div className="col-span-2">
+                  <ReserveCompositionEditor mark={mark} onUpdate={(patch) => onUpdate(kind, mark.id, patch)} />
+                </div>
               </div>
             )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ReserveCompositionEditor({
+  mark,
+  onUpdate,
+}: {
+  mark: StudyMark
+  onUpdate: (patch: Partial<StudyMark>) => void
+}) {
+  const elements = orderedTaskOrganization(mark.task_organization ?? [])
+
+  function setElements(next: TaskOrganizationElement[]) {
+    onUpdate({ task_organization: next })
+  }
+
+  function addElement() {
+    setElements([
+      ...elements,
+      {
+        id: crypto.randomUUID(),
+        designation: `Element ${elements.length + 1}`,
+        echelon: 'company',
+        modifier: 'full',
+        order_of_move: elements.length + 1,
+        platforms: [],
+      },
+    ])
+  }
+
+  function updateElement(id: string, patch: Partial<TaskOrganizationElement>) {
+    setElements(elements.map((element) => element.id === id ? { ...element, ...patch } : element))
+  }
+
+  function removeElement(id: string) {
+    setElements(
+      elements
+        .filter((element) => element.id !== id)
+        .map((element, index) => ({ ...element, order_of_move: index + 1 })),
+    )
+  }
+
+  function addPlatform(element: TaskOrganizationElement) {
+    updateElement(element.id, {
+      platforms: [
+        ...element.platforms,
+        { id: crypto.randomUUID(), platform: `Platform ${element.platforms.length + 1}`, establishment_count: 1 },
+      ],
+    })
+  }
+
+  return (
+    <div className="mt-1 border-t border-(--border) pt-1.5">
+      <div className="flex items-center justify-between text-[9px] tracking-wide text-(--text-dim)">
+        <span>TASK ORGANISATION · ORDER OF MOVE</span>
+        <button type="button" aria-label={`Add task organisation element to ${mark.name}`} onClick={addElement} className="hover:text-(--text-h)">
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+      {elements.length === 0 && (
+        <div className="py-1 text-[9px] text-(--text-dim)">No formation or platform composition recorded.</div>
+      )}
+      <div className="mt-1 space-y-1">
+        {elements.map((element) => (
+          <div key={element.id} className="rounded border border-(--border) bg-black/10 p-1.5">
+            <div className="grid grid-cols-[2rem_1fr_auto] gap-1">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={element.order_of_move}
+                aria-label={`${element.designation} order of move`}
+                onChange={(event) => updateElement(element.id, { order_of_move: Math.max(1, Number(event.target.value)) })}
+                className="min-w-0 rounded border border-(--border) bg-transparent px-1 py-1 text-[9px] text-(--text-h)"
+              />
+              <input
+                value={element.designation}
+                maxLength={80}
+                aria-label="Formation designation"
+                onChange={(event) => updateElement(element.id, { designation: event.target.value })}
+                className="min-w-0 rounded border border-(--border) bg-transparent px-1.5 py-1 text-[9px] text-(--text-h)"
+              />
+              <button type="button" title="Remove formation element" onClick={() => removeElement(element.id)} className="text-(--text-dim) hover:text-(--hostile)">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="mt-1 grid grid-cols-2 gap-1">
+              <select
+                value={element.echelon}
+                aria-label={`${element.designation} echelon`}
+                onChange={(event) => updateElement(element.id, {
+                  echelon: event.target.value as TaskOrganizationElement['echelon'],
+                })}
+                className="rounded border border-(--border) bg-(--panel-bg-solid) px-1 py-1 text-[9px] text-(--text-h)"
+              >
+                {(['division', 'regiment', 'battalion', 'company', 'platoon', 'section'] as const).map((echelon) => (
+                  <option key={echelon} value={echelon}>{echelon}</option>
+                ))}
+              </select>
+              <select
+                value={element.modifier}
+                aria-label={`${element.designation} establishment modifier`}
+                onChange={(event) => updateElement(element.id, { modifier: event.target.value as CompositionModifier })}
+                className="rounded border border-(--border) bg-(--panel-bg-solid) px-1 py-1 text-[9px] text-(--text-h)"
+              >
+                {(Object.keys(MODIFIER_LABEL) as CompositionModifier[]).map((modifier) => (
+                  <option key={modifier} value={modifier}>{MODIFIER_LABEL[modifier]}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[9px] text-(--text-dim)">
+              <span>PLATFORMS · FULL EST.</span>
+              <button type="button" onClick={() => addPlatform(element)} className="hover:text-(--text-h)">+ platform</button>
+            </div>
+            {element.platforms.map((platform) => (
+              <div key={platform.id} className="mt-1 grid grid-cols-[2.5rem_1fr_auto_auto] items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  max={10_000}
+                  value={platform.establishment_count}
+                  aria-label={`${platform.platform || 'Platform'} full establishment count`}
+                  onChange={(event) => updateElement(element.id, {
+                    platforms: element.platforms.map((item) => item.id === platform.id
+                      ? { ...item, establishment_count: Math.max(1, Number(event.target.value)) }
+                      : item),
+                  })}
+                  className="min-w-0 rounded border border-(--border) bg-transparent px-1 py-1 text-[9px] text-(--text-h)"
+                />
+                <input
+                  value={platform.platform}
+                  maxLength={80}
+                  aria-label="Platform name"
+                  placeholder="BTR-90"
+                  onChange={(event) => updateElement(element.id, {
+                    platforms: element.platforms.map((item) => item.id === platform.id
+                      ? { ...item, platform: event.target.value }
+                      : item),
+                  })}
+                  className="min-w-0 rounded border border-(--border) bg-transparent px-1 py-1 text-[9px] text-(--text-h) placeholder:text-(--text-dim)"
+                />
+                <span className="whitespace-nowrap text-[9px] text-(--text-dim)" title="Effective count after exact formation modifier">
+                  → {formatEffectiveCount(platform.establishment_count, element.modifier)}
+                </span>
+                <button
+                  type="button"
+                  title="Remove platform"
+                  onClick={() => updateElement(element.id, {
+                    platforms: element.platforms.filter((item) => item.id !== platform.id),
+                  })}
+                  className="text-(--text-dim) hover:text-(--hostile)"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
           </div>
         ))}
       </div>

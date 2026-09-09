@@ -111,6 +111,23 @@ def describe_corridors(corridors: list[CorridorOut], reserves: list[Mark]) -> st
             details.append(mark.intelligence_status.value)
         if mark.locality:
             details.append(f"IVO {mark.locality}")
+        if mark.task_organization:
+            convoy = []
+            for element in sorted(
+                mark.task_organization,
+                key=lambda item: (item.order_of_move, item.designation),
+            ):
+                modifier = "" if element.modifier.value == "full" else f"({element.modifier.value})"
+                platforms = ", ".join(
+                    f"{platform.establishment_count} x {platform.platform} establishment"
+                    for platform in element.platforms
+                )
+                suffix = f": {platforms}" if platforms else ""
+                convoy.append(
+                    f"{element.order_of_move}. {element.designation}{modifier} "
+                    f"[{element.echelon.value}]{suffix}"
+                )
+            details.append("order of move " + "; ".join(convoy))
         return ", ".join(details)
 
     names = {mark.id: describe_reserve(mark) for mark in reserves}

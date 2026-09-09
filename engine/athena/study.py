@@ -34,6 +34,46 @@ class IntelligenceStatus(StrEnum):
     CONFIRMED = "confirmed"
 
 
+class AggressorEchelon(StrEnum):
+    DIVISION = "division"
+    REGIMENT = "regiment"
+    BATTALION = "battalion"
+    COMPANY = "company"
+    PLATOON = "platoon"
+    SECTION = "section"
+
+
+class CompositionModifier(StrEnum):
+    EQUAL = "="
+    MINUS = "-"
+    FULL = "full"
+    PLUS = "+"
+
+    @property
+    def thirds(self) -> int:
+        return {"=": 1, "-": 2, "full": 3, "+": 4}[self.value]
+
+
+class PlatformCount(BaseModel):
+    id: str
+    platform: str
+    establishment_count: int = Field(ge=1)
+
+    def effective_fraction(self, modifier: CompositionModifier) -> tuple[int, int]:
+        numerator = self.establishment_count * modifier.thirds
+        divisor = 3 if numerator % 3 == 0 else 1
+        return numerator // divisor, 3 // divisor
+
+
+class TaskOrganizationElement(BaseModel):
+    id: str
+    designation: str
+    echelon: AggressorEchelon
+    modifier: CompositionModifier = CompositionModifier.FULL
+    order_of_move: int = Field(ge=1)
+    platforms: list[PlatformCount] = Field(default_factory=list)
+
+
 class Mark(BaseModel):
     """A point the operator placed: a suspected reserve, or an objective."""
 
@@ -45,6 +85,7 @@ class Mark(BaseModel):
     owning_formation: str | None = None
     intelligence_status: IntelligenceStatus | None = None
     locality: str | None = None
+    task_organization: list[TaskOrganizationElement] = Field(default_factory=list)
 
 
 class RouteOut(BaseModel):
