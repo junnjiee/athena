@@ -7,6 +7,7 @@ import {
   orbatIssues,
   orbatRows,
   validParents,
+  weaponSummary,
 } from '../src/lib/orbatTree'
 import type { Echelon, OrbatUnit } from '../src/types/routeStudy'
 
@@ -67,6 +68,30 @@ describe('orbatIssues', () => {
 
   test('strength must be at least one soldier', () => {
     expect(orbatIssues([unit('1-sec', 'section', null, { strength: 0 })])).toHaveLength(1)
+  })
+
+  test('weapon holdings require unique systems and positive whole counts', () => {
+    expect(orbatIssues([
+      unit('1-sec', 'section', null, {
+        weapons: [
+          { id: 'one', weapon: 'LAW', count: 1 },
+          { id: 'two', weapon: 'LAW', count: 0 },
+        ],
+      }),
+    ])).toEqual([
+      '1-SEC: combine duplicate LAW holdings',
+      '1-SEC: LAW count must be a positive whole number',
+    ])
+  })
+})
+
+describe('weaponSummary', () => {
+  test('uses count-times-system notation without collapsing capabilities', () => {
+    expect(weaponSummary([
+      { weapon: 'ATGM', count: 2 },
+      { weapon: 'LAW', count: 3 },
+    ])).toBe('2× ATGM · 3× LAW')
+    expect(weaponSummary([])).toBe('No weapons recorded')
   })
 })
 

@@ -13,12 +13,19 @@ judgement stays with the human. See ENGINE.md's known limits.
 import hashlib
 import math
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from athena.graph import Edge, RoadGraph
-from athena.orbat import Orbat, Unit
+from athena.orbat import Orbat, Unit, WeaponSystem
 from athena.study import CorridorOut
 from athena.units import Echelon
+
+
+class BlockWeapon(BaseModel):
+    """Aggregated weapon count for one task-organised block force."""
+
+    weapon: WeaponSystem
+    count: int = Field(ge=1)
 
 
 class BlockCandidate(BaseModel):
@@ -27,7 +34,7 @@ class BlockCandidate(BaseModel):
     unit_id: str
     unit_name: str
     echelon: Echelon
-    strength: int
+    weapons: list[BlockWeapon]
     """Straight-line metres from the unit to the inlet, not road distance
     and not travel time."""
     distance_meters: float
@@ -131,6 +138,22 @@ def _remaining_capacity(orbat: Orbat, available: list[Unit], spent: set[str]) ->
     return sum(unit.unit_id not in units_with_available_descendants for unit in remaining)
 
 
+def _block_force_weapons(orbat: Orbat, unit_id: str) -> list[BlockWeapon]:
+    """Organic holdings on the assigned unit and everything under command."""
+    by_weapon = {weapon: 0 for weapon in WeaponSystem}
+    root = orbat.by_id().get(unit_id)
+    if root is None:
+        return []
+    for unit in (root, *orbat.subordinates(unit_id)):
+        for holding in unit.weapons:
+            by_weapon[holding.weapon] += holding.count
+    return [
+        BlockWeapon(weapon=weapon, count=count)
+        for weapon, count in by_weapon.items()
+        if count > 0
+    ]
+
+
 def plan_blocks(
     graph: RoadGraph,
     corridors: list[CorridorOut],
@@ -172,7 +195,7 @@ def plan_blocks(
                         unit_id=unit.unit_id,
                         unit_name=unit.name,
                         echelon=unit.echelon,
-                        strength=unit.strength,
+                        weapons=_block_force_weapons(orbat, unit.unit_id),
                         distance_meters=_distance_meters(unit, points),
                     )
                     for unit in available

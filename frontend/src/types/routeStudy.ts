@@ -211,9 +211,34 @@ export interface OrbatUnit {
   lon: number
   lat: number
   strength: number
+  /** Organic holdings only; a formed block force includes descendants. */
+  weapons?: WeaponHolding[]
   availability: Availability
   /** Readiness only; does not determine whether the unit is available. */
   redcon?: Redcon | null
+}
+
+export type WeaponSystem =
+  | 'ATGM'
+  | 'Light RR'
+  | 'LAW'
+  | '40mm AGL'
+  | '12.7mm HMG'
+  | 'GPMG'
+  | 'SAW'
+  | '81mm mortar'
+  | '60mm mortar'
+  | 'mini UAV'
+
+export interface WeaponHolding {
+  id: string
+  weapon: WeaponSystem
+  count: number
+}
+
+export interface BlockWeapon {
+  weapon: WeaponSystem
+  count: number
 }
 
 export interface Orbat {
@@ -224,7 +249,10 @@ export interface BlockCandidate {
   unit_id: string
   unit_name: string
   echelon: Echelon
-  strength: number
+  /** Aggregated organic holdings on this unit and all of its descendants. */
+  weapons?: BlockWeapon[]
+  /** Present only in saved block plans created before weapon holdings. */
+  strength?: number
   /** Straight-line metres to the inlet — not road distance, not time. */
   distance_meters: number
 }

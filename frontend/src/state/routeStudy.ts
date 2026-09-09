@@ -351,6 +351,7 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       lon,
       lat,
       strength: DEFAULT_STRENGTH[echelon],
+      weapons: [],
       availability: 'uncommitted',
       redcon: null,
     }

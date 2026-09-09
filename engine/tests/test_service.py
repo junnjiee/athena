@@ -182,6 +182,30 @@ def test_a_company_can_be_offered_without_an_artificial_ceiling() -> None:
     assert body["allocation"][0]["unit_id"] == "sec1"
 
 
+def test_block_candidates_measure_weapon_holdings_not_personnel() -> None:
+    armed = {
+        "units": [
+            {
+                **ORBAT["units"][0],
+                "weapons": [
+                    {"id": "atgm", "weapon": "ATGM", "count": 2},
+                    {"id": "law", "weapon": "LAW", "count": 3},
+                ],
+            }
+        ]
+    }
+
+    response = client.post("/v1/block-forces", json=block_request(orbat=armed))
+
+    assert response.status_code == 200
+    candidate = response.json()["inlets"][0]["candidates"][0]
+    assert candidate["weapons"] == [
+        {"weapon": "ATGM", "count": 2},
+        {"weapon": "LAW", "count": 3},
+    ]
+    assert "strength" not in candidate
+
+
 def test_an_invalid_orbat_tree_is_rejected() -> None:
     broken = {
         "units": [

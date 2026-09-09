@@ -26,6 +26,31 @@ class Availability(StrEnum):
     RESERVE = "reserve"
 
 
+class WeaponSystem(StrEnum):
+    """Capability-generic own-force systems from the doctrinal catalogue."""
+
+    ATGM = "ATGM"
+    LIGHT_RR = "Light RR"
+    LAW = "LAW"
+    AGL_40MM = "40mm AGL"
+    HMG_12_7MM = "12.7mm HMG"
+    GPMG = "GPMG"
+    SAW = "SAW"
+    MORTAR_81MM = "81mm mortar"
+    MORTAR_60MM = "60mm mortar"
+    MINI_UAV = "mini UAV"
+
+
+class WeaponHolding(BaseModel):
+    """Organic holding on one ORBAT node, never an aggregate over children."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1)
+    weapon: WeaponSystem
+    count: int = Field(ge=1)
+
+
 class Unit(BaseModel):
     """One node of the tree, with where it is and whether it is free."""
 
@@ -40,6 +65,8 @@ class Unit(BaseModel):
     lon: float
     lat: float
     strength: int = Field(ge=1)
+    weapons: tuple[WeaponHolding, ...] = Field(default=(), max_length=100)
+    """Organic weapons only. A formed block force aggregates its descendants."""
     availability: Availability = Availability.UNCOMMITTED
     redcon: int | None = Field(default=None, ge=1, le=5)
     """Readiness condition. Display-only and orthogonal to availability."""
@@ -48,6 +75,14 @@ class Unit(BaseModel):
     def role(self) -> Role:
         """What this unit's commander is, derived from what it commands."""
         return COMMAND_ROLES[self.echelon]
+
+    def model_post_init(self, _context: object) -> None:
+        ids = [holding.id for holding in self.weapons]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"duplicate weapon holding id on {self.unit_id}")
+        weapons = [holding.weapon for holding in self.weapons]
+        if len(weapons) != len(set(weapons)):
+            raise ValueError(f"duplicate weapon system on {self.unit_id}")
 
 
 class Orbat(BaseModel):
