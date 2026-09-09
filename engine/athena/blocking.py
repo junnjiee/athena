@@ -274,24 +274,45 @@ def _segment_meters(
     start: tuple[float, float], end: tuple[float, float]
 ) -> float:
     latitude = (start[1] + end[1]) / 2
+    delta_lon = end[0] - start[0]
+    if delta_lon > 180:
+        delta_lon -= 360
+    elif delta_lon < -180:
+        delta_lon += 360
     return math.hypot(
-        (end[0] - start[0]) * math.cos(math.radians(latitude)) * 111_320.0,
+        delta_lon * math.cos(math.radians(latitude)) * 111_320.0,
         (end[1] - start[1]) * 111_320.0,
     )
 
 
 def _project_onto_segment(
-    point: BlockPointInput,
+    point_lon: float,
+    point_lat: float,
     start: tuple[float, float],
     end: tuple[float, float],
 ) -> tuple[float, float, float, float]:
     """Projected lon, lat, segment fraction, and miss distance in metres."""
-    lon_scale = math.cos(math.radians(point.lat)) * 111_320.0
+    lon_scale = math.cos(math.radians(point_lat)) * 111_320.0
     lat_scale = 111_320.0
-    start_x = (start[0] - point.lon) * lon_scale
-    start_y = (start[1] - point.lat) * lat_scale
-    end_x = (end[0] - point.lon) * lon_scale
-    end_y = (end[1] - point.lat) * lat_scale
+
+    def longitude_delta(lon: float) -> float:
+        delta = lon - point_lon
+        if delta > 180:
+            delta -= 360
+        elif delta < -180:
+            delta += 360
+        return delta
+
+    start_delta = longitude_delta(start[0])
+    end_delta = longitude_delta(end[0])
+    if end_delta - start_delta > 180:
+        end_delta -= 360
+    elif start_delta - end_delta > 180:
+        end_delta += 360
+    start_x = start_delta * lon_scale
+    start_y = (start[1] - point_lat) * lat_scale
+    end_x = end_delta * lon_scale
+    end_y = (end[1] - point_lat) * lat_scale
     dx, dy = end_x - start_x, end_y - start_y
     denominator = dx * dx + dy * dy
     fraction = 0.0 if denominator == 0 else max(
@@ -300,7 +321,7 @@ def _project_onto_segment(
     projected_x = start_x + fraction * dx
     projected_y = start_y + fraction * dy
     return (
-        start[0] + fraction * (end[0] - start[0]),
+        point_lon + projected_x / lon_scale if lon_scale else point_lon,
         start[1] + fraction * (end[1] - start[1]),
         fraction,
         math.hypot(projected_x, projected_y),
@@ -357,7 +378,13 @@ def _locate_block_point(
         shape_length = sum(segment_lengths)
         traversed = 0.0
         for (start, end), segment_length in zip(zip(points, points[1:]), segment_lengths):
-            lon, lat, fraction, miss = _project_onto_segment(requested, start, end)
+            lon, lat, fraction, miss = _project_onto_segment(
+                requested.lon, requested.lat, start, end
+            )
+            if lon > 180:
+                lon -= 360
+            elif lon < -180:
+                lon += 360
             movement = elapsed_seconds
             if shape_length > 0:
                 movement += travel_seconds * (
@@ -382,19 +409,19 @@ def _locate_block_point(
 
 
 def _distance_meters(unit: Unit, points: list[tuple[float, float]]) -> float:
-    """Straight-line metres to the nearest sampled part of the inlet.
+    """Straight-line metres to the nearest point on the inlet polyline.
 
     Equirectangular at the unit's own latitude: exact enough to order candidates
     over an operational box, and never presented as anything finer.
     """
-    lon_scale = math.cos(math.radians(unit.lat)) * 111_320.0
-    lat_scale = 111_320.0
-    best = math.inf
-    for lon, lat in points:
-        dx = (lon - unit.lon) * lon_scale
-        dy = (lat - unit.lat) * lat_scale
-        best = min(best, math.hypot(dx, dy))
-    return best
+    if not points:
+        return math.inf
+    if len(points) == 1:
+        return _segment_meters((unit.lon, unit.lat), points[0])
+    return min(
+        _project_onto_segment(unit.lon, unit.lat, start, end)[3]
+        for start, end in zip(points, points[1:])
+    )
 
 
 def _remaining_capacity(orbat: Orbat, available: list[Unit], spent: set[str]) -> int:

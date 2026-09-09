@@ -405,6 +405,9 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   common choke, and guards every distance-preferred assignment with the ORBAT's
   exact remaining independent commitment capacity. It therefore maximises
   inlets held before distance and never strips one inlet to reinforce another.
+  Candidate distance now projects each unit onto the full traversed inlet
+  polyline, including a mid-edge objective terminal, rather than comparing only
+  sparse graph vertices; it remains an ordering aid, never an arrival estimate.
 - ~~**Measure block forces in weapons, not manpower.**~~ **Done** — own-force
   ORBAT nodes now carry structured, capability-generic organic weapon holdings.
   Each `BlockCandidate` aggregates the assigned unit and its descendants by

@@ -30,6 +30,7 @@ def unit(
     unit_id: str,
     echelon: Echelon,
     lon: float,
+    lat: float = 0.0,
     parent_id: str | None = None,
     availability: Availability = Availability.UNCOMMITTED,
     weapons: tuple[WeaponHolding, ...] = (),
@@ -40,7 +41,7 @@ def unit(
         echelon=echelon,
         parent_id=parent_id,
         lon=lon,
-        lat=0.0,
+        lat=lat,
         strength=7,
         weapons=weapons,
         availability=availability,
@@ -374,6 +375,71 @@ def test_candidates_are_ordered_by_distance_to_the_inlet() -> None:
     plan = plan_blocks(GRAPH, [WEST], orbat)
 
     assert [c.unit_id for c in plan.inlets[0].candidates] == ["near", "far"]
+
+
+def test_candidate_distance_projects_to_the_middle_of_a_long_road_segment() -> None:
+    long_edge = Edge.model_validate(
+        {
+            "id": "99:0",
+            "wayId": 99,
+            "from": 1,
+            "to": 2,
+            "roadClass": "secondary",
+            "nodes": [1, 2],
+            "points": [[0, 0], [10, 0]],
+            "lengthMeters": 1_000_000,
+        }
+    )
+    graph = RoadGraph(nodes=(node(1, 0), node(2, 10)), edges=(long_edge,))
+    approach = corridor("cor_long", ["99:0"])
+    orbat = Orbat(
+        units=(
+            unit("near-middle", Echelon.SECTION, 5, lat=0.001),
+            unit("near-vertex", Echelon.SECTION, 0, lat=0.05),
+        )
+    )
+
+    plan = plan_blocks(graph, [approach], orbat)
+
+    candidates = plan.inlets[0].candidates
+    assert [candidate.unit_id for candidate in candidates] == [
+        "near-middle",
+        "near-vertex",
+    ]
+    assert candidates[0].distance_meters == pytest.approx(111.32, rel=0.001)
+    assert candidates[1].distance_meters == pytest.approx(5_566, rel=0.001)
+
+
+def test_candidate_distance_takes_the_short_segment_across_the_antimeridian() -> None:
+    dateline_edge = Edge.model_validate(
+        {
+            "id": "100:0",
+            "wayId": 100,
+            "from": 1,
+            "to": 2,
+            "roadClass": "secondary",
+            "nodes": [1, 2],
+            "points": [[179, 0], [-179, 0]],
+            "lengthMeters": 222_640,
+        }
+    )
+    graph = RoadGraph(
+        nodes=(node(1, 179), node(2, -179)),
+        edges=(dateline_edge,),
+    )
+    approach = corridor("cor_dateline", ["100:0"])
+    orbat = Orbat(
+        units=(
+            unit("dateline", Echelon.SECTION, 180, lat=0.1),
+            unit("greenwich", Echelon.SECTION, 0),
+        )
+    )
+
+    candidates = plan_blocks(graph, [approach], orbat).inlets[0].candidates
+
+    assert [candidate.unit_id for candidate in candidates] == ["dateline", "greenwich"]
+    assert candidates[0].distance_meters == pytest.approx(11_132, rel=0.001)
+    assert candidates[1].distance_meters > 10_000_000
 
 
 def test_a_committed_unit_is_never_offered() -> None:
