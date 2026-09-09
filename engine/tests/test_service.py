@@ -310,3 +310,98 @@ def test_no_corridors_returns_no_courses_without_a_model_call() -> None:
 
     assert response.status_code == 200
     assert response.json()["courses"] == []
+
+
+# Learned ranking
+
+
+def test_feedback_moves_the_weights_and_says_why() -> None:
+    response = client.post(
+        "/v1/preference/feedback",
+        json={
+            "weights": {},
+            "course": {
+                "name": "Fast push",
+                "narrative": "-",
+                "efforts": [
+                    {
+                        "kind": "main",
+                        "corridor_id": "cor_a",
+                        "reserve_id": "res1",
+                        "rationale": "-",
+                    }
+                ],
+                "likelihood": 0.5,
+                "danger": 0.5,
+            },
+            "corridors": [CORRIDOR],
+            "verdict": "accepted",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # the only corridor is the fastest, so accepting raises the speed weight
+    assert body["features"]["speed"] == 1.0
+    assert body["weights"]["speed"] > 0.5
+
+
+def test_a_rejection_moves_the_weights_the_other_way() -> None:
+    def send(verdict: str) -> float:
+        response = client.post(
+            "/v1/preference/feedback",
+            json={
+                "weights": {},
+                "course": {
+                    "name": "Fast push",
+                    "narrative": "-",
+                    "efforts": [
+                        {
+                            "kind": "main",
+                            "corridor_id": "cor_a",
+                            "reserve_id": "res1",
+                            "rationale": "-",
+                        }
+                    ],
+                    "likelihood": 0.5,
+                    "danger": 0.5,
+                },
+                "corridors": [CORRIDOR],
+                "verdict": verdict,
+            },
+        )
+        return response.json()["weights"]["speed"]
+
+    assert send("rejected") < 0.5 < send("accepted")
+
+
+def test_learned_weights_never_displace_the_doctrinal_pair() -> None:
+    """Most likely and most dangerous are not preferences to be learned away."""
+    from athena.service import get_course_generator
+
+    dangerous = {
+        **A_COURSE,
+        "name": "Dangerous",
+        "likelihood": 0.1,
+        "danger": 0.9,
+    }
+    app.dependency_overrides[get_course_generator] = stub_courses([A_COURSE, dangerous])
+    try:
+        response = client.post(
+            "/v1/enemy-courses-of-action",
+            json=courses_request(
+                weights={
+                    "speed": 0.0,
+                    "blockable": 0.0,
+                    "complexity": 1.0,
+                    "likelihood": 0.0,
+                    "danger": 0.0,
+                }
+            ),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    body = response.json()
+    assert body["most_likely"]["name"] == "Northern push"
+    assert body["most_dangerous"]["name"] == "Dangerous"
