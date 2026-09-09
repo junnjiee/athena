@@ -110,10 +110,22 @@ export interface BlockCandidate {
   unit_name: string
   echelon: Echelon
   strength: number
-  /** Straight-line metres to the choke point — not road distance, not time. */
+  /** Straight-line metres to the inlet — not road distance, not time. */
   distance_meters: number
 }
 
+export interface InletBlock {
+  inlet_id: string
+  corridor_id: string
+  inlet_number: number
+  reserve_id: string
+  objective_id: string
+  edge_ids: string[]
+  candidates: BlockCandidate[]
+}
+
+/** Legacy shape retained only so route studies saved before inlet allocation
+ *  remain readable. New engine responses use `inlets`. */
 export interface CorridorBlock {
   corridor_id: string
   choke_edge_ids: string[]
@@ -121,24 +133,27 @@ export interface CorridorBlock {
 }
 
 export interface BlockAllocation {
+  inlet_id?: string
   corridor_id: string
   unit_id: string
   unit_name: string
   distance_meters: number
 }
 
-/** A corridor nothing can be put on. Distinct from `uncovered`, which is a
- *  corridor that could have been blocked had the force not run out. */
+/** An inlet nothing can be put on. Distinct from `uncovered`, which is an
+ *  inlet that could have been blocked had the force not run out. */
 export interface UnblockableCorridor {
+  inlet_id?: string
   corridor_id: string
   reason: string
 }
 
 export interface BlockPlan {
-  corridors: CorridorBlock[]
+  inlets?: InletBlock[]
+  corridors?: CorridorBlock[]
   allocation: BlockAllocation[]
   unblockable: UnblockableCorridor[]
-  uncovered: { corridor_id: string }[]
+  uncovered: { inlet_id?: string; corridor_id: string }[]
 }
 
 /** What the operator believes the enemy is trying to do. */

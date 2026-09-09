@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  allocationByCorridor,
+  allocationByInlet,
+  blockInlets,
   blockForceOrbat,
   blockCoverage,
   blockSummary,
-  chokeMidpoint,
-  unblockableByCorridor,
+  inletMidpoint,
+  unblockableByInlet,
 } from '../src/lib/blockForces'
 import type { BlockPlan, OrbatUnit, RoadGraph } from '../src/types/routeStudy'
 
@@ -22,10 +23,18 @@ const PLAN: BlockPlan = {
   uncovered: [{ corridor_id: 'cor_c' }],
 }
 
-describe('allocationByCorridor', () => {
+describe('legacy block plans', () => {
+  test('are exposed as one synthetic inlet per corridor', () => {
+    expect(blockInlets(PLAN).map((entry) => entry.inlet_id)).toEqual([
+      'legacy:cor_a',
+      'legacy:cor_b',
+      'legacy:cor_c',
+    ])
+  })
+
   test('indexes the allocation the engine returned', () => {
-    expect(allocationByCorridor(PLAN).get('cor_a')?.unit_name).toBe('1 Platoon')
-    expect(allocationByCorridor(PLAN).has('cor_c')).toBe(false)
+    expect(allocationByInlet(PLAN).get('legacy:cor_a')?.unit_name).toBe('1 Platoon')
+    expect(allocationByInlet(PLAN).has('legacy:cor_c')).toBe(false)
   })
 })
 
@@ -48,9 +57,9 @@ describe('blockCoverage', () => {
   })
 })
 
-describe('unblockableByCorridor', () => {
+describe('unblockableByInlet', () => {
   test('keeps the engine reason, which is the whole point of the finding', () => {
-    expect(unblockableByCorridor(PLAN).get('cor_b')).toBe('no common choke point')
+    expect(unblockableByInlet(PLAN).get('legacy:cor_b')).toBe('no common choke point')
   })
 })
 
@@ -112,13 +121,31 @@ const GRAPH: RoadGraph = {
   ],
 }
 
-describe('chokeMidpoint', () => {
-  test('is a point on the choke edge, for drawing a block link to', () => {
-    expect(chokeMidpoint(GRAPH, ['e1'])).toEqual([12, 0])
+describe('inletMidpoint', () => {
+  test('is a point on the route, for drawing a block link to', () => {
+    expect(inletMidpoint(GRAPH, ['e1'])).toEqual([12, 0])
   })
 
-  test('a corridor with no choke edge has no point', () => {
-    expect(chokeMidpoint(GRAPH, [])).toBeNull()
-    expect(chokeMidpoint(GRAPH, ['missing'])).toBeNull()
+  test('an inlet with no graph edge has no point', () => {
+    expect(inletMidpoint(GRAPH, [])).toBeNull()
+    expect(inletMidpoint(GRAPH, ['missing'])).toBeNull()
+  })
+})
+
+describe('inlet coverage', () => {
+  const inletPlan: BlockPlan = {
+    inlets: [
+      { inlet_id: 'i1', corridor_id: 'cor_a', inlet_number: 1, reserve_id: 'r', objective_id: 'o', edge_ids: ['e1'], candidates: [] },
+      { inlet_id: 'i2', corridor_id: 'cor_a', inlet_number: 2, reserve_id: 'r', objective_id: 'o', edge_ids: ['e1'], candidates: [] },
+    ],
+    allocation: [
+      { inlet_id: 'i1', corridor_id: 'cor_a', unit_id: 'u1', unit_name: 'One', distance_meters: 1 },
+    ],
+    unblockable: [],
+    uncovered: [{ inlet_id: 'i2', corridor_id: 'cor_a' }],
+  }
+
+  test('a corridor is open when even one of its inlets is uncovered', () => {
+    expect(blockCoverage(inletPlan, 'cor_a')).toBe('uncovered')
   })
 })

@@ -392,14 +392,14 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
     `services/engineClient.ts:84,104`
   - frontend — `BlockForcePanel.tsx:4,11,14`, `fitsWithin` in `lib/orbatTree.ts:45`,
     `ceiling`/`setCeiling` in `state/routeStudy.ts`, and the types
-- **Change the allocation objective to coverage of every inlet.** Priority is a
+- ~~**Change the allocation objective to coverage of every inlet.**~~ **Done** — priority is a
   force at *every possible inlet* — each axis is its own way in, so a corridor of
   four axes needs four block positions. Sufficiency is explicitly **not** the
   constraint: we do not require enough at an inlet to destroy what comes down it.
-  Today `plan_blocks` is greedy — quickest corridor first, nearest unit by
-  straight-line distance, nothing spent twice — which can leave an inlet bare
-  that only a distant unit could have held. Maximise inlets held; never strip one
-  inlet to reinforce another.
+  `plan_blocks` now emits one stable inlet per route, including corridors with no
+  common choke, and guards every distance-preferred assignment with the ORBAT's
+  exact remaining independent commitment capacity. It therefore maximises
+  inlets held before distance and never strips one inlet to reinforce another.
 - **Measure block forces in weapons, not manpower.** `strength: int` is a
   headcount (defaults 90/24/7/4) and says nothing about what a force can stop.
   What matters is how many weapons can defeat the reserve's platforms. Replaces
