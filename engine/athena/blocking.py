@@ -52,6 +52,7 @@ class InletBlock(BaseModel):
     reserve_id: str
     objective_id: str
     edge_ids: list[str]
+    movement_seconds: float = Field(ge=0)
     candidates: list[BlockCandidate]
 
 
@@ -99,6 +100,24 @@ class SealingOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ObjectiveOutcome(StrEnum):
+    REACHED = "reached"
+    DID_NOT_REACH = "did_not_reach"
+    UNKNOWN = "unknown"
+
+
+class ReactionTimeline(BaseModel):
+    """Known and explicitly unknown events on the Reaction to Ops Plan pass."""
+
+    commencement_minutes: float | None = Field(default=None, ge=0)
+    contact_minutes: float | None = Field(default=None, ge=0)
+    delay_minutes: float | None = Field(default=None, ge=0)
+    remnant_continued: bool | None = None
+    objective_arrival_minutes: float | None = Field(default=None, ge=0)
+    objective_outcome: ObjectiveOutcome
+    unknowns: list[str]
+
+
 class SealingAssessment(BaseModel):
     """What one allocated force can do to the inlet's reserve composition."""
 
@@ -114,6 +133,7 @@ class SealingAssessment(BaseModel):
     remaining_platform_count: ExactCount | None = None
     outcome: SealingOutcome
     reason: str
+    reaction: ReactionTimeline
 
 
 class BlockPlan(BaseModel):
@@ -224,6 +244,65 @@ def _hardest_platforms(reserve: Mark) -> tuple[Hardness, dict[str, Fraction]] | 
     return hardest, by_hardness[hardest]
 
 
+def _reaction_timeline(
+    block: InletBlock,
+    reserve: Mark | None,
+    outcome: SealingOutcome,
+) -> ReactionTimeline:
+    """Build only the reaction events justified by current inputs.
+
+    Contact time needs an exact block point and delay duration needs an assessed
+    effect. Neither exists in the current model, so both remain named gaps.
+    """
+    commencement = (
+        reserve.timing.commencement_minutes()
+        if reserve is not None and reserve.timing is not None
+        else None
+    )
+    task_complete = (
+        reserve.timing.task_complete_minutes(block.movement_seconds)
+        if reserve is not None and reserve.timing is not None
+        else None
+    )
+    unknowns = ["contact time needs an exact block position"]
+    if commencement is None:
+        unknowns.append("commencement needs decision and readiness time")
+
+    if outcome is SealingOutcome.DESTROYED:
+        return ReactionTimeline(
+            commencement_minutes=commencement,
+            remnant_continued=False,
+            objective_outcome=ObjectiveOutcome.DID_NOT_REACH,
+            unknowns=unknowns,
+        )
+    if outcome is SealingOutcome.PASSED:
+        if task_complete is None:
+            unknowns.append("objective arrival needs complete reserve timing")
+        return ReactionTimeline(
+            commencement_minutes=commencement,
+            delay_minutes=0,
+            remnant_continued=True,
+            objective_arrival_minutes=task_complete,
+            objective_outcome=ObjectiveOutcome.REACHED,
+            unknowns=unknowns,
+        )
+    if outcome is SealingOutcome.DELAYED:
+        unknowns.append("delay duration is not assessed")
+        unknowns.append("objective arrival cannot be timed until delay is assessed")
+        return ReactionTimeline(
+            commencement_minutes=commencement,
+            remnant_continued=True,
+            objective_outcome=ObjectiveOutcome.REACHED,
+            unknowns=unknowns,
+        )
+    unknowns.append("continuation and objective outcome need a sealing result")
+    return ReactionTimeline(
+        commencement_minutes=commencement,
+        objective_outcome=ObjectiveOutcome.UNKNOWN,
+        unknowns=unknowns,
+    )
+
+
 def _assess_sealing(
     block: InletBlock,
     allocation: Allocation,
@@ -234,6 +313,7 @@ def _assess_sealing(
         None,
     )
     if reserve is None:
+        outcome = SealingOutcome.UNKNOWN
         return SealingAssessment(
             inlet_id=block.inlet_id,
             corridor_id=block.corridor_id,
@@ -241,12 +321,14 @@ def _assess_sealing(
             target_platforms=[],
             effective_weapons=[],
             effective_weapon_count=0,
-            outcome=SealingOutcome.UNKNOWN,
+            outcome=outcome,
             reason="reserve is not present in the supplied assessment",
+            reaction=_reaction_timeline(block, reserve, outcome),
         )
 
     hardest = _hardest_platforms(reserve)
     if hardest is None:
+        outcome = SealingOutcome.UNKNOWN
         return SealingAssessment(
             inlet_id=block.inlet_id,
             corridor_id=block.corridor_id,
@@ -255,8 +337,9 @@ def _assess_sealing(
             target_platforms=[],
             effective_weapons=[],
             effective_weapon_count=0,
-            outcome=SealingOutcome.UNKNOWN,
+            outcome=outcome,
             reason="reserve has no catalogued platform hardness to assess",
+            reaction=_reaction_timeline(block, reserve, outcome),
         )
 
     hardness, platforms = hardest
@@ -297,6 +380,7 @@ def _assess_sealing(
         remaining_platform_count=_exact(remaining),
         outcome=outcome,
         reason=reason,
+        reaction=_reaction_timeline(block, reserve, outcome),
     )
 
 
@@ -357,6 +441,7 @@ def plan_blocks(
                     reserve_id=route.reserve_id,
                     objective_id=route.objective_id,
                     edge_ids=list(route.edge_ids),
+                    movement_seconds=route.seconds,
                     candidates=candidates,
                 )
             )

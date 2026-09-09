@@ -414,12 +414,14 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   with a reason. Missing classifications and conditional matches are never
   promoted into facts, and sufficiency never reduces inlet coverage. See
   [`DOCTRINE.md` §5](DOCTRINE.md).
-- **Reaction outcomes on the block pass.** Per the Reaction to Ops Plan overlay
-  (p.63), the doctrinal output per reserve is: commenced D 2100 → contacted by
-  block force D 2115 → *delayed ½ hr and attrited from 1 x RRC to 1 x RRP* →
-  remnant continued → reached objective D 2200. `BlockPlan` now carries the
-  sealing outcome and remaining composition, but not yet the commenced,
-  contacted, delay-duration, continuation, and arrival timeline.
+- ~~**Reaction outcomes on the block pass.**~~ **Done** — each sealing result now
+  carries the full doctrinal event chain: commenced → contacted by the allocated
+  block force → outcome → remnant continued or stopped → reached or did not
+  reach the objective. Known reserve timing produces commencement and, for an
+  unimpeded reserve, objective arrival. Contact time stays unknown until a
+  precise block point exists; delayed arrival stays unknown until delay duration
+  is assessed. Those gaps are returned and rendered explicitly instead of
+  borrowing the source example's half-hour as a universal rule.
 
 ---
 

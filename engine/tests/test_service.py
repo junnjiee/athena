@@ -269,6 +269,9 @@ def test_block_force_response_assesses_sealing_against_the_reserve() -> None:
     assert assessment["target_platform_count"] == {"numerator": 10, "denominator": 3}
     assert assessment["remaining_platform_count"] == {"numerator": 1, "denominator": 3}
     assert assessment["effective_weapons"] == [{"weapon": "ATGM", "count": 3}]
+    assert assessment["reaction"]["remnant_continued"] is True
+    assert assessment["reaction"]["objective_outcome"] == "reached"
+    assert "delay duration is not assessed" in assessment["reaction"]["unknowns"]
 
 
 def test_an_invalid_orbat_tree_is_rejected() -> None:

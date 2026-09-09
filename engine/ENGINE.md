@@ -579,6 +579,25 @@ guessed result. Mixed compositions are deliberately assessed against their
 hardest known class; softer elements are not used to make an anti-armour block
 look stronger. The result is deterministic and does not change allocation.
 
+### Reaction chain
+
+Each sealing assessment also carries the doctrinal Reaction to Ops Plan chain.
+The reserve's decision plus readiness stages give **commenced**. An allocated
+unit establishes **contacted by block force**, but contact time remains unknown
+because the current inlet is an axis, not a fixed block point. The sealing
+outcome then decides whether a remnant continues:
+
+- destroyed — no remnant continues and the reserve **did not reach** the
+  objective;
+- passed — delay is zero, the remnant continues, and reserve task-completion
+  time gives **reached objective** when all timing inputs exist;
+- delayed and attrited — the remnant continues and reaches the objective, but
+  neither delay duration nor final arrival time is invented;
+- unknown — continuation and objective outcome stay unknown.
+
+Every missing event input is returned in `reaction.unknowns`. This makes an
+incomplete chain visible instead of turning absent intelligence into a zero.
+
 ### Two kinds of absence, kept apart
 
 - **unblockable** — nothing can be put on this inlet. Either its route is not in
@@ -688,9 +707,10 @@ Under Docker the variables are passed in by compose, so no file is read.
 
 ## Known limits
 
-- **No arrival timing.** The engine says a route exists and how long the enemy
-  takes along it, but never whether a block force gets there first. A block plan
-  is an option set for a human to time, not a plan.
+- **No block-force arrival timing.** The engine says a route exists and can
+  compute an unimpeded reserve's objective arrival from complete reserve timing,
+  but never whether the block force gets there first. A block plan is an option
+  set for a human to time, not a movement plan.
 - **Sealing is a capability comparison, not combat simulation.** Effective
   weapons are compared one-for-one with the hardest known reserve platforms.
   The engine does not model ammunition expenditure, rate of fire, exposure,
