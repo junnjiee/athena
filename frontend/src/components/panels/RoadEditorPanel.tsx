@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Crosshair, Loader2, Plus, RotateCcw, Search, ShieldOff, Undo2 } from 'lucide-react'
+import { Crosshair, Loader2, Plus, RotateCcw, Scissors, Search, ShieldOff, Undo2 } from 'lucide-react'
 import { formatRoadCode, parseRoadCode, prefillRoadClassification } from '../../lib/roadCodes'
 import { ROAD_THEMES, nextRoadName } from '../../lib/roadNames'
 import { roadIdentities, type RoadIdentity } from '../../lib/roads'
@@ -21,8 +21,10 @@ interface Props {
   onEditRoad: (roadId: string, edit: RoadEdit | null) => void
   onSetDestroyed: (road: RoadIdentity, destroyed: boolean) => void
   drawingRoad: boolean
+  breakingRoadId: string | null
   canMutateGraph: boolean
   onBeginAdd: () => void
+  onBeginBreak: (road: RoadIdentity) => void
   onLocate: (road: RoadIdentity) => void
 }
 
@@ -35,8 +37,10 @@ export function RoadEditorPanel({
   onEditRoad,
   onSetDestroyed,
   drawingRoad,
+  breakingRoadId,
   canMutateGraph,
   onBeginAdd,
+  onBeginBreak,
   onLocate,
 }: Props) {
   const [query, setQuery] = useState('')
@@ -79,6 +83,11 @@ export function RoadEditorPanel({
       {drawingRoad && (
         <div className="mt-2 rounded-md border border-(--accent-border) bg-(--accent-bg) px-2 py-1.5 text-[10px] text-(--accent)">
           Click two endpoints near existing junctions. Esc cancels.
+        </div>
+      )}
+      {breakingRoadId && (
+        <div className="mt-2 rounded-md border border-red-400/30 bg-red-950/20 px-2 py-1.5 text-[10px] text-red-200">
+          Click the two ends of the broken stretch on this road. Both cuts must land on one graph segment. Esc cancels.
         </div>
       )}
       {!canMutateGraph && (
@@ -132,6 +141,8 @@ export function RoadEditorPanel({
               onReset={() => onEditRoad(road.id, null)}
               onLocate={() => onLocate(road)}
               onSetDestroyed={() => onSetDestroyed(road, !road.destroyed)}
+              onBeginBreak={() => onBeginBreak(road)}
+              breaking={breakingRoadId === road.id}
               canMutateGraph={canMutateGraph}
             />
           ) : (
@@ -157,6 +168,16 @@ export function RoadEditorPanel({
                   className="p-1 text-(--text-dim) hover:text-(--text-h)"
                 >
                   <Crosshair className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !canMutateGraph || road.destroyed}
+                  title="Break a selected stretch"
+                  aria-label={`Break stretch of ${road.osmName ?? `way ${road.id}`}`}
+                  onClick={() => onBeginBreak(road)}
+                  className={`p-1 ${breakingRoadId === road.id ? 'text-red-300' : 'text-(--text-dim) hover:text-red-300'} disabled:opacity-40`}
+                >
+                  <Scissors className="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
@@ -204,6 +225,8 @@ function RoadCodeRow({
   onReset,
   onLocate,
   onSetDestroyed,
+  onBeginBreak,
+  breaking,
   canMutateGraph,
 }: {
   road: RoadIdentity
@@ -213,6 +236,8 @@ function RoadCodeRow({
   onReset: () => void
   onLocate: () => void
   onSetDestroyed: () => void
+  onBeginBreak: () => void
+  breaking: boolean
   canMutateGraph: boolean
 }) {
   const formatted = formatRoadCode(edit)
@@ -249,6 +274,16 @@ function RoadCodeRow({
         />
         <button type="button" title="Locate road" onClick={onLocate} className="p-1 text-(--text-dim) hover:text-(--text-h)">
           <Crosshair className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={saving || !canMutateGraph || road.destroyed}
+          title="Break a selected stretch"
+          aria-label={`Break stretch of ${road.osmName ?? `way ${road.id}`}`}
+          onClick={onBeginBreak}
+          className={`p-1 ${breaking ? 'text-red-300' : 'text-(--text-dim) hover:text-red-300'} disabled:opacity-40`}
+        >
+          <Scissors className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"

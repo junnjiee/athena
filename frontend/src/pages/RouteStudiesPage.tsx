@@ -30,6 +30,7 @@ import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import {
   createOperationalArea,
   addOperationalRoad,
+  breakOperationalRoad,
   deleteOperationalArea,
   deleteRouteStudy,
   fetchOperationalArea,
@@ -182,6 +183,7 @@ export function RouteStudiesPage() {
   const [groundPanel, setGroundPanel] = useState<GroundPanel>('roads')
   const [roadSaving, setRoadSaving] = useState(false)
   const [roadError, setRoadError] = useState<string | null>(null)
+  const [breakingRoad, setBreakingRoad] = useState<RoadIdentity | null>(null)
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const areaGenerationRef = useRef(0)
   const areaNameLookupRef = useRef(0)
@@ -695,6 +697,8 @@ export function RouteStudiesPage() {
 
   async function setRoadDestroyed(road: RoadIdentity, destroyed: boolean) {
     if (!area || roadSaving) return
+    setBreakingRoad(null)
+    setToolMode('navigate')
     setRoadSaving(true)
     setRoadError(null)
     try {
@@ -744,6 +748,45 @@ export function RouteStudiesPage() {
     }
   }
 
+  async function breakRoad(points: LonLat[]) {
+    if (!area || !breakingRoad || roadSaving || points.length < 2) return
+    setRoadSaving(true)
+    setRoadError(null)
+    try {
+      const nextArea = await breakOperationalRoad(
+        area.id,
+        breakingRoad.wayId,
+        [points[0].longitude, points[0].latitude],
+        [points[1].longitude, points[1].latitude],
+      )
+      replaceArea(nextArea)
+      if (study) await loadStudy(study.id)
+      else setGraph(await fetchOperationalGraph(area.id, nextArea.currentRevision))
+    } catch (error: unknown) {
+      setRoadError(error instanceof Error ? error.message : 'failed to break road stretch')
+    } finally {
+      setRoadSaving(false)
+      setBreakingRoad(null)
+      setToolMode('navigate')
+    }
+  }
+
+  function beginRoadBreak(road: RoadIdentity) {
+    setBreakingRoad(road)
+    setToolMode('break-road')
+    locateRoad(road)
+  }
+
+  function cancelRoadDrawing() {
+    setBreakingRoad(null)
+    setToolMode('navigate')
+  }
+
+  function completeRoadDrawing(points: LonLat[]) {
+    if (toolMode === 'break-road') void breakRoad(points)
+    else void addRoad(points)
+  }
+
   const extentValid = selection !== null &&
     selection.stats.widthMeters >= OPERATIONAL_MIN_EXTENT_METERS &&
     selection.stats.heightMeters >= OPERATIONAL_MIN_EXTENT_METERS
@@ -775,6 +818,8 @@ export function RouteStudiesPage() {
           ? 'Drag a box over the objective inside the black boundary. Esc when done.'
           : toolMode === 'draw-road'
             ? 'Click the two road endpoints near existing junctions. Esc to cancel.'
+            : toolMode === 'break-road'
+              ? 'Click the two ends of the broken stretch on the selected road. Esc to cancel.'
           : toolMode === 'place-orbat-unit'
             ? 'Click inside the black boundary to place a unit of your force. Esc when done.'
             : null
@@ -826,8 +871,8 @@ export function RouteStudiesPage() {
           onObjectiveAreaFinalize={handleObjectiveArea}
           onViewerReady={handleViewerReady}
           onPlace={handlePlace}
-          onRoadComplete={(points) => void addRoad(points)}
-          onRoadCancel={() => setToolMode('navigate')}
+          onRoadComplete={completeRoadDrawing}
+          onRoadCancel={cancelRoadDrawing}
         />
       </div>
 
@@ -989,8 +1034,10 @@ export function RouteStudiesPage() {
               onEditRoad={editRoad}
               onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
               drawingRoad={toolMode === 'draw-road'}
+              breakingRoadId={breakingRoad?.id ?? null}
               canMutateGraph
-              onBeginAdd={() => setToolMode('draw-road')}
+              onBeginAdd={() => { setBreakingRoad(null); setToolMode('draw-road') }}
+              onBeginBreak={beginRoadBreak}
               onLocate={locateRoad}
             />
           </div>
@@ -1108,8 +1155,10 @@ export function RouteStudiesPage() {
                   onEditRoad={editRoad}
                   onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
                   drawingRoad={toolMode === 'draw-road'}
+                  breakingRoadId={breakingRoad?.id ?? null}
                   canMutateGraph={!study.stale}
-                  onBeginAdd={() => setToolMode('draw-road')}
+                  onBeginAdd={() => { setBreakingRoad(null); setToolMode('draw-road') }}
+                  onBeginBreak={beginRoadBreak}
                   onLocate={locateRoad}
                 />
               )}

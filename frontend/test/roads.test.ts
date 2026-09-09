@@ -63,4 +63,26 @@ describe('road identities', () => {
 
     expect(roadIdentities(partial)[0]).toMatchObject({ destroyed: false, partiallyDestroyed: true })
   })
+
+  test('keeps split children under the original road identity and code', () => {
+    const split: RoadGraph = {
+      ...graph,
+      edges: [
+        ...graph.edges.filter((edge) => edge.id !== '10:0'),
+        ...[0, 1, 2].map((part) => ({
+          ...graph.edges[0],
+          id: `split:10:0:1:${part}`,
+          destroyed: part === 1,
+          lengthMeters: 300,
+        })),
+      ],
+    }
+
+    const road = roadIdentities(split)[0]
+    expect(road).toMatchObject({
+      id: '10', wayId: 10, osmName: 'Mandai Road', lanes: '4',
+      destroyed: false, partiallyDestroyed: true,
+    })
+    expect(road.edgeIds).toContain('split:10:0:1:1')
+  })
 })

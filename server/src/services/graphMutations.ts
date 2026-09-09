@@ -1,4 +1,4 @@
-import type { MountedRoadClass, RoadGraph } from '../types'
+import type { GraphEdge, GraphNode, MountedRoadClass, RoadGraph } from '../types'
 import { metersPerDegree } from '../lib/geo'
 
 export interface GraphMutation {
@@ -40,6 +40,189 @@ export type AddRoadResult =
 function distanceMeters(a: [number, number], b: [number, number]): number {
   const mpd = metersPerDegree((a[1] + b[1]) / 2)
   return Math.hypot((b[0] - a[0]) * mpd.lon, (b[1] - a[1]) * mpd.lat)
+}
+
+interface Projection {
+  point: [number, number]
+  segmentIndex: number
+  fraction: number
+  alongMeters: number
+  distanceMeters: number
+}
+
+function projectOntoEdge(edge: GraphEdge, target: [number, number]): Projection | null {
+  if (edge.points.length < 2) return null
+  let best: Projection | null = null
+  let traversed = 0
+  for (let index = 0; index < edge.points.length - 1; index++) {
+    const start = edge.points[index]
+    const end = edge.points[index + 1]
+    const mpd = metersPerDegree((start[1] + end[1] + target[1]) / 3)
+    const vx = (end[0] - start[0]) * mpd.lon
+    const vy = (end[1] - start[1]) * mpd.lat
+    const tx = (target[0] - start[0]) * mpd.lon
+    const ty = (target[1] - start[1]) * mpd.lat
+    const squared = vx * vx + vy * vy
+    const fraction = squared === 0 ? 0 : Math.max(0, Math.min(1, (tx * vx + ty * vy) / squared))
+    const point: [number, number] = [
+      start[0] + (end[0] - start[0]) * fraction,
+      start[1] + (end[1] - start[1]) * fraction,
+    ]
+    const projection: Projection = {
+      point,
+      segmentIndex: index,
+      fraction,
+      alongMeters: traversed + Math.sqrt(squared) * fraction,
+      distanceMeters: distanceMeters(point, target),
+    }
+    if (!best || projection.distanceMeters < best.distanceMeters) best = projection
+    traversed += Math.sqrt(squared)
+  }
+  return best
+}
+
+function appendPoint(points: [number, number][], point: [number, number]): void {
+  const previous = points.at(-1)
+  if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) points.push(point)
+}
+
+function segmentLength(points: [number, number][]): number {
+  let total = 0
+  for (let index = 1; index < points.length; index++) {
+    total += distanceMeters(points[index - 1], points[index])
+  }
+  return total
+}
+
+function nextNegativeNodeIds(graph: RoadGraph): [number, number] {
+  let lowest = 0
+  for (const node of graph.nodes) lowest = Math.min(lowest, node.id)
+  for (const edge of graph.edges) {
+    for (const id of edge.nodes) lowest = Math.min(lowest, id)
+  }
+  return [lowest - 1, lowest - 2]
+}
+
+function splitId(graph: RoadGraph, edgeId: string): string {
+  const used = new Set(graph.edges.map((edge) => edge.id))
+  let serial = 1
+  while (used.has(`split:${edgeId}:${serial}:0`)) serial += 1
+  return `split:${edgeId}:${serial}`
+}
+
+export type BreakRoadResult =
+  | { ok: true; graph: RoadGraph; edgeId: string }
+  | { ok: false; reason: string }
+
+/** Breaks only the selected stretch of one graph edge.
+ *
+ * Both operator picks must resolve to the same edge of the named road. The
+ * original edge is replaced by before/broken/after children, while every child
+ * keeps the road's wayId, name, lanes, and class. New negative node ids and a
+ * `split:` edge namespace cannot collide with OSM or operator-added identity.
+ */
+export function breakRoadStretch(
+  graph: RoadGraph,
+  wayId: number,
+  start: [number, number],
+  end: [number, number],
+  maxSnapMeters = 100,
+): BreakRoadResult {
+  const candidates = graph.edges
+    .filter((edge) => edge.wayId === wayId && !edge.destroyed)
+    .flatMap((edge) => {
+      const first = projectOntoEdge(edge, start)
+      const second = projectOntoEdge(edge, end)
+      return first && second ? [{ edge, first, second }] : []
+    })
+    .filter(({ first, second }) =>
+      first.distanceMeters <= maxSnapMeters && second.distanceMeters <= maxSnapMeters)
+    .sort((a, b) =>
+      a.first.distanceMeters + a.second.distanceMeters -
+      b.first.distanceMeters - b.second.distanceMeters || a.edge.id.localeCompare(b.edge.id))
+
+  if (candidates.length === 0) {
+    const hasIntactRoad = graph.edges.some((edge) => edge.wayId === wayId && !edge.destroyed)
+    return {
+      ok: false,
+      reason: hasIntactRoad
+        ? `both cut points must be within ${maxSnapMeters} m of one road segment`
+        : 'road has no intact stretch to break',
+    }
+  }
+  const selected = candidates[0]
+
+  let first = selected.first
+  let second = selected.second
+  if (first.alongMeters > second.alongMeters) [first, second] = [second, first]
+  const edgeLength = segmentLength(selected.edge.points)
+  if (first.alongMeters < 1 || edgeLength - second.alongMeters < 1) {
+    return { ok: false, reason: 'cut points must lie inside the road segment' }
+  }
+  if (second.alongMeters - first.alongMeters < 1) {
+    return { ok: false, reason: 'broken stretch must be at least 1 m long' }
+  }
+
+  const before: [number, number][] = []
+  const broken: [number, number][] = []
+  const after: [number, number][] = []
+  for (let index = 0; index <= first.segmentIndex; index++) appendPoint(before, selected.edge.points[index])
+  appendPoint(before, first.point)
+  appendPoint(broken, first.point)
+  for (let index = first.segmentIndex + 1; index <= second.segmentIndex; index++) {
+    appendPoint(broken, selected.edge.points[index])
+  }
+  appendPoint(broken, second.point)
+  appendPoint(after, second.point)
+  for (let index = second.segmentIndex + 1; index < selected.edge.points.length; index++) {
+    appendPoint(after, selected.edge.points[index])
+  }
+
+  const [firstNodeId, secondNodeId] = nextNegativeNodeIds(graph)
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]))
+  const from = nodesById.get(selected.edge.from)
+  const to = nodesById.get(selected.edge.to)
+  const elevationAt = (along: number) => {
+    if (!from || !to || edgeLength === 0) return 0
+    return from.elevation + (to.elevation - from.elevation) * (along / edgeLength)
+  }
+  const cutNodes: GraphNode[] = [
+    { id: firstNodeId, lon: first.point[0], lat: first.point[1], elevation: elevationAt(first.alongMeters) },
+    { id: secondNodeId, lon: second.point[0], lat: second.point[1], elevation: elevationAt(second.alongMeters) },
+  ]
+  const prefix = splitId(graph, selected.edge.id)
+  const child = (
+    id: string,
+    fromNode: number,
+    toNode: number,
+    points: [number, number][],
+    destroyed: boolean,
+  ): GraphEdge => ({
+    ...selected.edge,
+    id,
+    from: fromNode,
+    to: toNode,
+    nodes: [fromNode, toNode],
+    points,
+    lengthMeters: segmentLength(points),
+    destroyed,
+  })
+  const children = [
+    child(`${prefix}:0`, selected.edge.from, firstNodeId, before, false),
+    child(`${prefix}:1`, firstNodeId, secondNodeId, broken, true),
+    child(`${prefix}:2`, secondNodeId, selected.edge.to, after, false),
+  ]
+
+  return {
+    ok: true,
+    edgeId: selected.edge.id,
+    graph: {
+      nodes: [...graph.nodes, ...cutNodes].sort((a, b) => a.id - b.id),
+      edges: graph.edges
+        .flatMap((edge) => edge.id === selected.edge.id ? children : [edge])
+        .sort((a, b) => a.wayId - b.wayId || a.id.localeCompare(b.id)),
+    },
+  }
 }
 
 /** Adds one operator-observed road, snapped to live junctions at both ends.

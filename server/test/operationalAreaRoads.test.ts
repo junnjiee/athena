@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { addRoadBody, roadSettingsBody, roadStateBody } from '../src/routes/operationalAreas'
-import { addRoad, setRoadDestroyed } from '../src/services/graphMutations'
+import { addRoadBody, roadBreakBody, roadSettingsBody, roadStateBody } from '../src/routes/operationalAreas'
+import { addRoad, breakRoadStretch, setRoadDestroyed } from '../src/services/graphMutations'
 import type { RoadGraph } from '../src/types'
 
 const graph: RoadGraph = {
@@ -72,6 +72,55 @@ describe('road destruction', () => {
     const destroyed = setRoadDestroyed(graph, 123, true).graph
     expect(setRoadDestroyed(destroyed, 123, true).changed).toBe(false)
     expect(setRoadDestroyed(destroyed, 123, false).graph.edges[0].destroyed).toBe(false)
+  })
+
+  test('validates two geographic cut points', () => {
+    expect(roadBreakBody.safeParse({ start: [103.002, 1], end: [103.008, 1] }).success).toBe(true)
+    expect(roadBreakBody.safeParse({ start: [103.002, 1] }).success).toBe(false)
+  })
+
+  test('splits one edge into intact, broken, intact stretches', () => {
+    const named: RoadGraph = {
+      ...graph,
+      nodes: [
+        { id: 1, lon: 103, lat: 1, elevation: 10 },
+        { id: 2, lon: 103.01, lat: 1, elevation: 20 },
+        { id: 3, lon: 103.02, lat: 1, elevation: 30 },
+      ],
+      edges: graph.edges.map((edge) => edge.wayId === 123
+        ? { ...edge, name: 'Mandai Road', lanes: '4' }
+        : edge),
+    }
+
+    const mutation = breakRoadStretch(named, 123, [103.002, 1], [103.008, 1])
+    if (!mutation.ok) throw new Error(mutation.reason)
+
+    const children = mutation.graph.edges.filter((edge) => edge.id.startsWith('split:123:0:'))
+    expect(children).toHaveLength(3)
+    expect(children.map((edge) => Boolean(edge.destroyed))).toEqual([false, true, false])
+    expect(children.every((edge) => edge.wayId === 123)).toBe(true)
+    expect(children.every((edge) => edge.name === 'Mandai Road' && edge.lanes === '4')).toBe(true)
+    expect(mutation.graph.edges.some((edge) => edge.id === '123:0')).toBe(false)
+    expect(mutation.graph.edges.some((edge) => edge.id === '123:1')).toBe(true)
+    expect(mutation.graph.nodes).toHaveLength(named.nodes.length + 2)
+  })
+
+  test('requires both cuts to land on the same intact edge', () => {
+    const mutation = breakRoadStretch(graph, 123, [103.002, 1], [103.018, 1])
+    expect(mutation.ok).toBe(false)
+  })
+
+  test('rejects a zero-length or endpoint cut instead of creating degenerate edges', () => {
+    expect(breakRoadStretch(graph, 123, [103.005, 1], [103.005, 1]).ok).toBe(false)
+    expect(breakRoadStretch(graph, 123, [103, 1], [103.005, 1]).ok).toBe(false)
+  })
+
+  test('accepts cut points in either order', () => {
+    const mutation = breakRoadStretch(graph, 123, [103.008, 1], [103.002, 1])
+    if (!mutation.ok) throw new Error(mutation.reason)
+
+    const broken = mutation.graph.edges.find((edge) => edge.destroyed)
+    expect(broken?.points).toEqual([[103.002, 1], [103.008, 1]])
   })
 
   test('does not invent an unknown road', () => {

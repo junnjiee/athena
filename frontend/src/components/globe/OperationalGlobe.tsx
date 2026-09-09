@@ -115,7 +115,7 @@ function OperationalOverlayController({
   })
   useOperationalRoadDrawing({
     viewer,
-    active: toolMode === 'draw-road',
+    active: toolMode === 'draw-road' || toolMode === 'break-road',
     onComplete: onRoadComplete,
     onCancel: onRoadCancel,
   })
