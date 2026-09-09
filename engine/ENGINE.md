@@ -544,13 +544,14 @@ every unit against every approach. **The race remains the commander's judgement.
 ### Allocation
 
 **Coverage is the first optimisation objective.** Each axis is an inlet and
-receives its own block position, including axes in a corridor with no common choke. The allocator
-computes the ORBAT's maximum independent commitment capacity, then chooses the
-nearest force for each urgent inlet only when that choice leaves enough capacity
-to achieve the maximum. A nearby parent formation is therefore skipped when
-committing it would consume descendants needed to hold other inlets. If there is
-only one inlet, that same parent remains eligible: this is a coverage rule, not
-an echelon ceiling. Ties break on unit id, so the result is deterministic.
+receives its own block position, including axes in a corridor with no common
+choke. The allocator computes the ORBAT's maximum independent commitment
+capacity, then chooses the nearest force for each urgent inlet only when that
+choice leaves enough capacity to achieve the maximum. A nearby parent formation
+is therefore skipped when committing it would consume descendants needed to
+hold other inlets. If there is only one inlet, that same parent remains eligible:
+this is a coverage rule, not an echelon ceiling. Ties break on unit id, so the
+result is deterministic.
 
 The candidate's weapon list describes what the allocated force brings. It does
 not yet decide whether those systems defeat the reserve's platforms; matching
@@ -568,10 +569,41 @@ An S3 needs to tell *"there is nowhere to stand"* from *"we were one section
 short"*. Collapsing the two would hide the difference, and the second is a
 resourcing problem while the first is not.
 
+## Platform catalogue and weapon matching
+
+The aggressor catalogue is fixed reference data from doctrine: 13 named
+platforms with stable ids and types. BTR-90 is hard-skin light and Truck is
+soft-skin. Non-vehicle systems have no hardness rather than receiving a guessed
+one, and a name outside the catalogue resolves to nothing. Hardness is therefore
+a property of a known platform, never a field typed on a unit.
+
+Weapon matching is deterministic. Given an own-force `WeaponSystem`, target
+class, and required effect, it returns one of:
+
+- **preferred** or **acceptable** — enough recorded doctrine to count it as
+  effective;
+- **conditional** — potentially effective, but only under a named condition such
+  as flank/rear aspect or close range; it does not count until that fact exists;
+- **ineffective** — cannot create the requested effect;
+- **wasteful** — could act on the target but violates weapon economy, notably an
+  ATGM against soft skin;
+- **unknown** — the doctrine table makes no claim, which stays different from a
+  claim of ineffectiveness.
+
+This gate never calls a model and never fills a missing pairing by analogy.
+Mortar fire against fortification shows why effect is an input: it is acceptable
+for suppression and ineffective for destruction.
+
 ## HTTP surface
 
 ```
 GET  /health            -> { ok }
+GET  /v1/platform-catalogue
+                        -> [{ id, name, platform_type, hardness? }]
+
+POST /v1/weapon-target-match
+                        { weapon, target, effect }
+                        -> { weapon, target, effect, quality, conditions[], rationale }
 
 POST /v1/route-study    { area_id, graph_revision? | graph, reserves[], objectives[],
                           routes_per_pair?, max_stretch?, max_sharing?,

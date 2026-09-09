@@ -36,6 +36,33 @@ def test_health_reports_ok() -> None:
     assert client.get("/health").json() == {"ok": True}
 
 
+def test_platform_catalogue_is_available_as_reference_data() -> None:
+    response = client.get("/v1/platform-catalogue")
+
+    assert response.status_code == 200
+    by_name = {entry["name"]: entry for entry in response.json()}
+    assert by_name["BTR-90"]["hardness"] == "hard_skin_light"
+    assert by_name["Truck"]["hardness"] == "soft_skin"
+    assert by_name["DRAGON"]["hardness"] is None
+
+
+def test_weapon_target_match_is_an_explicit_deterministic_gate() -> None:
+    response = client.post(
+        "/v1/weapon-target-match",
+        json={"weapon": "LAW", "target": "hard_skin_heavy", "effect": "destroy"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "weapon": "LAW",
+        "target": "hard_skin_heavy",
+        "effect": "destroy",
+        "quality": "conditional",
+        "conditions": ["flank or rear aspect"],
+        "rationale": "light anti-armour fire requires a flank or rear aspect",
+    }
+
+
 def test_runs_a_study_over_a_supplied_graph() -> None:
     response = client.post(
         "/v1/route-study",
