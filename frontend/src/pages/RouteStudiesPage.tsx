@@ -29,6 +29,7 @@ import { useMapControls } from '../hooks/useMapControls'
 import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import {
   createOperationalArea,
+  addOperationalRoad,
   deleteOperationalArea,
   deleteRouteStudy,
   fetchOperationalArea,
@@ -42,6 +43,7 @@ import { courseEmphasis } from '../lib/courses'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
 import type { RoadIdentity } from '../lib/roads'
+import { nextRoadName } from '../lib/roadNames'
 import { computeRectangleStats } from '../lib/selectionGeometry'
 import { subscribeBattleground } from '../lib/socket'
 import { useRouteStudy } from '../state/routeStudy'
@@ -658,6 +660,36 @@ export function RouteStudiesPage() {
     }
   }
 
+  async function addRoad(points: LonLat[]) {
+    if (!area || roadSaving) return
+    const name = nextRoadName(area.roadTheme, Object.values(area.roadEdits).map((edit) => edit.name))
+    if (!name) {
+      setRoadError('The selected call-sign theme is exhausted.')
+      setToolMode('navigate')
+      return
+    }
+    setRoadSaving(true)
+    setRoadError(null)
+    try {
+      const result = await addOperationalRoad(
+        area.id,
+        points.map(({ longitude, latitude }) => [longitude, latitude]),
+        { name, width: 2, dual: false, type: 'Y' },
+      )
+      replaceArea(result.meta)
+      if (study) {
+        await loadStudy(study.id)
+      } else {
+        setGraph(await fetchOperationalGraph(area.id, result.meta.currentRevision))
+      }
+    } catch (error: unknown) {
+      setRoadError(error instanceof Error ? error.message : 'failed to add road')
+    } finally {
+      setRoadSaving(false)
+      setToolMode('navigate')
+    }
+  }
+
   const extentValid = selection !== null &&
     selection.stats.widthMeters >= OPERATIONAL_MIN_EXTENT_METERS &&
     selection.stats.heightMeters >= OPERATIONAL_MIN_EXTENT_METERS
@@ -683,10 +715,12 @@ export function RouteStudiesPage() {
   const toolHint =
     toolMode === 'select-area'
       ? 'Drag a rectangle between 10 and 50 km per side. Esc to cancel.'
-      : toolMode === 'place-reserve'
+        : toolMode === 'place-reserve'
         ? 'Click inside the black boundary to place an enemy reserve. Esc when done.'
         : toolMode === 'draw-objective-area'
           ? 'Drag a box over the objective inside the black boundary. Esc when done.'
+          : toolMode === 'draw-road'
+            ? 'Click the two road endpoints near existing junctions. Esc to cancel.'
           : toolMode === 'place-orbat-unit'
             ? 'Click inside the black boundary to place a unit of your force. Esc when done.'
             : null
@@ -738,6 +772,8 @@ export function RouteStudiesPage() {
           onObjectiveAreaFinalize={handleObjectiveArea}
           onViewerReady={handleViewerReady}
           onPlace={handlePlace}
+          onRoadComplete={(points) => void addRoad(points)}
+          onRoadCancel={() => setToolMode('navigate')}
         />
       </div>
 
@@ -892,6 +928,9 @@ export function RouteStudiesPage() {
               onSetTheme={setRoadTheme}
               onEditRoad={editRoad}
               onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
+              drawingRoad={toolMode === 'draw-road'}
+              canMutateGraph
+              onBeginAdd={() => setToolMode('draw-road')}
               onLocate={locateRoad}
             />
           </div>
@@ -1007,6 +1046,9 @@ export function RouteStudiesPage() {
                   onSetTheme={setRoadTheme}
                   onEditRoad={editRoad}
                   onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
+                  drawingRoad={toolMode === 'draw-road'}
+                  canMutateGraph={!study.stale}
+                  onBeginAdd={() => setToolMode('draw-road')}
                   onLocate={locateRoad}
                 />
               )}

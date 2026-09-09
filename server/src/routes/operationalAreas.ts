@@ -15,7 +15,7 @@ import {
   persistOperationalGraphRevision,
   updateOperationalRoadSettings,
 } from '../services/operationalAreaStore'
-import { setRoadDestroyed } from '../services/graphMutations'
+import { addRoad, setRoadDestroyed } from '../services/graphMutations'
 
 const areaBody = z
   .object({
@@ -46,6 +46,18 @@ export const roadSettingsBody = z
   })
 
 export const roadStateBody = z.object({ destroyed: z.boolean() })
+
+export const addRoadBody = z.object({
+  points: z
+    .array(z.tuple([z.number().gte(-180).lte(180), z.number().gte(-85).lte(85)]))
+    .min(2)
+    .max(64),
+  roadClass: z.enum([
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential',
+    'unclassified', 'service', 'living_street', 'track',
+  ]).default('unclassified'),
+  roadEdit: roadEdit.optional(),
+})
 
 export function registerOperationalAreaRoutes(
   app: FastifyInstance,
@@ -119,6 +131,40 @@ export function registerOperationalAreaRoutes(
         return reply.status(409).send({ error: 'road graph changed; reload and retry' })
       }
       return { meta, changed: true }
+    },
+  )
+
+  app.post<{ Params: { id: string } }>(
+    '/api/operational-area/:id/graph/roads',
+    async (req, reply) => {
+      const parsed = addRoadBody.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+      }
+      const stored = await loadOperationalArea(req.params.id)
+      if (!stored) return reply.status(404).send({ error: 'unknown operational area' })
+      const outside = parsed.data.points.some(
+        ([lon, lat]) =>
+          lon < stored.meta.bbox.west || lon > stored.meta.bbox.east ||
+          lat < stored.meta.bbox.south || lat > stored.meta.bbox.north,
+      )
+      if (outside) return reply.status(400).send({ error: 'road points must stay inside the AO' })
+
+      const mutation = addRoad(stored.graph, parsed.data.points, parsed.data.roadClass)
+      if (!mutation.ok) return reply.status(400).send({ error: mutation.reason })
+      const roadEdits = parsed.data.roadEdit
+        ? { ...stored.meta.roadEdits, [String(mutation.wayId)]: parsed.data.roadEdit }
+        : stored.meta.roadEdits
+      const meta = await persistOperationalGraphRevision(
+        req.params.id,
+        stored.meta.currentRevision,
+        mutation.graph,
+        roadEdits,
+      )
+      if (!meta) {
+        return reply.status(409).send({ error: 'road graph changed; reload and retry' })
+      }
+      return reply.status(201).send({ meta, wayId: mutation.wayId })
     },
   )
 

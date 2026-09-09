@@ -132,6 +132,7 @@ export interface RouteStudy {
 export type OperationalToolMode =
   | 'navigate'
   | 'select-area'
+  | 'draw-road'
   | 'place-reserve'
   /** Objectives are dragged as ground. A drag too small to be ground is taken
    *  as a click and stored as a point, so a bridge is still one mark. */

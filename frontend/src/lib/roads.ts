@@ -1,7 +1,7 @@
 import type { RoadGraph } from '../types/routeStudy'
 
 export interface RoadIdentity {
-  /** OSM way id today; deliberately separate from segment ids. */
+  /** Positive OSM id or negative synthetic id; deliberately separate from segments. */
   id: string
   wayId: number
   osmName: string | null

@@ -205,7 +205,7 @@ export interface GraphNode {
 }
 
 export interface GraphEdge {
-  /** `wayId:startIndex` — derived, so a rebuild of unchanged ground reproduces it. */
+  /** OSM edges use `wayId:startIndex`; operator-added edges use `added:N:index`. */
   id: string
   wayId: number
   from: number

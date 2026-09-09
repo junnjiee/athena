@@ -14,6 +14,7 @@ import type {
   Preferences,
   RankedCourses,
   RankingWeights,
+  RoadEdit,
   RoadGraph,
   RouteStudy,
   RouteStudySummary,
@@ -218,6 +219,20 @@ export async function updateOperationalRoadState(
   if (!res.ok) throw new Error(await readError(res))
   const body = (await res.json()) as { meta: OperationalAreaMeta }
   return body.meta
+}
+
+export async function addOperationalRoad(
+  id: string,
+  points: [number, number][],
+  roadEdit: RoadEdit,
+): Promise<{ meta: OperationalAreaMeta; wayId: number }> {
+  const res = await fetch(`/api/operational-area/${id}/graph/roads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ points, roadClass: 'unclassified', roadEdit }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as { meta: OperationalAreaMeta; wayId: number }
 }
 
 /** Drops the area and every study routed over it — a study without its graph
