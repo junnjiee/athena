@@ -6,10 +6,13 @@ interface OverpassGeomPoint {
   lon: number
 }
 
-interface OverpassElement {
+export interface OverpassElement {
   type: 'way' | 'relation' | 'node'
   id: number
   tags?: Record<string, string>
+  lat?: number
+  lon?: number
+  center?: OverpassGeomPoint
   geometry?: OverpassGeomPoint[]
   members?: { type: string; role: string; geometry?: OverpassGeomPoint[] }[]
 }

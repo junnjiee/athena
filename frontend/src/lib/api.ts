@@ -168,6 +168,30 @@ export async function fetchPlan(id: string): Promise<SavedPlan> {
 // reserve could reinforce along. Distinct from a battleground, which is the
 // tactical 800 m grid a plan is drawn on.
 
+export interface PlaceLookupResult {
+  name: string
+  kind: 'city' | 'town' | 'village' | 'hamlet' | 'borough' | 'suburb' | 'quarter' | 'neighbourhood'
+  longitude: number
+  latitude: number
+  distanceMeters: number
+}
+
+export async function lookupNearestPlace(
+  longitude: number,
+  latitude: number,
+  radiusMeters: number,
+): Promise<PlaceLookupResult | null> {
+  const query = new URLSearchParams({
+    longitude: String(longitude),
+    latitude: String(latitude),
+    radiusMeters: String(Math.round(radiusMeters)),
+  })
+  const res = await fetch(`/api/places/nearest?${query}`)
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { place: PlaceLookupResult | null }
+  return body.place
+}
+
 export async function createOperationalArea(bbox: BBoxDeg, name: string): Promise<string> {
   const res = await fetch('/api/operational-area', {
     method: 'POST',

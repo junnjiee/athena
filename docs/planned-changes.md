@@ -61,9 +61,13 @@ underlying domain type is `OperationalAreaMeta` (frontend types, server
 
 ### Step 1 — declare the AO
 
-- **Auto-title the AO from location data.** No geocoding exists server-side
-  today. Needs a place lookup — see *Shared capability* below.
-- **Highlight the AO name input** so it reads as the field awaiting input.
+- ~~**Auto-title the AO from location data.**~~ **Done** — the finalized AO
+  selection resolves its nearest named OSM locality through the shared
+  server-side place lookup. The suggestion fills only an untouched input, so
+  an operator's typed name always wins.
+- ~~**Highlight the AO name input** so it reads as the field awaiting input.~~
+  **Done** — the selected-ground form now presents a focused, accented field
+  with lookup progress in its placeholder.
 - **Once the area is declared, black out everything but the AO.** The globe
   ceases to exist outside the selected portion — the Battlefield tab's
   behaviour. **This already exists and is directly reusable:**
@@ -464,14 +468,17 @@ be conflated — rifles do not become effective against armour by being numerous
 
 ## Shared capability: place lookup
 
-No geocoding exists server-side today. Three consumers, one build:
+A server-side, Overpass-backed named-place lookup now exists. It returns the
+nearest named settlement/locality plus its `place=*` kind, coordinates, and
+distance, giving all three consumers one vocabulary:
 
 1. A (Step 1) — auto-title the AO from location data
 2. C — the IVO / locality field on reserves
 3. E — resolving location references extracted from documents
 
-Options not yet weighed: Overpass place query (we already talk to Overpass),
-Cesium Ion geocoder client-side, or Nominatim.
+Implemented with a bounded Overpass `place=*` query, reusing the existing
+identified mirror pool and failure handling. AO titles are the first consumer;
+the reserve IVO and document-location consumers remain to be wired.
 
 ---
 
