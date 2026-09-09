@@ -25,6 +25,7 @@ import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
 import { OrbatPanel } from '../components/panels/OrbatPanel'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { useMapControls } from '../hooks/useMapControls'
+import { applyGlobeClipping, clearGlobeClipping } from '../lib/clipping'
 import {
   createOperationalArea,
   deleteOperationalArea,
@@ -211,11 +212,11 @@ export function RouteStudiesPage() {
     zoomIn,
     zoomOut,
     resetNorth,
-    toggleSceneMode,
+    tilt,
+    pitchDegrees,
     setSelectionZoomCap,
     clearSelectionZoomCap,
     flyToPositions,
-    is3D,
   } = useMapControls()
 
   const lines = useMemo(
@@ -294,7 +295,9 @@ export function RouteStudiesPage() {
   function frameArea(nextArea: OperationalAreaMeta) {
     const rectangle = rectangleFor(nextArea)
     setSelectionZoomCap(rectangle)
-    getViewer()?.camera.setView({ destination: withFramingMargin(rectangle) })
+    const viewer = getViewer()
+    if (viewer) applyGlobeClipping(viewer, rectangle)
+    viewer?.camera.setView({ destination: withFramingMargin(rectangle) })
   }
 
   function cancelAreaGeneration() {
@@ -368,6 +371,8 @@ export function RouteStudiesPage() {
     setAreaSteps(freshAreaSteps())
     setResetToken((value) => value + 1)
     clearSelectionZoomCap()
+    const viewer = getViewer()
+    if (viewer) clearGlobeClipping(viewer)
     setToolMode('select-area')
   }
 
@@ -941,9 +946,9 @@ export function RouteStudiesPage() {
 
       <div className="pointer-events-auto absolute right-4 bottom-4 z-30">
         <MapControls
-          is3D={is3D}
           onResetNorth={resetNorth}
-          onToggleSceneMode={toggleSceneMode}
+          pitchDegrees={pitchDegrees}
+          onTilt={tilt}
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           toolMode={toolMode}

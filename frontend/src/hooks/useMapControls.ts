@@ -48,6 +48,43 @@ export function useMapControls() {
     if (viewer) viewer.scene.screenSpaceCameraController.maximumZoomDistance = Number.POSITIVE_INFINITY
   }, [])
 
+  // Straight down. The planning surface reads as a map, and every tilt is a
+  // deliberate departure from that rather than wherever the camera drifted to.
+  const [pitchDegrees, setPitchDegrees] = useState(-90)
+
+  /** Orbits the camera around the ground at screen centre.
+   *
+   *  Not `setView` with a new pitch: that pivots the camera where it stands, so
+   *  from straight down the ground swings out of frame entirely. Orbiting the
+   *  point already being looked at is what makes this read as leaning over the
+   *  map rather than turning away from it.
+   *
+   *  Cesium's true 2D mode is orthographic and cannot tilt at all, which is why
+   *  the surface stays in the 3D scene and simply looks straight down instead. */
+  const tilt = useCallback((deltaDegrees: number) => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+    const { camera, scene } = viewer
+
+    const canvas = scene.canvas
+    const screenCenter = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2)
+    const centered = camera.pickEllipsoid(screenCenter, scene.globe.ellipsoid)
+    if (!centered) return
+
+    setPitchDegrees((current) => {
+      const next = Math.min(-5, Math.max(-90, current + deltaDegrees))
+      const range = Cesium.Cartesian3.distance(camera.positionWC, centered)
+      camera.lookAt(
+        centered,
+        new Cesium.HeadingPitchRange(camera.heading, Cesium.Math.toRadians(next), range),
+      )
+      // Release the reference frame, or every later pan orbits this point
+      // instead of moving over the ground.
+      camera.lookAtTransform(Cesium.Matrix4.IDENTITY)
+      return next
+    })
+  }, [])
+
   const resetNorth = useCallback(() => {
     const viewer = viewerRef.current
     if (!viewer) return
@@ -150,6 +187,8 @@ export function useMapControls() {
     zoomIn,
     zoomOut,
     resetNorth,
+    tilt,
+    pitchDegrees,
     toggleSceneMode,
     toggleSatellite,
     toggleElevation,
