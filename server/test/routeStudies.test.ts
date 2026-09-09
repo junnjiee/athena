@@ -1,14 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  blockInputsForRoutes,
   coursesRemainGrounded,
   corridorsForCourseAssessment,
   needsResearch,
   objectiveMarkSchema,
   reconcileCourseState,
   reconcileIntentWithObjectives,
+  reserveBlockInputsChanged,
   reserveMarkSchema,
 } from '../src/routes/routeStudies'
-import type { RankedCourses, StudyMarks, StudyResult } from '../src/db/studyTypes'
+import type { BlockPlan, RankedCourses, StudyMarks, StudyResult } from '../src/db/studyTypes'
 
 const MARKS: StudyMarks = {
   reserves: [{ id: 'r1', name: 'Assembly', lon: 0, lat: 0 }],
@@ -343,5 +345,114 @@ describe('rerouted course reconciliation', () => {
       courses: [{ ...courses.courses[0], efforts: [] }],
     }
     expect(coursesRemainGrounded(empty, result)).toBe(false)
+  })
+})
+
+describe('rerouted block-plan inputs', () => {
+  const plan: BlockPlan = {
+    inlets: [{
+      inlet_id: 'inlet_live',
+      corridor_id: 'cor_old',
+      inlet_number: 1,
+      reserve_id: 'r1',
+      objective_id: 'o1',
+      edge_ids: ['edge_a', 'edge_b'],
+      movement_seconds: 120,
+      candidates: [],
+    }, {
+      inlet_id: 'inlet_stale',
+      corridor_id: 'cor_old',
+      inlet_number: 2,
+      reserve_id: 'r1',
+      objective_id: 'o2',
+      edge_ids: ['edge_c'],
+      movement_seconds: 180,
+      candidates: [],
+    }],
+    allocation: [],
+    unblockable: [],
+    uncovered: [],
+    sealing: [],
+    block_points: [
+      { inlet_id: 'inlet_live', lon: 1, lat: 2, enemy_movement_seconds: 60, snap_distance_meters: 3 },
+      { inlet_id: 'inlet_stale', lon: 3, lat: 4, enemy_movement_seconds: 90, snap_distance_meters: 5 },
+    ],
+    delay_assessments: [
+      { inlet_id: 'inlet_live', unit_id: 'unit1', delay_minutes: 30 },
+      { inlet_id: 'inlet_stale', unit_id: 'unit2', delay_minutes: 40 },
+    ],
+    block_establishments: [
+      {
+        inlet_id: 'inlet_live', unit_id: 'unit1', block_point_lon: 1,
+        block_point_lat: 2, established_minutes: 20,
+      },
+      {
+        inlet_id: 'inlet_stale', unit_id: 'unit2', block_point_lon: 3,
+        block_point_lat: 4, established_minutes: 25,
+      },
+    ],
+  }
+  const rerouted: StudyResult = {
+    corridors: [{
+      id: 'cor_new',
+      routes: [{
+        reserve_id: 'r1', objective_id: 'o1', edge_ids: ['edge_a', 'edge_b'],
+        node_ids: [1, 2, 3], seconds: 120, length_meters: 200,
+      }],
+      choke_edge_ids: [],
+      fastest_seconds: 120,
+    }],
+    unreachable: [],
+  }
+
+  test('retains inputs for an exact route even when corridors regroup', () => {
+    expect(blockInputsForRoutes(plan, rerouted)).toEqual({
+      blockPoints: [{ inlet_id: 'inlet_live', lon: 1, lat: 2 }],
+      delayAssessments: [{ inlet_id: 'inlet_live', unit_id: 'unit1', delay_minutes: 30 }],
+      blockEstablishments: [{
+        inlet_id: 'inlet_live', unit_id: 'unit1', block_point_lon: 1,
+        block_point_lat: 2, established_minutes: 20,
+      }],
+    })
+  })
+
+  test('drops inputs when any part of the stable route identity changes', () => {
+    const changed: StudyResult = {
+      ...rerouted,
+      corridors: [{
+        ...rerouted.corridors[0],
+        routes: [{ ...rerouted.corridors[0].routes[0], edge_ids: ['edge_a', 'edge_d'] }],
+      }],
+    }
+    expect(blockInputsForRoutes(plan, changed)).toEqual({
+      blockPoints: [],
+      delayAssessments: [],
+      blockEstablishments: [],
+    })
+  })
+
+  test('cannot carry inlet-bound inputs from a legacy corridor-only plan', () => {
+    expect(blockInputsForRoutes({ ...plan, inlets: undefined }, rerouted)).toEqual({
+      blockPoints: [],
+      delayAssessments: [],
+      blockEstablishments: [],
+    })
+  })
+
+  test('reserve scenario edits require recalculation even when routing does not', () => {
+    const retimed: StudyMarks = {
+      ...MARKS,
+      reserves: [{ ...MARKS.reserves[0], timing: { readiness_minutes: 15 } }],
+    }
+    expect(reserveBlockInputsChanged(MARKS, retimed)).toBe(true)
+    expect(reserveBlockInputsChanged(MARKS, { ...MARKS })).toBe(false)
+  })
+
+  test('objective-only edits do not recalculate a block plan unless they reroute', () => {
+    const renamed: StudyMarks = {
+      ...MARKS,
+      objectives: [{ ...MARKS.objectives[0], name: 'Crossing' }],
+    }
+    expect(reserveBlockInputsChanged(MARKS, renamed)).toBe(false)
   })
 })

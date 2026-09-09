@@ -5,8 +5,12 @@ import { z } from 'zod'
 import { db } from '../db/client'
 import { courseFeedback, rankingWeights, routeStudies } from '../db/schema'
 import type {
+  BlockEstablishmentInput,
+  BlockPlan,
+  BlockPointInput,
   CorridorEdit,
   CourseCorridor,
+  DelayAssessmentInput,
   EnemyIntent,
   Orbat,
   RankedCourses,
@@ -110,6 +114,47 @@ export function reconcileCourseState(
     intent: reconciledIntent,
     courses: intentChanged || !coursesRemainGrounded(courses, result) ? null : courses,
   }
+}
+
+function inletRouteKey(reserveId: string, objectiveId: string, edgeIds: string[]): string {
+  return JSON.stringify([reserveId, objectiveId, edgeIds])
+}
+
+/** Keep operator inputs only for route identities that survived a rerun.
+ *  Inlet identity deliberately ignores corridor regrouping. */
+export function blockInputsForRoutes(
+  plan: BlockPlan,
+  result: StudyResult,
+): {
+  blockPoints: BlockPointInput[]
+  delayAssessments: DelayAssessmentInput[]
+  blockEstablishments: BlockEstablishmentInput[]
+} {
+  const liveRoutes = new Set(
+    result.corridors.flatMap((corridor) => corridor.routes.map((route) => (
+      inletRouteKey(route.reserve_id, route.objective_id, route.edge_ids)
+    ))),
+  )
+  const liveInletIds = new Set(
+    (plan.inlets ?? [])
+      .filter((inlet) => liveRoutes.has(
+        inletRouteKey(inlet.reserve_id, inlet.objective_id, inlet.edge_ids),
+      ))
+      .map((inlet) => inlet.inlet_id),
+  )
+  return {
+    blockPoints: (plan.block_points ?? [])
+      .filter((point) => liveInletIds.has(point.inlet_id))
+      .map(({ inlet_id, lon, lat }) => ({ inlet_id, lon, lat })),
+    delayAssessments: (plan.delay_assessments ?? [])
+      .filter((assessment) => liveInletIds.has(assessment.inlet_id)),
+    blockEstablishments: (plan.block_establishments ?? [])
+      .filter((assessment) => liveInletIds.has(assessment.inlet_id)),
+  }
+}
+
+export function reserveBlockInputsChanged(current: StudyMarks, next: StudyMarks): boolean {
+  return JSON.stringify(current.reserves) !== JSON.stringify(next.reserves)
 }
 
 const markBoundsSchema = z.object({
@@ -485,23 +530,44 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       parsed.data.corridorEdits ?? row.corridorEdits
 
     let result = row.result
+    let blockPlan = row.blockPlan
     const research = needsResearch(row, parsed.data, currentGraphRevision)
-    if (research) {
+    const replanBlocks = blockPlan !== null && (
+      research || reserveBlockInputsChanged(row.marks, marks)
+    )
+    if (research || replanBlocks) {
       try {
-        result = await runRouteStudy({
-          areaId: row.areaId,
-          graphRevision: currentGraphRevision,
-          marks,
-          excludedEdgeIds: edgeOverrides,
-        })
-        if (row.graphRevision !== currentGraphRevision) {
-          corridorEdits = reattachCorridorEdits(
-            row.result,
-            result,
-            corridorEdits,
-            row.graphRevision,
-            currentGraphRevision,
-          )
+        if (research) {
+          result = await runRouteStudy({
+            areaId: row.areaId,
+            graphRevision: currentGraphRevision,
+            marks,
+            excludedEdgeIds: edgeOverrides,
+          })
+          if (row.graphRevision !== currentGraphRevision) {
+            corridorEdits = reattachCorridorEdits(
+              row.result,
+              result,
+              corridorEdits,
+              row.graphRevision,
+              currentGraphRevision,
+            )
+          }
+        }
+        if (replanBlocks && blockPlan) {
+          if (!row.orbat) {
+            blockPlan = null
+          } else {
+            const retained = blockInputsForRoutes(blockPlan, result)
+            blockPlan = await runBlockForces({
+              areaId: row.areaId,
+              graphRevision: research ? currentGraphRevision : row.graphRevision,
+              corridors: result.corridors,
+              orbat: row.orbat,
+              reserves: marks.reserves,
+              ...retained,
+            })
+          }
         }
       } catch (error: unknown) {
         if (error instanceof EngineUnavailableError) {
@@ -523,6 +589,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         result,
         graphRevision: research ? currentGraphRevision : row.graphRevision,
         corridorEdits,
+        blockPlan,
         intent,
         courses,
         updatedAt: new Date(),
@@ -540,11 +607,10 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       edgeOverrides,
       result,
       corridorEdits,
-      // Force allocation is independent of presentation-only edits. A reroute
-      // also reconciles intent and retains a saved S2 assessment only while all
-      // of its exact routed combinations still exist.
+      // Presentation-only edits retain both passes. A reroute recalculates the
+      // block plan from current inlets and reconciles the saved S2 assessment.
       orbat: row.orbat,
-      blockPlan: row.blockPlan,
+      blockPlan,
       intent,
       courses,
     }
@@ -555,8 +621,8 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
    *
    *  Kept off the study's own PUT because the ORBAT is a separate question from
    *  the ground: changing which force is available must not re-run the route
-   *  search, and changing the ground must not silently invalidate an
-   *  allocation the commander is reading. */
+   *  search. A later ground change recomputes this pass from the retained ORBAT
+   *  and any operator inputs whose exact inlet route survived. */
   app.post<{ Params: { id: string } }>(
     '/api/route-study/:id/block-forces',
     async (req, reply) => {

@@ -549,6 +549,19 @@ could block every axis/inlet. The corridors are **passed in rather than
 re-derived**, so the answer is against the operator's current picture — including
 corridors they have already blocked — rather than a possibly different set.
 
+A saved block plan remains bound to those routed inlets. When a study reruns,
+the server recalculates the whole block pass from the retained ORBAT and current
+corridors, so distances, urgency, allocation, sealing, and reaction timing all
+describe the new ground. An inlet's stable identity is its reserve, objective,
+and ordered edge sequence, independent of corridor regrouping. Operator block
+points, delay assessments, and establishment assessments are carried into the
+recalculation only for identities that survive exactly; the engine then applies
+its normal allocation and point checks again. Inputs on routes that disappeared
+are dropped rather than attached to different ground. Legacy corridor-only plans
+have no inlet identity with which to carry an input. Changes to the saved reserve
+scenario also trigger this recalculation even when the route ground itself stays
+fixed, because composition and timing feed sealing and reaction outcomes.
+
 ### Distance is not time
 
 The engine **does not model arrival**. Candidates for an inlet are ordered by
