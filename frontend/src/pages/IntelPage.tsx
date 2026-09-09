@@ -5,6 +5,7 @@ import { useBattleground } from '../state/battleground'
 import { usePlan } from '../state/plan'
 import { buildTerrainBrief, computeViewshed } from '../lib/intel'
 import { TERRAIN_CLASS } from '../types/terrain'
+import { useRailOffset } from '../state/shell'
 
 /** Ranges a commander would actually ask about, metres. */
 const VIEWSHED_RANGES = [200, 400, 800] as const
@@ -39,6 +40,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export function IntelPage() {
+  const railOffset = useRailOffset()
   const grid = useBattleground((s) => s.grid)
   const meta = useBattleground((s) => s.meta)
   const units = usePlan((s) => s.units)
@@ -57,7 +59,7 @@ export function IntelPage() {
     return (
       <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
         <Sidebar />
-        <div className="absolute top-4 right-4 bottom-4 left-60">
+        <div className={`absolute top-4 right-4 bottom-4 ${railOffset}`}>
           <div className="glass-deep flex h-full flex-col rounded-2xl p-6">
             <div className="mb-4 flex items-center gap-2 text-sm tracking-wide text-(--text-dim)">
               <Radar className="h-4 w-4" strokeWidth={1.75} />
@@ -76,7 +78,7 @@ export function IntelPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
       <Sidebar />
-      <div className="absolute top-4 right-4 bottom-4 left-60">
+      <div className={`absolute top-4 right-4 bottom-4 ${railOffset}`}>
         <div className="glass-deep flex h-full flex-col rounded-2xl p-6">
           <div className="mb-1 flex items-center gap-2 text-sm tracking-wide text-(--text-dim)">
             <Radar className="h-4 w-4" strokeWidth={1.75} />

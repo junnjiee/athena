@@ -4,6 +4,7 @@ import { useOrbat } from '../state/orbat'
 import { LOAD_PRESETS, type LoadPreset } from '../types/movement'
 import { STRENGTH_RANGE, VISION_RANGE_M, type Echelon, type UnitTemplate } from '../types/orbat'
 import type { ForceSide } from '../types/entities'
+import { useRailOffset } from '../state/shell'
 
 type Preset = Exclude<LoadPreset, 'custom'>
 
@@ -98,6 +99,7 @@ function TemplateRow({ template }: { template: UnitTemplate }) {
 }
 
 export function UnitsPage() {
+  const railOffset = useRailOffset()
   const templates = useOrbat((s) => s.templates)
   const addTemplate = useOrbat((s) => s.addTemplate)
   const resetToDefaults = useOrbat((s) => s.resetToDefaults)
@@ -121,7 +123,7 @@ export function UnitsPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
       <Sidebar />
-      <div className="absolute top-4 right-4 bottom-4 left-60">
+      <div className={`absolute top-4 right-4 bottom-4 ${railOffset}`}>
         <div className="glass-deep flex h-full flex-col rounded-2xl p-6">
           <div className="mb-2 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-sm tracking-wide text-(--text-dim)">
