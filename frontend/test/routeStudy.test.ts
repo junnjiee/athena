@@ -25,8 +25,26 @@ describe('placing marks', () => {
   })
 
   test('an explicit name wins over the fallback', () => {
-    store().addMark('reserve', 0, 0, 'Depot')
+    store().addMark('reserve', 0, 0, { name: 'Depot' })
     expect(store().draftMarks.reserves[0].name).toBe('Depot')
+  })
+
+  test('an objective drawn as ground keeps its bounds', () => {
+    const bbox = { west: 1, south: 2, east: 3, north: 4 }
+    store().addMark('objective', 2, 3, { bbox })
+    expect(store().draftMarks.objectives[0].bbox).toEqual(bbox)
+  })
+
+  test('an objective clicked as a point carries no bounds', () => {
+    store().addMark('objective', 2, 3)
+    expect(store().draftMarks.objectives[0].bbox).toBeUndefined()
+  })
+
+  test('the mark just placed is the one the panel calls out', () => {
+    store().addMark('reserve', 0, 0)
+    expect(store().lastMarkId).toBe(store().draftMarks.reserves[0].id)
+    store().clearLastMark()
+    expect(store().lastMarkId).toBeNull()
   })
 
   test('marks get distinct ids', () => {
@@ -37,8 +55,8 @@ describe('placing marks', () => {
   })
 
   test('removing one leaves the others alone', () => {
-    store().addMark('reserve', 0, 0, 'Keep')
-    store().addMark('reserve', 1, 1, 'Drop')
+    store().addMark('reserve', 0, 0, { name: 'Keep' })
+    store().addMark('reserve', 1, 1, { name: 'Drop' })
     store().removeMark('reserve', store().draftMarks.reserves[1].id)
     expect(store().draftMarks.reserves.map((m) => m.name)).toEqual(['Keep'])
   })

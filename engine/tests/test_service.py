@@ -312,6 +312,51 @@ def test_no_corridors_returns_no_courses_without_a_model_call() -> None:
     assert response.json()["courses"] == []
 
 
+def test_the_real_model_call_survives_the_endpoint() -> None:
+    """The generator every other test here replaces.
+
+    Those stubs are plain functions, so they never reach the one line that
+    actually talks to pydantic-ai -- and that line drives its own event loop,
+    which an `async def` handler would already be running. Pinning the real
+    generator to an offline model exercises the endpoint's plumbing without a
+    key or a network, which is the only way this class of failure shows up
+    before an operator finds it.
+    """
+    from pydantic_ai.models.test import TestModel
+
+    from athena.eca import model_generator
+    from athena.service import get_course_generator
+
+    app.dependency_overrides[get_course_generator] = lambda: model_generator(TestModel())
+    try:
+        response = client.post("/v1/enemy-courses-of-action", json=courses_request())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+def test_no_model_configured_is_unavailable_not_a_server_error() -> None:
+    """A deployment nobody gave a key to must say so, not fall over."""
+    from athena.eca import NotConfiguredError
+    from athena.service import get_course_generator
+
+    def unconfigured():
+        def generator(system: str, prompt: str):
+            raise NotConfiguredError("set ATHENA_MODEL and PROVIDER_API_KEY")
+
+        return generator
+
+    app.dependency_overrides[get_course_generator] = unconfigured
+    try:
+        response = client.post("/v1/enemy-courses-of-action", json=courses_request())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert "PROVIDER_API_KEY" in response.json()["detail"]
+
+
 # Learned ranking
 
 

@@ -6,6 +6,10 @@ export interface Mark {
   name: string
   lon: number
   lat: number
+  /** Objectives are ground, not pins: when the operator dragged an area rather
+   *  than clicking a point, its bounds ride along and lon/lat is the centre.
+   *  The engine still routes to the centre, so this is display only. */
+  bbox?: { west: number; south: number; east: number; north: number }
 }
 
 export interface StudyMarks {

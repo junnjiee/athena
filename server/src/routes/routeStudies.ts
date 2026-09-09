@@ -25,6 +25,16 @@ const markSchema = z.object({
   name: z.string().trim().min(1).max(80),
   lon: z.number().gte(-180).lte(180),
   lat: z.number().gte(-85).lte(85),
+  /** Present when an objective was dragged as ground rather than clicked as a
+   *  point. lon/lat stays the centre, so the engine is none the wiser. */
+  bbox: z
+    .object({
+      west: z.number().gte(-180).lte(180),
+      south: z.number().gte(-85).lte(85),
+      east: z.number().gte(-180).lte(180),
+      north: z.number().gte(-85).lte(85),
+    })
+    .optional(),
 })
 
 const marksSchema = z.object({
@@ -190,6 +200,14 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       edgeOverrides: row.edgeOverrides,
       result: row.result,
       corridorEdits: row.corridorEdits,
+      // The S2 and S3 passes, null until each has been run. Returned here
+      // because a study reopened tomorrow has to show the assessment and the
+      // allocation the commander is reading, not just the ground.
+      orbat: row.orbat,
+      ceiling: row.ceiling,
+      blockPlan: row.blockPlan,
+      intent: row.intent,
+      courses: row.courses,
     }
   })
 
@@ -240,6 +258,14 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       edgeOverrides,
       result,
       corridorEdits,
+      // Untouched by this route, and returned so a client that replaces its
+      // study with the response does not lose an assessment or an allocation
+      // to a rename.
+      orbat: row.orbat,
+      ceiling: row.ceiling,
+      blockPlan: row.blockPlan,
+      intent: row.intent,
+      courses: row.courses,
     }
   })
 

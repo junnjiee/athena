@@ -4,12 +4,21 @@ import type { PlacedObjective, PlacedRoute, PlacedUnit } from '../types/entities
 import type { PlanSummary, SavedPlan } from '../types/plan'
 import type { Forecast } from '../types/forecast'
 import type {
+  BlockPlan,
   CorridorEdit,
+  CourseFeedbackResult,
+  Echelon,
+  EnemyIntent,
   OperationalAreaMeta,
+  Orbat,
+  Preferences,
+  RankedCourses,
+  RankingWeights,
   RoadGraph,
   RouteStudy,
   RouteStudySummary,
   StudyMarks,
+  Verdict,
 } from '../types/routeStudy'
 
 async function readError(res: Response): Promise<string> {
@@ -182,6 +191,15 @@ export async function fetchOperationalArea(id: string): Promise<OperationalAreaM
   return body.meta
 }
 
+/** Drops the area and every study routed over it — a study without its graph
+ *  cannot be reopened, so the two go together. Returns how many went with it. */
+export async function deleteOperationalArea(id: string): Promise<number> {
+  const res = await fetch(`/api/operational-area/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { deletedStudies: number }
+  return body.deletedStudies
+}
+
 /** The graph endpoint serves the stored gzip bytes directly. A browser does
  *  not unpack application/gzip automatically unless Content-Encoding is set,
  *  so detect the gzip signature before parsing. */
@@ -220,11 +238,21 @@ export async function createRouteStudy(payload: {
   // Create returns the engine result and identifiers; marks/overrides are the
   // request payload the server just persisted, so keep them on the client-side
   // study shape without an unnecessary follow-up GET.
-  const body = (await res.json()) as Omit<RouteStudy, 'marks' | 'edgeOverrides'>
+  const body = (await res.json()) as Pick<
+    RouteStudy,
+    'id' | 'areaId' | 'name' | 'result' | 'corridorEdits'
+  >
   return {
     ...body,
     marks: payload.marks,
     edgeOverrides: payload.edgeOverrides ?? [],
+    // A new study has had neither pass run over it yet. Explicit nulls rather
+    // than absent fields, so "not assessed" never reads as "nothing found".
+    orbat: null,
+    ceiling: null,
+    blockPlan: null,
+    intent: null,
+    courses: null,
   }
 }
 
@@ -263,4 +291,69 @@ export async function updateRouteStudy(
 export async function deleteRouteStudy(id: string): Promise<void> {
   const res = await fetch(`/api/route-study/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+/** Runs the S2 pass: how this enemy would use the corridors already found.
+ *
+ *  The one call in the app that reaches a model, and the slowest by far — the
+ *  caller is expected to show that something is thinking. */
+export async function runEnemyCourses(
+  studyId: string,
+  intent: EnemyIntent,
+): Promise<{ intent: EnemyIntent; courses: RankedCourses }> {
+  const res = await fetch(`/api/route-study/${studyId}/courses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ intent }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as { intent: EnemyIntent; courses: RankedCourses }
+}
+
+/** Records a verdict on one course, and returns the weights it moved. */
+export async function sendCourseFeedback(
+  studyId: string,
+  courseName: string,
+  verdict: Verdict,
+): Promise<CourseFeedbackResult> {
+  const res = await fetch(`/api/route-study/${studyId}/courses/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ courseName, verdict }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as CourseFeedbackResult
+}
+
+/** Runs the S3 pass over the corridors this study already found. Deliberately
+ *  separate from the study's own PUT: changing the available force must not
+ *  re-run the route search. */
+export async function runBlockForces(
+  studyId: string,
+  orbat: Orbat,
+  ceiling: Echelon,
+): Promise<{ orbat: Orbat; ceiling: Echelon; blockPlan: BlockPlan }> {
+  const res = await fetch(`/api/route-study/${studyId}/block-forces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orbat, ceiling }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as { orbat: Orbat; ceiling: Echelon; blockPlan: BlockPlan }
+}
+
+/** The learned ranking weights, and how many verdicts produced them. */
+export async function fetchPreferences(): Promise<Preferences> {
+  const res = await fetch('/api/preferences')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as Preferences
+}
+
+/** Forgets everything learned. The verdict history is kept server-side: it
+ *  explains the drift that led here. */
+export async function resetPreferences(): Promise<RankingWeights> {
+  const res = await fetch('/api/preferences', { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { weights: RankingWeights }
+  return body.weights
 }

@@ -8,7 +8,7 @@ Athena lets a commander sketch a plan on real ground and see whether it works. S
 
 Area selection on the globe triggers `../server` (Fastify + Socket.IO, port 8787, proxied via Vite) which ingests DEM/OSM/weather, classifies terrain into a military grid, and streams progress; this app renders the battlefield (buildings/roads/water/trees + heatmap drapes) inside the same Cesium scene and validates drawn routes against the grid.
 
-Athena previously ran a force-on-force simulation of LLM-driven soldiers over this terrain, and this app carried the surfaces for it — a run dialog, batch scoring over SSE, and replay playback. That engine has been removed; the replacement is a planning aid for enemy reinforcement routes and block forces, specified in `../docs/superpowers/specs/2026-09-08-route-substrate-design.md`. Nothing in `src/` talks to an engine today.
+Athena previously ran a force-on-force simulation of LLM-driven soldiers over this terrain, and this app carried the surfaces for it — a run dialog, batch scoring over SSE, and replay playback. That engine has been removed; the replacement is a planning aid for enemy reinforcement routes and block forces, specified in `../docs/superpowers/specs/2026-09-08-route-substrate-design.md`. `RouteStudiesPage` is its surface: corridors over marked ground, enemy courses of action, the order of battle available today, and the block forces that could be put on each corridor. It reaches the planning engine only through `../server`, never directly.
 
 ## Commands
 

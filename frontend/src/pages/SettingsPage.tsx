@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Check, Loader2, RotateCcw, Settings as SettingsIcon, X } from 'lucide-react'
 import { Sidebar } from '../components/layout/Sidebar'
+import { WEIGHT_HINT, WEIGHT_KEYS, WEIGHT_LABEL, weightBias } from '../lib/courses'
+import { useRouteStudy } from '../state/routeStudy'
 import { useSettings, type DefaultLoadPreset } from '../state/settings'
 import { LOAD_PRESETS, MOVEMENT_ORDER, MOVEMENT_PROFILES } from '../types/movement'
 
@@ -101,9 +103,40 @@ function Choice<T extends string>({
   )
 }
 
+/** One learned weight, named in words rather than charted. A ranking nobody
+ *  can read is one nobody should trust. */
+function WeightRow({ name, weight }: { name: (typeof WEIGHT_KEYS)[number]; weight: number }) {
+  const bias = weightBias(weight)
+  return (
+    <Row label={WEIGHT_LABEL[name]} hint={WEIGHT_HINT[name]}>
+      <span
+        className={`text-xs ${
+          bias === 'neutral'
+            ? 'text-(--text-dim)'
+            : bias === 'favours'
+              ? 'text-(--accent)'
+              : 'text-amber-300'
+        }`}
+      >
+        {bias === 'neutral' ? 'Neutral' : bias === 'favours' ? 'Favoured' : 'Discounted'}
+      </span>
+      <span className="w-10 text-right text-xs tabular-nums text-(--text-h)">
+        {weight.toFixed(2)}
+      </span>
+    </Row>
+  )
+}
+
 export function SettingsPage() {
   const [statusState, setStatusState] = useState<StatusState>({ kind: 'loading' })
   const settings = useSettings()
+  const preferences = useRouteStudy((state) => state.preferences)
+  const loadPreferences = useRouteStudy((state) => state.loadPreferences)
+  const forgetPreferences = useRouteStudy((state) => state.forgetPreferences)
+
+  useEffect(() => {
+    void loadPreferences()
+  }, [loadPreferences])
 
   useEffect(() => {
     let cancelled = false
@@ -256,6 +289,46 @@ export function SettingsPage() {
               <Row label="Night overlay by default" hint="Applied when a battlefield is generated">
                 <Toggle on={settings.nightByDefault} onChange={settings.setNightByDefault} />
               </Row>
+            </Section>
+
+            <Section
+              title="LEARNED RANKING"
+              hint="Shaped by the verdicts given on enemy courses of action. One deployment's taste, not doctrine — reset it when the commander being served changes."
+            >
+              {!preferences && (
+                <div className="text-sm text-(--text-dim)">
+                  No ranking read back from the service yet.
+                </div>
+              )}
+              {preferences && (
+                <>
+                  <Row
+                    label="Verdicts recorded"
+                    hint={
+                      preferences.verdicts === 0
+                        ? 'Nothing learned — courses come back in doctrinal order'
+                        : 'The history is kept even when the weights are reset'
+                    }
+                  >
+                    <span className="text-xs tabular-nums text-(--text-h)">
+                      {preferences.verdicts}
+                    </span>
+                  </Row>
+                  {WEIGHT_KEYS.map((name) => (
+                    <WeightRow key={name} name={name} weight={preferences.weights[name]} />
+                  ))}
+                  <Row label="Forget what was learned" hint="Returns every weight to neutral">
+                    <button
+                      type="button"
+                      onClick={() => void forgetPreferences()}
+                      className="flex items-center gap-1.5 rounded-md border border-(--border) px-2.5 py-1.5 text-xs text-(--text) transition-colors hover:border-(--hostile)/40 hover:text-(--hostile)"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      Reset ranking
+                    </button>
+                  </Row>
+                </>
+              )}
             </Section>
 
             <Section title="ASSISTANT">

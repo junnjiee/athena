@@ -67,8 +67,22 @@ corridor. The single knob deciding how coarse a corridor is."""
 
 # --- Enemy courses of action -------------------------------------------------
 
-ECA_MODEL_ENV_VAR = "ATHENA_ECA_MODEL"
+ECA_MODEL_ENV_VAR = "ATHENA_MODEL"
 """Environment variable naming the model, overriding ``ECA_MODEL`` below."""
+
+ECA_API_KEY_ENV_VAR = "PROVIDER_API_KEY"
+"""Environment variable carrying the key for whichever provider is named.
+
+One variable rather than a vendor-specific one per provider. The engine takes
+no position on who reasons about enemy intent, and a variable called
+``ANTHROPIC_API_KEY`` states a position in the one place an operator has to
+look. Which vendor's client the key reaches follows from ``ECA_MODEL_ENV_VAR``
+and nothing else, so swapping provider is a change of these two lines.
+
+Left unset, key resolution falls entirely to pydantic-ai, which reads whatever
+conventional variable that provider expects. A deployment already exporting one
+keeps working untouched.
+"""
 
 ECA_MODEL = "openai:gpt-5.6-sol"
 """The model that reasons about enemy intent, as ``provider:name``.

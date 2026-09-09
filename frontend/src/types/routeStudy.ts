@@ -38,6 +38,10 @@ export interface StudyMark {
   name: string
   lon: number
   lat: number
+  /** Objectives are usually ground, not a pin. When the operator dragged an
+   *  area, its bounds ride along and lon/lat is the centre — the engine still
+   *  routes to the centre, so this only changes what is drawn. */
+  bbox?: BBoxDeg
 }
 
 export interface StudyMarks {
@@ -92,16 +96,148 @@ export interface RouteStudy {
   edgeOverrides: string[]
   result: StudyResult
   corridorEdits: Record<string, CorridorEdit>
+  /** The S3 pass. Null until block forces have been run over this study. */
+  orbat: Orbat | null
+  ceiling: Echelon | null
+  blockPlan: BlockPlan | null
+  /** The S2 pass. Null until courses of action have been assessed. */
+  intent: EnemyIntent | null
+  courses: RankedCourses | null
 }
 
 export type OperationalToolMode =
   | 'navigate'
   | 'select-area'
   | 'place-reserve'
-  | 'place-study-objective'
+  /** Objectives are dragged as ground. A drag too small to be ground is taken
+   *  as a click and stored as a point, so a bridge is still one mark. */
+  | 'draw-objective-area'
+  | 'place-orbat-unit'
 
 export type StudyMarkKind = 'reserve' | 'objective'
 
 // Short aliases used by the route-study store and panels.
 export type Mark = StudyMark
 export type MarkKind = StudyMarkKind
+
+// --- Order of battle, block forces, enemy courses of action -------------------
+//
+// Mirrors the engine's wire shapes (see engine/athena/{orbat,blocking,eca,
+// preference}.py and server/src/db/studyTypes.ts). Snake case throughout: these
+// cross the engine boundary unchanged.
+
+export type Echelon = 'company' | 'platoon' | 'section' | 'group'
+
+export type Availability = 'uncommitted' | 'committed' | 'reserve'
+
+export interface OrbatUnit {
+  unit_id: string
+  name: string
+  echelon: Echelon
+  parent_id?: string | null
+  lon: number
+  lat: number
+  strength: number
+  availability: Availability
+}
+
+export interface Orbat {
+  units: OrbatUnit[]
+}
+
+export interface BlockCandidate {
+  unit_id: string
+  unit_name: string
+  echelon: Echelon
+  strength: number
+  /** Straight-line metres to the choke point — not road distance, not time. */
+  distance_meters: number
+}
+
+export interface CorridorBlock {
+  corridor_id: string
+  choke_edge_ids: string[]
+  candidates: BlockCandidate[]
+}
+
+export interface BlockAllocation {
+  corridor_id: string
+  unit_id: string
+  unit_name: string
+  distance_meters: number
+}
+
+export interface UnblockableCorridor {
+  corridor_id: string
+  reason: string
+}
+
+export interface BlockPlan {
+  corridors: CorridorBlock[]
+  allocation: BlockAllocation[]
+  unblockable: UnblockableCorridor[]
+  uncovered: { corridor_id: string }[]
+}
+
+export type Posture = 'attacking' | 'defending' | 'delaying' | 'withdrawing' | 'unknown'
+
+export interface EnemyIntent {
+  posture: Posture
+  objective_ids: string[]
+  /** Free text as an S2 would write it; reaches the model unedited. */
+  narrative: string
+}
+
+export interface Effort {
+  kind: 'main' | 'supporting'
+  corridor_id: string
+  reserve_id: string
+  rationale: string
+}
+
+export interface CourseOfAction {
+  name: string
+  narrative: string
+  efforts: Effort[]
+  likelihood: number
+  danger: number
+}
+
+/** Ground the model named that the study does not contain. Surfaced rather
+ *  than swallowed — the assessment is a subset of what was proposed. */
+export interface RejectedReference {
+  course_name: string
+  corridor_id?: string | null
+  reserve_id?: string | null
+  reason: string
+}
+
+export interface RankedCourses {
+  courses: CourseOfAction[]
+  most_likely: CourseOfAction | null
+  most_dangerous: CourseOfAction | null
+  rejected: RejectedReference[]
+}
+
+export interface RankingWeights {
+  speed: number
+  blockable: number
+  complexity: number
+  likelihood: number
+  danger: number
+}
+
+export interface Preferences {
+  weights: RankingWeights
+  verdicts: number
+}
+
+export type Verdict = 'accepted' | 'rejected'
+
+/** What one verdict did: where the weights landed, and the feature vector of
+ *  the course that moved them. Courses have no identity across runs; features
+ *  do, which is what makes feedback attachable at all. */
+export interface CourseFeedbackResult {
+  weights: RankingWeights
+  features: RankingWeights
+}
