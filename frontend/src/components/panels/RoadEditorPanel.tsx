@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Crosshair, Loader2, RotateCcw, Search, ShieldOff, Undo2 } from 'lucide-react'
+import { Crosshair, Loader2, Plus, RotateCcw, Search, ShieldOff, Undo2 } from 'lucide-react'
 import { formatRoadCode, parseRoadCode, prefillRoadClassification } from '../../lib/roadCodes'
 import { ROAD_THEMES, nextRoadName } from '../../lib/roadNames'
 import { roadIdentities, type RoadIdentity } from '../../lib/roads'
@@ -20,6 +20,9 @@ interface Props {
   onSetTheme: (theme: RoadTheme) => void
   onEditRoad: (roadId: string, edit: RoadEdit | null) => void
   onSetDestroyed: (road: RoadIdentity, destroyed: boolean) => void
+  drawingRoad: boolean
+  canMutateGraph: boolean
+  onBeginAdd: () => void
   onLocate: (road: RoadIdentity) => void
 }
 
@@ -31,6 +34,9 @@ export function RoadEditorPanel({
   onSetTheme,
   onEditRoad,
   onSetDestroyed,
+  drawingRoad,
+  canMutateGraph,
+  onBeginAdd,
   onLocate,
 }: Props) {
   const [query, setQuery] = useState('')
@@ -57,8 +63,29 @@ export function RoadEditorPanel({
     <div className="glass flex h-full min-h-0 flex-col rounded-xl p-3">
       <div className="flex items-center justify-between text-xs tracking-wide text-(--text-dim)">
         <span>ROAD REGISTER</span>
-        <span>{roads.length.toLocaleString()} roads</span>
+        <div className="flex items-center gap-2">
+          <span>{roads.length.toLocaleString()} roads</span>
+          <button
+            type="button"
+            disabled={saving || !canMutateGraph || !nextName}
+            onClick={onBeginAdd}
+            className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] ${drawingRoad ? 'bg-(--accent) text-(--panel-bg-solid)' : 'border border-(--accent-border) text-(--accent)'} disabled:opacity-40`}
+          >
+            <Plus className="h-3 w-3" /> Add road
+          </button>
+        </div>
       </div>
+
+      {drawingRoad && (
+        <div className="mt-2 rounded-md border border-(--accent-border) bg-(--accent-bg) px-2 py-1.5 text-[10px] text-(--accent)">
+          Click two endpoints near existing junctions. Esc cancels.
+        </div>
+      )}
+      {!canMutateGraph && (
+        <div className="mt-2 text-[10px] text-amber-200/80">
+          Re-run this stale study before changing its road graph.
+        </div>
+      )}
 
       <label className="mt-2 block text-[10px] tracking-wide text-(--text-dim)">
         CALL-SIGN THEME
@@ -105,6 +132,7 @@ export function RoadEditorPanel({
               onReset={() => onEditRoad(road.id, null)}
               onLocate={() => onLocate(road)}
               onSetDestroyed={() => onSetDestroyed(road, !road.destroyed)}
+              canMutateGraph={canMutateGraph}
             />
           ) : (
             <div
@@ -132,7 +160,7 @@ export function RoadEditorPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || !canMutateGraph}
                   title={road.destroyed ? 'Restore road' : 'Mark road destroyed'}
                   aria-label={`${road.destroyed ? 'Restore' : 'Destroy'} ${road.osmName ?? `way ${road.id}`}`}
                   onClick={() => onSetDestroyed(road, !road.destroyed)}
@@ -176,6 +204,7 @@ function RoadCodeRow({
   onReset,
   onLocate,
   onSetDestroyed,
+  canMutateGraph,
 }: {
   road: RoadIdentity
   edit: RoadEdit
@@ -184,6 +213,7 @@ function RoadCodeRow({
   onReset: () => void
   onLocate: () => void
   onSetDestroyed: () => void
+  canMutateGraph: boolean
 }) {
   const formatted = formatRoadCode(edit)
   const [draft, setDraft] = useState(formatted)
@@ -208,7 +238,7 @@ function RoadCodeRow({
       <div className="flex items-center gap-1">
         <input
           value={draft}
-          disabled={saving}
+          disabled={saving || !canMutateGraph}
           aria-label={`Road code for ${road.osmName ?? `way ${road.id}`}`}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commit}

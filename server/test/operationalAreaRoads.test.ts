@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { roadSettingsBody, roadStateBody } from '../src/routes/operationalAreas'
-import { setRoadDestroyed } from '../src/services/graphMutations'
+import { addRoadBody, roadSettingsBody, roadStateBody } from '../src/routes/operationalAreas'
+import { addRoad, setRoadDestroyed } from '../src/services/graphMutations'
 import type { RoadGraph } from '../src/types'
 
 const graph: RoadGraph = {
@@ -76,5 +76,61 @@ describe('road destruction', () => {
 
   test('does not invent an unknown road', () => {
     expect(setRoadDestroyed(graph, 999, true)).toMatchObject({ found: false, changed: false })
+  })
+})
+
+describe('operator-added roads', () => {
+  const connected: RoadGraph = {
+    nodes: [
+      { id: 1, lon: 103, lat: 1, elevation: 0 },
+      { id: 2, lon: 103.01, lat: 1, elevation: 0 },
+      { id: 3, lon: 103.02, lat: 1, elevation: 0 },
+    ],
+    edges: [
+      {
+        id: '10:0', wayId: 10, from: 1, to: 2, roadClass: 'secondary',
+        nodes: [1, 2], points: [[103, 1], [103.01, 1]], lengthMeters: 1113,
+      },
+      {
+        id: '20:0', wayId: 20, from: 2, to: 3, roadClass: 'secondary',
+        nodes: [2, 3], points: [[103.01, 1], [103.02, 1]], lengthMeters: 1113,
+      },
+    ],
+  }
+
+  test('validates a drawn road and optional operator code', () => {
+    expect(addRoadBody.safeParse({ points: [[103, 1], [103.02, 1.001]] }).success).toBe(true)
+    expect(addRoadBody.safeParse({ points: [[103, 1]] }).success).toBe(false)
+  })
+
+  test('snaps endpoints and assigns collision-proof synthetic ids', () => {
+    const result = addRoad(
+      connected,
+      [[103.0001, 1], [103.01, 1.005], [103.0199, 1]],
+      'track',
+    )
+    if (!result.ok) throw new Error(result.reason)
+
+    const added = result.graph.edges.find((edge) => edge.wayId === result.wayId)!
+    expect(result.wayId).toBe(-1)
+    expect(added).toMatchObject({
+      id: 'added:1:0', wayId: -1, from: 1, to: 3, roadClass: 'track',
+      points: [[103, 1], [103.01, 1.005], [103.02, 1]],
+    })
+    expect(added.nodes[1]).toBeLessThan(0)
+  })
+
+  test('allocates a new negative identity after an earlier added road', () => {
+    const first = addRoad(connected, [[103, 1], [103.02, 1]])
+    if (!first.ok) throw new Error(first.reason)
+    const second = addRoad(first.graph, [[103, 1], [103.02, 1]])
+    expect(second.ok && second.wayId).toBe(-2)
+  })
+
+  test('refuses endpoints too far from the live network', () => {
+    expect(addRoad(connected, [[104, 2], [104.01, 2]])).toEqual({
+      ok: false,
+      reason: 'road endpoints must be within 500 m of a junction',
+    })
   })
 })

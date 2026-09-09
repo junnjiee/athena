@@ -149,6 +149,7 @@ export async function persistOperationalGraphRevision(
   id: string,
   expectedRevision: number,
   graph: RoadGraph,
+  roadEdits?: Record<string, RoadEdit>,
 ): Promise<OperationalAreaMeta | null> {
   const revision = expectedRevision + 1
   const graphBuffer = encodeGraph(graph)
@@ -170,6 +171,7 @@ export async function persistOperationalGraphRevision(
         graphBuffer,
         nodeCount: graph.nodes.length,
         edgeCount: graph.edges.length,
+        ...(roadEdits ? { roadEdits } : {}),
       })
       .where(
         and(

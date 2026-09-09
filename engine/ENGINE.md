@@ -57,6 +57,10 @@ contract reads the same from either side.
 - A destroyed edge remains in the revision with `destroyed: true`, preserving
   its axis identity for display and comparison, but is omitted from routing
   adjacency. Destruction is a terrain state, never deletion.
+- Operator-added roads snap to two live junctions and use negative road ids plus
+  `added:N:index` edge ids. OSM ids are positive, so neither identity space can
+  collide. Added edges otherwise route by the same class, grade and direction
+  rules as extracted roads.
 - Elevation lives on the **node**, so an edge's gradient is derived and signed.
 
 ### Modelling assumptions

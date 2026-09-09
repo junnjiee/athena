@@ -11,6 +11,7 @@ import { useOrbatEntities } from '../../hooks/useOrbatEntities'
 import { useBlockLinkEntities } from '../../hooks/useBlockLinkEntities'
 import { useRoadNetworkEntities } from '../../hooks/useRoadNetworkEntities'
 import { useRoadLabelEntities } from '../../hooks/useRoadLabelEntities'
+import { useOperationalRoadDrawing } from '../../hooks/useOperationalRoadDrawing'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import type { CorridorLine } from '../../lib/routeStudy'
@@ -51,6 +52,8 @@ interface Props {
   onObjectiveAreaFinalize: (selection: SelectionResult) => void
   onViewerReady: (viewer: Cesium.Viewer) => void
   onPlace: (mode: PlaceMode, position: LonLat) => void
+  onRoadComplete: (points: LonLat[]) => void
+  onRoadCancel: () => void
 }
 const hiddenCredits = document.createElement('div')
 
@@ -71,6 +74,8 @@ function OperationalOverlayController({
   graph,
   roadEdits,
   onPlace,
+  onRoadComplete,
+  onRoadCancel,
 }: Pick<
   Props,
   | 'toolMode'
@@ -85,6 +90,8 @@ function OperationalOverlayController({
   | 'graph'
   | 'roadEdits'
   | 'onPlace'
+  | 'onRoadComplete'
+  | 'onRoadCancel'
 >) {
   const { viewer } = useCesium()
   const allocatedUnitIds = new Set((blockPlan?.allocation ?? []).map((entry) => entry.unit_id))
@@ -106,6 +113,12 @@ function OperationalOverlayController({
     isPlaceableMode: isPlaceMode,
     prioritizeExisting: false,
   })
+  useOperationalRoadDrawing({
+    viewer,
+    active: toolMode === 'draw-road',
+    onComplete: onRoadComplete,
+    onCancel: onRoadCancel,
+  })
   return null
 }
 
@@ -126,6 +139,8 @@ export function OperationalGlobe({
   onObjectiveAreaFinalize,
   onViewerReady,
   onPlace,
+  onRoadComplete,
+  onRoadCancel,
 }: Props) {
   return (
     <Viewer
@@ -172,6 +187,8 @@ export function OperationalGlobe({
         graph={graph}
         roadEdits={roadEdits}
         onPlace={onPlace}
+        onRoadComplete={onRoadComplete}
+        onRoadCancel={onRoadCancel}
       />
     </Viewer>
   )
