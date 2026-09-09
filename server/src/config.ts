@@ -52,6 +52,9 @@ export const config = {
    *  larger than a battleground, so it needs longer than the tactical query.
    *  Filtering to drivable classes is what keeps even this achievable. */
   overpassOperationalTimeoutMs: 90_000,
+  /** Small place=* lookup used for AO titles, IVO fields, and document
+   *  locations. It shares the mirror pool but must never hold up typing. */
+  placeLookupTimeoutMs: 8_000,
   /** Largest operational area, metres a side. Reinforcement comes from depth,
    *  so this is far beyond `maxExtentMeters`; the ceiling exists because a
    *  public Overpass mirror will not serve an unbounded road network. */

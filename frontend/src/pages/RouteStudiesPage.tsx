@@ -36,6 +36,7 @@ import {
   fetchOperationalGraph,
   listOperationalAreas,
   listRouteStudies,
+  lookupNearestPlace,
   updateOperationalRoadSettings,
   updateOperationalRoadState,
 } from '../lib/api'
@@ -161,6 +162,7 @@ export function RouteStudiesPage() {
   const [toolMode, setToolMode] = useState<OperationalToolMode>('navigate')
   const [resetToken, setResetToken] = useState(0)
   const [areaName, setAreaName] = useState('')
+  const [areaNameLookup, setAreaNameLookup] = useState<'idle' | 'loading' | 'resolved' | 'missing'>('idle')
   const [studyName, setStudyName] = useState('')
   const [areaPhase, setAreaPhase] = useState<AreaPhase>('idle')
   const [areaSteps, setAreaSteps] = useState<ReasoningStep[]>(freshAreaSteps)
@@ -174,6 +176,7 @@ export function RouteStudiesPage() {
   const [roadError, setRoadError] = useState<string | null>(null)
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const areaGenerationRef = useRef(0)
+  const areaNameLookupRef = useRef(0)
   const areaUnsubscribeRef = useRef<(() => void) | null>(null)
 
   const phase = useRouteStudy((state) => state.phase)
@@ -380,6 +383,8 @@ export function RouteStudiesPage() {
     setGraph(null)
     setSelection(null)
     setAreaName('')
+    areaNameLookupRef.current++
+    setAreaNameLookup('idle')
     setStudyName('')
     setAreaError(null)
     setRoadError(null)
@@ -399,10 +404,29 @@ export function RouteStudiesPage() {
     setArea(null)
     setGraph(null)
     setSelection(result)
-    setAreaName('New AO')
+    setAreaName('')
+    const lookup = ++areaNameLookupRef.current
+    setAreaNameLookup('loading')
     setStudyName('New Terrain Study')
     setToolMode('navigate')
     setSelectionZoomCap(result.rectangle)
+
+    const center = Cesium.Rectangle.center(result.rectangle)
+    const radiusMeters = Math.min(
+      50_000,
+      Math.max(5_000, Math.hypot(result.stats.widthMeters, result.stats.heightMeters) / 2),
+    )
+    void lookupNearestPlace(
+      Cesium.Math.toDegrees(center.longitude),
+      Cesium.Math.toDegrees(center.latitude),
+      radiusMeters,
+    ).then((place) => {
+      if (lookup !== areaNameLookupRef.current) return
+      setAreaName((current) => current.trim() === '' && place ? `${place.name} AO` : current)
+      setAreaNameLookup(place ? 'resolved' : 'missing')
+    }).catch(() => {
+      if (lookup === areaNameLookupRef.current) setAreaNameLookup('missing')
+    })
   }
 
   async function waitForOperationalArea(jobId: string, generation: number): Promise<void> {
@@ -891,9 +915,15 @@ export function RouteStudiesPage() {
             <input
               value={areaName}
               maxLength={80}
-              onChange={(event) => setAreaName(event.target.value)}
+              onChange={(event) => {
+                areaNameLookupRef.current++
+                setAreaNameLookup('idle')
+                setAreaName(event.target.value)
+              }}
               aria-label="AO name"
-              className="w-full border-b border-(--border) bg-transparent pb-1 text-sm text-(--text-h) focus:border-(--accent) focus:outline-none"
+              placeholder={areaNameLookup === 'loading' ? 'Locating selected ground…' : 'Enter AO name'}
+              autoFocus
+              className="w-full rounded-md border border-(--accent) bg-(--panel-bg-solid)/70 px-2.5 py-2 text-sm text-(--text-h) shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_25%,transparent)] placeholder:text-(--text-dim) focus:outline-none focus:ring-2 focus:ring-(--accent)/40"
             />
             <div className="mt-2 flex justify-between text-xs text-(--text-dim)">
               <span>{formatExtent(selection.stats.widthMeters)} wide</span>
