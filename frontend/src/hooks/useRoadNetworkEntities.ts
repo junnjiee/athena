@@ -45,6 +45,7 @@ export function useRoadNetworkEntities({
 
     const primitive = new Cesium.GroundPolylinePrimitive({
       geometryInstances: instances,
+      allowPicking: false,
       appearance: new Cesium.PolylineMaterialAppearance({
         material: Cesium.Material.fromType('Color', {
           color: Cesium.Color.BLACK.withAlpha(0.8),
