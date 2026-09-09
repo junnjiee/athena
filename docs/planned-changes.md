@@ -135,10 +135,15 @@ Consequences to handle deliberately:
   (`course_feedback`) attach to those ids. **Decided: re-attach by geometry** —
   match corridors across revisions by shared ground and carry both onto the best
   match.
-  - Risk to mitigate: a bad match silently attaches a name, and a learned
+  - ~~Risk to mitigate: a bad match silently attaches a name, and a learned
     weight, to the wrong approach. Needs a similarity floor below which nothing
     is carried rather than a nearest-match-always rule, and the re-attachment
-    should be visible to the operator rather than silent.
+    should be visible to the operator rather than silent.~~ **Done for corridor
+    edits** — revision advances carry names/categories through a one-to-one,
+    highest-first Jaccard match over shared edge ground only at ≥50% overlap.
+    The corridor card shows the overlap and source/target revisions. Preference
+    feedback already persists as corridor-independent feature vectors, so it
+    requires no id remapping.
   - Scope note: this applies to **corridor** names only. **Axis** names are
     durable by construction — they hang off road identity and survive both
     splits and destruction — so they are never re-attached and never lost.
