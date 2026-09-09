@@ -63,6 +63,43 @@ def test_weapon_target_match_is_an_explicit_deterministic_gate() -> None:
     }
 
 
+def test_document_intelligence_returns_grounded_reserve_proposals() -> None:
+    from athena.intelligence import DraftReserveClaims
+    from athena.service import get_claim_generator
+
+    def generator(system: str, prompt: str) -> DraftReserveClaims:
+        return DraftReserveClaims.model_validate(
+            {
+                "claims": [
+                    {
+                        "source_document_id": "sitrep",
+                        "name": "Reserve 1",
+                        "locality": "Kranji",
+                        "evidence": "Reserve 1 IVO Kranji",
+                    }
+                ]
+            }
+        )
+
+    app.dependency_overrides[get_claim_generator] = lambda: generator
+    try:
+        response = client.post(
+            "/v1/document-intelligence",
+            json={
+                "documents": [
+                    {"id": "sitrep", "name": "SITREP", "text": "Reserve 1 IVO Kranji"}
+                ]
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    proposal = response.json()["proposals"][0]
+    assert proposal["intelligence_status"] == "assessed"
+    assert proposal["source_document_ids"] == ["sitrep"]
+
+
 def test_runs_a_study_over_a_supplied_graph() -> None:
     response = client.post(
         "/v1/route-study",

@@ -24,6 +24,13 @@ from athena.eca import (
 )
 from athena.graph import RoadGraph
 from athena.intent import EnemyIntent
+from athena.intelligence import (
+    ClaimGenerator,
+    DocumentIntelligence,
+    SourceDocument,
+    extract_document_intelligence,
+    model_claim_generator,
+)
 from athena.orbat import Orbat, WeaponSystem
 from athena.params import (
     CORRIDOR_DETOUR_RATIO,
@@ -193,6 +200,28 @@ class CoursesRequest(BaseModel):
 def get_course_generator() -> CourseGenerator:
     """The model call, injectable so tests never reach the API."""
     return model_generator()
+
+
+class DocumentIntelligenceRequest(BaseModel):
+    documents: list[SourceDocument] = Field(min_length=1, max_length=20)
+
+
+def get_claim_generator() -> ClaimGenerator:
+    return model_claim_generator()
+
+
+@app.post("/v1/document-intelligence", response_model=DocumentIntelligence)
+def document_intelligence(
+    request: DocumentIntelligenceRequest,
+    generator: ClaimGenerator = Depends(get_claim_generator),
+) -> DocumentIntelligence:
+    """Propose grounded reserve records; the operator still accepts them."""
+    try:
+        return extract_document_intelligence(request.documents, generator)
+    except NotConfiguredError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except RefusedError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 # Sync on purpose, and the one endpoint here that is. The model call is
