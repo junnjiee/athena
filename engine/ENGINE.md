@@ -568,6 +568,11 @@ are dropped rather than attached to different ground. Legacy corridor-only plans
 have no inlet identity with which to carry an input. Changes to the saved reserve
 scenario also trigger this recalculation even when the route ground itself stays
 fixed, because composition and timing feed sealing and reaction outcomes.
+On load, the server also suppresses legacy cached courses whose objective or
+routed effort references no longer exist, and cached block plans whose full
+inlet set no longer matches the stored route result. A harmless study update
+persists that reconciliation, preventing an older client-era inconsistency from
+being resurrected.
 
 ### Distance is not time
 

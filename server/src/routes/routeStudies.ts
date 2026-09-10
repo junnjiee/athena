@@ -176,6 +176,51 @@ export function reserveBlockInputsChanged(current: StudyMarks, next: StudyMarks)
   return JSON.stringify(current.reserves) !== JSON.stringify(next.reserves)
 }
 
+/** Whether a cached block plan still describes every route in its stored result. */
+export function blockPlanMatchesResult(plan: BlockPlan | null, result: StudyResult): boolean {
+  if (!plan) return true
+  if (plan.inlets === undefined) {
+    if (plan.corridors === undefined) return result.corridors.length === 0
+    const planned = plan.corridors.map((corridor) => corridor.corridor_id).sort()
+    const current = result.corridors.map((corridor) => corridor.id).sort()
+    return JSON.stringify(planned) === JSON.stringify(current)
+  }
+
+  const currentRoutes = new Map<string, number[]>()
+  for (const corridor of result.corridors) {
+    for (const route of corridor.routes) {
+      const key = JSON.stringify([
+        corridor.id,
+        route.reserve_id,
+        route.objective_id,
+        route.edge_ids,
+      ])
+      currentRoutes.set(key, [...(currentRoutes.get(key) ?? []), route.seconds])
+    }
+  }
+  if (plan.inlets.length !== [...currentRoutes.values()].reduce(
+    (count, routes) => count + routes.length,
+    0,
+  )) return false
+
+  for (const inlet of plan.inlets) {
+    const key = JSON.stringify([
+      inlet.corridor_id,
+      inlet.reserve_id,
+      inlet.objective_id,
+      inlet.edge_ids,
+    ])
+    const routeTimes = currentRoutes.get(key)
+    if (!routeTimes?.length) return false
+    const matchIndex = inlet.movement_seconds === undefined
+      ? 0
+      : routeTimes.indexOf(inlet.movement_seconds)
+    if (matchIndex < 0) return false
+    routeTimes.splice(matchIndex, 1)
+  }
+  return true
+}
+
 const markBoundsSchema = z.object({
   west: z.number().gte(-180).lte(180),
   south: z.number().gte(-85).lte(85),
@@ -508,6 +553,12 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
     if (currentGraphRevision === null) {
       return reply.status(404).send({ error: 'unknown operational area' })
     }
+    const reconciledCourses = reconcileCourseState(
+      row.intent,
+      row.courses,
+      row.marks.objectives,
+      row.result,
+    )
     return {
       id: row.id,
       areaId: row.areaId,
@@ -523,9 +574,9 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       // because a study reopened tomorrow has to show the assessment and the
       // allocation the commander is reading, not just the ground.
       orbat: row.orbat,
-      blockPlan: row.blockPlan,
-      intent: row.intent,
-      courses: row.courses,
+      blockPlan: blockPlanMatchesResult(row.blockPlan, row.result) ? row.blockPlan : null,
+      intent: reconciledCourses.intent,
+      courses: reconciledCourses.courses,
     }
   })
 
@@ -549,7 +600,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       parsed.data.corridorEdits ?? row.corridorEdits
 
     let result = row.result
-    let blockPlan = row.blockPlan
+    let blockPlan = blockPlanMatchesResult(row.blockPlan, row.result) ? row.blockPlan : null
     const research = needsResearch(row, parsed.data, currentGraphRevision)
     const replanBlocks = blockPlan !== null && (
       research || reserveBlockInputsChanged(row.marks, marks)
@@ -595,9 +646,12 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         throw error
       }
     }
-    const reconciledCourses = research
-      ? reconcileCourseState(row.intent, row.courses, marks.objectives, result)
-      : { intent: row.intent, courses: row.courses }
+    const reconciledCourses = reconcileCourseState(
+      row.intent,
+      row.courses,
+      marks.objectives,
+      result,
+    )
     const courseInputsChanged = courseAssessmentInputsChanged(
       { result: row.result, marks: row.marks, corridorEdits: row.corridorEdits },
       { result, marks, corridorEdits },
