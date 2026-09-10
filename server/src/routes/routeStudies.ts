@@ -572,6 +572,7 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       row.marks.objectives,
       row.result,
     )
+    const blockPlan = blockPlanMatchesResult(row.blockPlan, row.result) ? row.blockPlan : null
     return {
       id: row.id,
       areaId: row.areaId,
@@ -587,9 +588,14 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       // because a study reopened tomorrow has to show the assessment and the
       // allocation the commander is reading, not just the ground.
       orbat: row.orbat,
-      blockPlan: blockPlanMatchesResult(row.blockPlan, row.result) ? row.blockPlan : null,
+      blockPlan,
       intent: reconciledCourses.intent,
       courses: reconciledCourses.courses,
+      analysisChanges: {
+        coursesInvalidated: row.courses !== null && reconciledCourses.courses === null,
+        blockPlanRecalculated: false,
+        blockPlanInvalidated: row.blockPlan !== null && blockPlan === null,
+      },
     }
   })
 

@@ -479,7 +479,8 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   presented, and the next safe study update persists the reconciliation.
   Successful updates now surface that lifecycle to the operator: the UI names
   when enemy courses were cleared, when a block plan was recalculated against
-  current inlets, or when an irreconcilable legacy plan was removed.
+  current inlets, or when an irreconcilable legacy plan was removed. The same
+  notice appears immediately when sanitation happens while reopening a study.
 
 ---
 
