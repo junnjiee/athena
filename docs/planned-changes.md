@@ -469,6 +469,9 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   regroup; stale route-bound inputs are not reassigned to different ground.
   Reserve scenario edits also recalculate the plan without rerouting, keeping
   composition-dependent sealing and timing-dependent reaction results current.
+  Legacy saved studies are checked on read as well: ungrounded course references
+  and block plans whose inlet set no longer matches the stored routes are not
+  presented, and the next safe study update persists the reconciliation.
 
 ---
 

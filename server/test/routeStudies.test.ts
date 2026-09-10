@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   blockInputsForRoutes,
+  blockPlanMatchesResult,
   courseAssessmentInputsChanged,
   coursesRemainGrounded,
   corridorsForCourseAssessment,
@@ -485,5 +486,53 @@ describe('rerouted block-plan inputs', () => {
       objectives: [{ ...MARKS.objectives[0], name: 'Crossing' }],
     }
     expect(reserveBlockInputsChanged(MARKS, renamed)).toBe(false)
+  })
+
+  test('recognizes a modern plan that exactly matches its stored routes', () => {
+    const current: StudyResult = {
+      corridors: [{
+        id: 'cor_old',
+        routes: plan.inlets!.map((inlet) => ({
+          reserve_id: inlet.reserve_id,
+          objective_id: inlet.objective_id,
+          edge_ids: inlet.edge_ids,
+          node_ids: [],
+          seconds: inlet.movement_seconds!,
+          length_meters: 0,
+        })),
+        choke_edge_ids: [],
+        fastest_seconds: 120,
+      }],
+      unreachable: [],
+    }
+    expect(blockPlanMatchesResult(plan, current)).toBe(true)
+    expect(blockPlanMatchesResult({
+      ...plan,
+      inlets: plan.inlets!.map(({ movement_seconds: _old, ...inlet }) => inlet),
+    }, current)).toBe(true)
+  })
+
+  test('rejects missing, added, regrouped, or retimed routes', () => {
+    expect(blockPlanMatchesResult(plan, rerouted)).toBe(false)
+    const onlyLive = { ...plan, inlets: [plan.inlets![0]] }
+    expect(blockPlanMatchesResult(onlyLive, rerouted)).toBe(false)
+    expect(blockPlanMatchesResult({
+      ...onlyLive,
+      inlets: [{ ...onlyLive.inlets![0], corridor_id: 'cor_new', movement_seconds: 121 }],
+    }, rerouted)).toBe(false)
+    expect(blockPlanMatchesResult(null, rerouted)).toBe(true)
+  })
+
+  test('validates legacy plans by their corridor set', () => {
+    const legacy = {
+      ...plan,
+      inlets: undefined,
+      corridors: [{ corridor_id: 'cor_new', choke_edge_ids: [], candidates: [] }],
+    }
+    expect(blockPlanMatchesResult(legacy, rerouted)).toBe(true)
+    expect(blockPlanMatchesResult({
+      ...legacy,
+      corridors: [{ ...legacy.corridors[0], corridor_id: 'cor_old' }],
+    }, rerouted)).toBe(false)
   })
 })
