@@ -252,7 +252,10 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
     })
     try {
       const study = await fetchRouteStudy(id)
-      set({ phase: 'ready', study, draftMarks: study.marks, ...adopt(study) })
+      set({
+        phase: 'ready', study, draftMarks: study.marks,
+        notice: analysisChangeNotice(study), ...adopt(study),
+      })
     } catch (error: unknown) {
       set({ phase: 'error', error: message(error) })
     }
