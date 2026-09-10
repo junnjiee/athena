@@ -15,6 +15,7 @@ import { useOperationalRoadDrawing } from '../../hooks/useOperationalRoadDrawing
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import type { CorridorLine } from '../../lib/routeStudy'
+import type { S2Overlay } from '../../lib/overlays'
 import type { LonLat } from '../../types/entities'
 import type { SelectionResult } from '../../types/selection'
 import type { BBoxDeg } from '../../types/terrain'
@@ -39,6 +40,8 @@ interface Props {
   /** Bounds of the area under study, drawn so its edge is never in doubt. */
   areaBbox: BBoxDeg | null
   marks: StudyMarks
+  /** Which S2 overlay reserve colours read as; see DOCTRINE.md §3. */
+  overlay: S2Overlay
   lines: CorridorLine[]
   selectedCorridorId: string | null
   /** Corridors the selected course of action rides on, and how hard. */
@@ -65,6 +68,7 @@ function OperationalOverlayController({
   toolMode,
   areaBbox,
   marks,
+  overlay,
   lines,
   selectedCorridorId,
   courseEmphasis,
@@ -81,6 +85,7 @@ function OperationalOverlayController({
   | 'toolMode'
   | 'areaBbox'
   | 'marks'
+  | 'overlay'
   | 'lines'
   | 'selectedCorridorId'
   | 'courseEmphasis'
@@ -100,7 +105,7 @@ function OperationalOverlayController({
   useRoadNetworkEntities({ viewer, graph })
   useRoadLabelEntities({ viewer, graph, roadEdits })
   useAreaBoundsEntity({ viewer, bbox: areaBbox })
-  useStudyMarkEntities({ viewer, marks })
+  useStudyMarkEntities({ viewer, marks, overlay })
   useCorridorEntities({ viewer, lines, selectedCorridorId, courseEmphasis })
   useOrbatEntities({ viewer, units: orbatUnits, selectedUnitId, allocatedUnitIds })
   useBlockLinkEntities({ viewer, plan: blockPlan, units: orbatUnits, graph })
@@ -127,6 +132,7 @@ export function OperationalGlobe({
   resetToken,
   areaBbox,
   marks,
+  overlay,
   lines,
   selectedCorridorId,
   courseEmphasis,
@@ -178,6 +184,7 @@ export function OperationalGlobe({
         toolMode={toolMode}
         areaBbox={areaBbox}
         marks={marks}
+        overlay={overlay}
         lines={lines}
         selectedCorridorId={selectedCorridorId}
         courseEmphasis={courseEmphasis}

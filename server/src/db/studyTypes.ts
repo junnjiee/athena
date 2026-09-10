@@ -244,6 +244,24 @@ export interface ReactionTimeline {
   unknowns: string[]
 }
 
+/** One reserve element after the block, written as composition reduction
+ *  (`RRC(-)`, `RRC(=)`, or an echelon drop) rather than a casualty fraction. */
+export interface ElementAttrition {
+  element_id: string
+  designation: string
+  order_of_move: number
+  echelon_before: 'division' | 'regiment' | 'battalion' | 'company' | 'platoon' | 'section'
+  modifier_before: '=' | '-' | 'full' | '+'
+  before: string
+  platform_count_before: ExactCount
+  remaining_platform_count: ExactCount
+  destroyed: boolean
+  echelon_dropped: boolean
+  echelon_after?: ElementAttrition['echelon_before'] | null
+  modifier_after?: ElementAttrition['modifier_before'] | null
+  written: string
+}
+
 export interface SealingAssessment {
   inlet_id: string
   corridor_id: string
@@ -255,6 +273,8 @@ export interface SealingAssessment {
   effective_weapons: BlockWeapon[]
   effective_weapon_count: number
   remaining_platform_count?: ExactCount | null
+  /** Missing on sealing assessments saved before the attrition pass. */
+  attrition?: ElementAttrition[]
   outcome: 'destroyed_at_block' | 'delayed_and_attrited' | 'passed' | 'unknown'
   reason: string
   /** Missing on sealing assessments saved before the reaction-chain pass. */

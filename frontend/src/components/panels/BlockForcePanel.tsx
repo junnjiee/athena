@@ -474,13 +474,26 @@ function SealingResult({
     .join(' · ')
   const remaining = formatExactCount(assessment.remaining_platform_count)
   const targetCount = formatExactCount(assessment.target_platform_count)
+  const attrition = assessment.attrition ?? []
 
   return (
     <div className={`mt-2 rounded-md border px-2 py-1.5 ${presentation.className}`}>
       <div className="text-[10px] font-medium tracking-wide">
         CAPABILITY · {presentation.label.toUpperCase()}
       </div>
-      {assessment.outcome === 'delayed_and_attrited' && (
+      {attrition.length > 0 ? (
+        <div className="mt-0.5 space-y-0.5 text-[10px]">
+          {attrition.map((element) => (
+            <div
+              key={element.element_id}
+              className="font-mono"
+              title={`${formatExactCount(element.remaining_platform_count)} of ${formatExactCount(element.platform_count_before)} hardest platforms remain`}
+            >
+              {element.before} → {element.written}
+            </div>
+          ))}
+        </div>
+      ) : assessment.outcome === 'delayed_and_attrited' && (
         <div className="mt-0.5 text-[10px]">{remaining} of {targetCount} hardest platforms remain</div>
       )}
       {assessment.outcome === 'passed' && (
@@ -641,6 +654,11 @@ function ReactionChain({
       </div>
       {assessment.outcome === 'delayed_and_attrited' && (
         <div>DELAY · {time(reaction.delay_minutes)}</div>
+      )}
+      {(assessment.attrition?.length ?? 0) > 0 && (
+        <div className="font-mono">
+          ATTRITED · {assessment.attrition!.map((element) => `${element.before} → ${element.written}`).join(' · ')}
+        </div>
       )}
       <div>{continuation.toUpperCase()}</div>
       <div>{objective.toUpperCase()}</div>

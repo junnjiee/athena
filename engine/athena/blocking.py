@@ -20,7 +20,14 @@ from pydantic import BaseModel, Field
 from athena.graph import Edge, RoadGraph
 from athena.orbat import Orbat, Unit, WeaponSystem
 from athena.routing import edge_travel_seconds
-from athena.study import CorridorOut, Mark, RouteOut
+from athena.study import (
+    AggressorEchelon,
+    CompositionModifier,
+    CorridorOut,
+    Mark,
+    RouteOut,
+    TaskOrganizationElement,
+)
 from athena.targeting import Effect, Hardness, TargetClass, lookup_platform, match_weapon
 from athena.units import Echelon
 
@@ -180,6 +187,29 @@ class ReactionTimeline(BaseModel):
     unknowns: list[str]
 
 
+class ElementAttrition(BaseModel):
+    """One task-organisation element after the block, in composition notation.
+
+    Attrition is written the way the source records it -- ``RRC(-)``, ``RRC(=)``,
+    or ``RRC -> RRP`` -- never as a casualty fraction. The exact remnant is kept
+    alongside so nothing the notation rounds away is lost.
+    """
+
+    element_id: str
+    designation: str
+    order_of_move: int
+    echelon_before: AggressorEchelon
+    modifier_before: CompositionModifier
+    before: str
+    platform_count_before: ExactCount
+    remaining_platform_count: ExactCount
+    destroyed: bool
+    echelon_dropped: bool
+    echelon_after: AggressorEchelon | None
+    modifier_after: CompositionModifier | None
+    written: str
+
+
 class SealingAssessment(BaseModel):
     """What one allocated force can do to the inlet's reserve composition."""
 
@@ -193,6 +223,7 @@ class SealingAssessment(BaseModel):
     effective_weapons: list[BlockWeapon]
     effective_weapon_count: int = Field(ge=0)
     remaining_platform_count: ExactCount | None = None
+    attrition: list[ElementAttrition] = Field(default_factory=list)
     outcome: SealingOutcome
     reason: str
     reaction: ReactionTimeline
@@ -511,6 +542,95 @@ def _hardest_platforms(reserve: Mark) -> tuple[Hardness, dict[str, Fraction]] | 
     return hardest, by_hardness[hardest]
 
 
+_ECHELON_LADDER = list(AggressorEchelon)
+_MODIFIER_BY_THIRDS = {
+    modifier.thirds: modifier for modifier in CompositionModifier
+}
+
+
+def _notation(designation: str, modifier: CompositionModifier) -> str:
+    return designation if modifier is CompositionModifier.FULL else f"{designation}({modifier.value})"
+
+
+def _element_holdings(
+    element: TaskOrganizationElement, hardness: Hardness
+) -> tuple[int, Fraction]:
+    """Establishment and current count of one element's platforms in one class."""
+    establishment = 0
+    for count in element.platforms:
+        platform = lookup_platform(count.platform)
+        if platform is not None and platform.hardness is hardness:
+            establishment += count.establishment_count
+    return establishment, Fraction(establishment * element.modifier.thirds, 3)
+
+
+def _attrition(
+    reserve: Mark, hardness: Hardness, effective_count: int
+) -> list[ElementAttrition]:
+    """Spend effective weapons down the convoy and write what remains.
+
+    The lead element is contacted first, so losses are taken in order of move;
+    the shortfall rolls on to the next element. Each remnant is then written in
+    thirds of establishment, rounded to the nearest third with ties going to the
+    larger remnant. Below one third there is no notation left at that echelon,
+    so the element is written one echelon down -- the source's RRC -> RRP.
+    """
+    remaining_weapons = Fraction(effective_count)
+    results: list[ElementAttrition] = []
+    for element in sorted(
+        reserve.task_organization,
+        key=lambda item: (item.order_of_move, item.designation),
+    ):
+        establishment, before = _element_holdings(element, hardness)
+        if establishment == 0:
+            continue
+        hit = min(before, remaining_weapons)
+        remaining_weapons -= hit
+        remnant = before - hit
+        thirds = math.floor(remnant / establishment * 3 + Fraction(1, 2))
+
+        destroyed = remnant == 0
+        dropped = not destroyed and thirds == 0
+        echelon_after: AggressorEchelon | None = None
+        modifier_after: CompositionModifier | None = None
+        if destroyed:
+            written = f"{element.designation} destroyed"
+        elif dropped:
+            rung = _ECHELON_LADDER.index(element.echelon)
+            if rung + 1 < len(_ECHELON_LADDER):
+                echelon_after = _ECHELON_LADDER[rung + 1]
+                written = f"{element.designation} {echelon_after.value}"
+            else:
+                # Nothing sits below a section, so the last stroke is the floor.
+                dropped = False
+                echelon_after = element.echelon
+                modifier_after = CompositionModifier.EQUAL
+                written = _notation(element.designation, modifier_after)
+        else:
+            echelon_after = element.echelon
+            modifier_after = _MODIFIER_BY_THIRDS[min(thirds, element.modifier.thirds)]
+            written = _notation(element.designation, modifier_after)
+
+        results.append(
+            ElementAttrition(
+                element_id=element.id,
+                designation=element.designation,
+                order_of_move=element.order_of_move,
+                echelon_before=element.echelon,
+                modifier_before=element.modifier,
+                before=_notation(element.designation, element.modifier),
+                platform_count_before=_exact(before),
+                remaining_platform_count=_exact(remnant),
+                destroyed=destroyed,
+                echelon_dropped=dropped,
+                echelon_after=echelon_after,
+                modifier_after=modifier_after,
+                written=written,
+            )
+        )
+    return results
+
+
 def _reaction_timeline(
     block: InletBlock,
     allocation: Allocation,
@@ -708,6 +828,7 @@ def _assess_sealing(
         effective_weapons=effective,
         effective_weapon_count=effective_count,
         remaining_platform_count=_exact(remaining),
+        attrition=_attrition(reserve, hardness, effective_count) if effective_count else [],
         outcome=outcome,
         reason=reason,
         reaction=_reaction_timeline(
