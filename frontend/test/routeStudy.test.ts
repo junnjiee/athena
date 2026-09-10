@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { useRouteStudy } from '../src/state/routeStudy'
+import { analysisChangeNotice, useRouteStudy } from '../src/state/routeStudy'
+import type { RouteStudy } from '../src/types/routeStudy'
 
 const store = () => useRouteStudy.getState()
 
@@ -194,5 +195,37 @@ describe('editing without a study loaded', () => {
   test('renaming a corridor is a no-op rather than a crash', async () => {
     await store().renameCorridor('cor_a', 'Northern valley')
     expect(store().study).toBeNull()
+  })
+})
+
+describe('analysis reconciliation notice', () => {
+  const study = (analysisChanges: RouteStudy['analysisChanges']) => ({ analysisChanges }) as RouteStudy
+
+  test('names both invalidated courses and a refreshed block plan', () => {
+    expect(analysisChangeNotice(study({
+      coursesInvalidated: true,
+      blockPlanRecalculated: true,
+      blockPlanInvalidated: false,
+    }))).toBe(
+      'Enemy-course assessment cleared because its inputs changed. '
+      + 'Block plan recalculated against the current inlets.',
+    )
+  })
+
+  test('distinguishes clearing a stale plan from recalculating one', () => {
+    expect(analysisChangeNotice(study({
+      coursesInvalidated: false,
+      blockPlanRecalculated: false,
+      blockPlanInvalidated: true,
+    }))).toBe('Stale block plan cleared because it no longer matches the study routes.')
+  })
+
+  test('stays silent when no dependent analysis changed', () => {
+    expect(analysisChangeNotice(study({
+      coursesInvalidated: false,
+      blockPlanRecalculated: false,
+      blockPlanInvalidated: false,
+    }))).toBeNull()
+    expect(analysisChangeNotice({} as RouteStudy)).toBeNull()
   })
 })

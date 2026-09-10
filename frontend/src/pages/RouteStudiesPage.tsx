@@ -203,6 +203,7 @@ export function RouteStudiesPage() {
   const study = useRouteStudy((state) => state.study)
   const marks = useRouteStudy((state) => state.draftMarks)
   const studyError = useRouteStudy((state) => state.error)
+  const studyNotice = useRouteStudy((state) => state.notice)
   const selectedCorridorId = useRouteStudy((state) => state.selectedCorridorId)
   const addMark = useRouteStudy((state) => state.addMark)
   const lastMarkId = useRouteStudy((state) => state.lastMarkId)
@@ -218,6 +219,7 @@ export function RouteStudiesPage() {
   const categoriseCorridor = useRouteStudy((state) => state.categoriseCorridor)
   const toggleChoke = useRouteStudy((state) => state.toggleChoke)
   const dismissStudyError = useRouteStudy((state) => state.dismissError)
+  const dismissStudyNotice = useRouteStudy((state) => state.dismissNotice)
 
   const intent = useRouteStudy((state) => state.intent)
   const coursesPhase = useRouteStudy((state) => state.coursesPhase)
@@ -1283,6 +1285,20 @@ export function RouteStudiesPage() {
               setWorkspaceError(null)
               dismissStudyError()
             }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {!workspaceError && !studyError && studyNotice && (
+        <div className="glass pointer-events-auto absolute bottom-20 left-[33rem] z-30 flex max-w-md items-start gap-2 rounded-lg border-amber-300/30 px-3 py-2 text-xs text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{studyNotice}</span>
+          <button
+            type="button"
+            className="ml-auto text-(--text-dim) hover:text-(--text-h)"
+            onClick={dismissStudyNotice}
           >
             Dismiss
           </button>

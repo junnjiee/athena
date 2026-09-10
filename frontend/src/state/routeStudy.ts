@@ -57,6 +57,7 @@ type PassPhase = 'idle' | 'running'
 interface RouteStudyState {
   phase: Phase
   error: string | null
+  notice: string | null
   study: RouteStudy | null
   /** Marks being assembled before the first run. */
   draftMarks: StudyMarks
@@ -79,6 +80,7 @@ interface RouteStudyState {
   categoriseCorridor: (corridorId: string, category: string) => Promise<void>
   toggleChoke: (corridor: Corridor) => Promise<void>
   dismissError: () => void
+  dismissNotice: () => void
   reset: () => void
 
   // --- Enemy courses of action (S2) ---
@@ -126,6 +128,21 @@ function withList(marks: StudyMarks, kind: MarkKind, next: Mark[]): StudyMarks {
 const message = (error: unknown) =>
   error instanceof Error ? error.message : 'route study failed'
 
+export function analysisChangeNotice(study: RouteStudy): string | null {
+  const changes = study.analysisChanges
+  if (!changes) return null
+  const notices: string[] = []
+  if (changes.coursesInvalidated) {
+    notices.push('Enemy-course assessment cleared because its inputs changed.')
+  }
+  if (changes.blockPlanRecalculated) {
+    notices.push('Block plan recalculated against the current inlets.')
+  } else if (changes.blockPlanInvalidated) {
+    notices.push('Stale block plan cleared because it no longer matches the study routes.')
+  }
+  return notices.length > 0 ? notices.join(' ') : null
+}
+
 /** The editable half of a loaded study. Intent and the force list are drafts
  *  the operator keeps working on, so they are adopted into local state rather
  *  than read back out of the stored study on every render. */
@@ -143,6 +160,7 @@ function adopt(study: RouteStudy) {
 export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
   phase: 'idle',
   error: null,
+  notice: null,
   study: null,
   draftMarks: emptyMarks(),
   lastMarkId: null,
@@ -214,19 +232,24 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
   run: async (areaId, name) => {
     const marks = get().draftMarks
     const existing = get().study
-    set({ phase: 'running', error: null })
+    set({ phase: 'running', error: null, notice: null })
     try {
       const study = existing?.areaId === areaId
         ? await updateRouteStudy(existing.id, { name, marks })
         : await createRouteStudy({ areaId, name, marks })
-      set({ phase: 'ready', study, draftMarks: study.marks, ...adopt(study) })
+      set({
+        phase: 'ready', study, draftMarks: study.marks,
+        notice: analysisChangeNotice(study), ...adopt(study),
+      })
     } catch (error: unknown) {
       set({ phase: 'error', error: message(error) })
     }
   },
 
   load: async (id) => {
-    set({ phase: 'running', error: null, study: null, selectedCorridorId: null })
+    set({
+      phase: 'running', error: null, notice: null, study: null, selectedCorridorId: null,
+    })
     try {
       const study = await fetchRouteStudy(id)
       set({ phase: 'ready', study, draftMarks: study.marks, ...adopt(study) })
@@ -244,9 +267,14 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
     }
     // Optimistic: a rename never re-runs the search, so the corridors already
     // on screen are the corridors that come back.
-    set({ study: { ...study, corridorEdits } })
+    set({ study: { ...study, corridorEdits }, notice: null })
     try {
-      set({ study: await updateRouteStudy(study.id, { corridorEdits }) })
+      const updated = await updateRouteStudy(study.id, { corridorEdits })
+      set({
+        study: updated,
+        notice: analysisChangeNotice(updated),
+        selectedCourseName: updated.courses ? get().selectedCourseName : null,
+      })
     } catch (error: unknown) {
       set({ study, error: message(error) })
     }
@@ -259,9 +287,14 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
       ...study.corridorEdits,
       [corridorId]: { ...study.corridorEdits[corridorId], category },
     }
-    set({ study: { ...study, corridorEdits } })
+    set({ study: { ...study, corridorEdits }, notice: null })
     try {
-      set({ study: await updateRouteStudy(study.id, { corridorEdits }) })
+      const updated = await updateRouteStudy(study.id, { corridorEdits })
+      set({
+        study: updated,
+        notice: analysisChangeNotice(updated),
+        selectedCourseName: updated.courses ? get().selectedCourseName : null,
+      })
     } catch (error: unknown) {
       set({ study, error: message(error) })
     }
@@ -274,21 +307,27 @@ export const useRouteStudy = create<RouteStudyState>()((set, get) => ({
     if (!canBlock) return
     // Not optimistic: this re-runs the search server-side, so the corridors
     // that come back are genuinely different ground.
-    set({ phase: 'running', error: null })
+    set({ phase: 'running', error: null, notice: null })
     try {
       const updated = await updateRouteStudy(study.id, { edgeOverrides: next })
-      set({ phase: 'ready', study: updated, selectedCorridorId: null })
+      set({
+        phase: 'ready', study: updated, selectedCorridorId: null,
+        selectedCourseName: updated.courses ? get().selectedCourseName : null,
+        notice: analysisChangeNotice(updated),
+      })
     } catch (error: unknown) {
       set({ phase: 'ready', error: message(error) })
     }
   },
 
   dismissError: () => set({ error: null }),
+  dismissNotice: () => set({ notice: null }),
 
   reset: () =>
     set({
       phase: 'idle',
       error: null,
+      notice: null,
       study: null,
       draftMarks: emptyMarks(),
       lastMarkId: null,

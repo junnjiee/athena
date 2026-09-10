@@ -190,6 +190,12 @@ export interface RouteStudy {
   /** The S2 pass. Null until courses of action have been assessed. */
   intent: EnemyIntent | null
   courses: RankedCourses | null
+  /** Present on update responses when dependent analyses were reconciled. */
+  analysisChanges?: {
+    coursesInvalidated: boolean
+    blockPlanRecalculated: boolean
+    blockPlanInvalidated: boolean
+  }
 }
 
 export type OperationalToolMode =
