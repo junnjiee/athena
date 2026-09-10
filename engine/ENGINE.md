@@ -307,8 +307,13 @@ to catch, so suppressing it would destroy the only evidence that it happened.
 A course failing the check is **dropped whole, not repaired**. Removing one
 effort leaves a scheme the model never proposed and nobody has judged.
 
-Two further rules are enforced on shape: a course must have at least one effort,
-and exactly one main effort. *Hardcoded rules.*
+Three further rules are enforced on shape: a course must have at least one effort,
+exactly one main effort, and a distinct non-blank name within the assessment.
+Names are trimmed and compared case-insensitively. The name is the course's
+feedback identity, so duplicate names would make a verdict ambiguous; every
+duplicate is dropped and reported. The feedback endpoint also rechecks that the
+named saved course is uniquely present and still grounded before it can change
+ranking weights. *Hardcoded rules.*
 
 ### The model judges; the code ranks
 

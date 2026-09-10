@@ -3,6 +3,7 @@ import {
   blockInputsForRoutes,
   blockPlanMatchesResult,
   courseAssessmentInputsChanged,
+  courseForFeedback,
   coursesRemainGrounded,
   corridorsForCourseAssessment,
   needsResearch,
@@ -377,6 +378,22 @@ describe('rerouted course reconciliation', () => {
         corridors: [{ ...result.corridors[0], fastest_seconds: 90 }],
       },
     })).toBe(true)
+  })
+
+  test('feedback resolves exactly one grounded saved course', () => {
+    expect(courseForFeedback(null, courses, MARKS, result, 'Advance')?.name).toBe('Advance')
+    expect(courseForFeedback(null, courses, MARKS, result, 'Unknown')).toBeNull()
+    expect(courseForFeedback(null, {
+      ...courses,
+      courses: [courses.courses[0], { ...courses.courses[0] }],
+    }, MARKS, result, 'Advance')).toBeNull()
+    expect(courseForFeedback(null, {
+      ...courses,
+      courses: [{
+        ...courses.courses[0],
+        efforts: [{ ...courses.courses[0].efforts[0], corridor_id: 'cor_stale' }],
+      }],
+    }, MARKS, result, 'Advance')).toBeNull()
   })
 })
 

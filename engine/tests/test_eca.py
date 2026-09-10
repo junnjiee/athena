@@ -374,6 +374,25 @@ def test_a_good_course_survives_alongside_a_bad_one() -> None:
     assert rejected[0].course_name == "Invented"
 
 
+def test_duplicate_course_names_are_rejected_as_ambiguous_feedback_identities() -> None:
+    accepted, rejected = ground_courses(
+        DraftCourses(courses=[course(name="Advance"), course(name="advance")]),
+        CORRIDORS,
+        RESERVES,
+        OBJECTIVES,
+    )
+
+    assert accepted == []
+    assert len(rejected) == 2
+    assert all("not unique" in item.reason for item in rejected)
+
+
+def test_course_names_are_trimmed_and_must_not_be_blank() -> None:
+    assert course(name="  Advance  ").name == "Advance"
+    with pytest.raises(ValueError, match="must not be blank"):
+        course(name="   ")
+
+
 # Ranking — decided in code, not by the model
 
 
