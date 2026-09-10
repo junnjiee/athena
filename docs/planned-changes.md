@@ -159,6 +159,9 @@ Consequences to handle deliberately:
     Saved courses survive only when intent is unchanged and every effort's exact
     corridor/reserve/objective route still exists; otherwise the assessment is
     cleared for a deliberate rerun. Legacy courses retain pair-level grounding.
+    The same invalidation applies when any other model input changes — route
+    timing/count/choke context, corridor labels, reserve scenario details, or
+    objective details — even when no new graph search is required.
 - ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
   operator selects two cut points on one intact graph segment. Athena snaps the
   picks to that segment and writes a new immutable revision in which the edge is

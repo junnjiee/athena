@@ -345,6 +345,13 @@ Legacy efforts without an objective use their original corridor–reserve pair.
 This prevents a recorded model judgement from silently surviving the ground or
 scenario it was made against.
 
+That binding covers every stored input the assessment sees, not only ids. A
+change to corridor routes, timing or choke context; operator corridor labels;
+reserve scenario details; or objective details clears the saved courses while
+retaining still-valid intent. This applies even when the edit does not require a
+new route search. A model judgement is never presented as current after its
+prompt context changed.
+
 ### What the model is shown
 
 Corridor id, bounded operator name/category where present, fastest time, how many

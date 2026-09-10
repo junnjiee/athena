@@ -116,6 +116,25 @@ export function reconcileCourseState(
   }
 }
 
+interface CourseAssessmentSource {
+  result: StudyResult
+  marks: StudyMarks
+  corridorEdits: Record<string, CorridorEdit>
+}
+
+/** Whether any stored input to the model-backed course assessment changed. */
+export function courseAssessmentInputsChanged(
+  current: CourseAssessmentSource,
+  next: CourseAssessmentSource,
+): boolean {
+  const assessmentInput = (source: CourseAssessmentSource) => ({
+    corridors: corridorsForCourseAssessment(source.result.corridors, source.corridorEdits),
+    reserves: source.marks.reserves,
+    objectives: source.marks.objectives,
+  })
+  return JSON.stringify(assessmentInput(current)) !== JSON.stringify(assessmentInput(next))
+}
+
 function inletRouteKey(reserveId: string, objectiveId: string, edgeIds: string[]): string {
   return JSON.stringify([reserveId, objectiveId, edgeIds])
 }
@@ -576,9 +595,15 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
         throw error
       }
     }
-    const { intent, courses } = research
+    const reconciledCourses = research
       ? reconcileCourseState(row.intent, row.courses, marks.objectives, result)
       : { intent: row.intent, courses: row.courses }
+    const courseInputsChanged = courseAssessmentInputsChanged(
+      { result: row.result, marks: row.marks, corridorEdits: row.corridorEdits },
+      { result, marks, corridorEdits },
+    )
+    const intent = reconciledCourses.intent
+    const courses = courseInputsChanged ? null : reconciledCourses.courses
 
     await db
       .update(routeStudies)
