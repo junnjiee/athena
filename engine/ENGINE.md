@@ -635,6 +635,34 @@ guessed result. Mixed compositions are deliberately assessed against their
 hardest known class; softer elements are not used to make an anti-armour block
 look stronger. The result is deterministic and does not change allocation.
 
+### Attrition is written as composition reduction
+
+Whenever at least one weapon is effective, the sealing assessment also carries
+`attrition`: each task-organisation element after the block, written in the
+notation of doctrine — `ABG(-)`, `RRC(=)`, or an echelon drop — never as a
+casualty fraction or percentage. Matching is the gate; this is the arithmetic
+downstream of it.
+
+- **Losses are taken in order of move.** The lead element is contacted first and
+  absorbs effective weapons one-for-one against its hardest-class platforms; the
+  shortfall rolls on to the next element in the convoy. Only elements holding
+  the hardest class are assessed. *Hardcoded rule.*
+- **The remnant is written in thirds of establishment**, rounded to the nearest
+  third with ties going to the larger remnant, so the enemy is never understated
+  on a coin flip. Nine of ten remaining is still full strength; five of ten is
+  `(-)`. A starting modifier is the baseline, not the establishment: `ABG(=)`
+  holds a third to begin with and is reduced from there. *Hardcoded rule.*
+- **Below one third there is no notation left at that echelon**, so the element
+  is written one echelon down — the source's `RRC -> RRP`. This is the one place
+  strength and echelon are allowed to meet, and it is doctrine's own reading:
+  reduction past the last stroke is the loss of the headquarters. A section has
+  nowhere to drop and holds at `(=)`. *Hardcoded rule.*
+- An element reduced to nothing is written **destroyed**.
+
+The exact remaining count is returned beside every written form, so nothing the
+notation rounds away is lost. Assessments with no effective weapon, or with an
+unknown outcome, carry no attrition rather than an invented one.
+
 ### Reaction chain
 
 Each sealing assessment also carries the doctrinal Reaction to Ops Plan chain.
@@ -756,7 +784,8 @@ POST /v1/block-forces   { area_id, graph_revision? | graph, corridors[], orbat,
                           block_establishments?: [{ inlet_id, unit_id,
                             block_point_lon, block_point_lat, established_minutes }] }
                         -> { inlets[], allocation[], unblockable[], uncovered[],
-                             sealing[], block_points[], rejected_block_points[],
+                             sealing[{ ..., attrition[] }],
+                             block_points[], rejected_block_points[],
                              delay_assessments[], rejected_delay_assessments[],
                              block_establishments[], rejected_block_establishments[] }
 
@@ -820,6 +849,8 @@ Under Docker the variables are passed in by compose, so no file is read.
   weapons are compared one-for-one with the hardest known reserve platforms.
   The engine does not model ammunition expenditure, rate of fire, exposure,
   losses to the block force, or a conditional engagement becoming feasible.
+  Attrition follows the same one-for-one count down the convoy; it is notation
+  over that arithmetic, not an engagement model.
 - **No dismounted movement**, and therefore no cross-country approach — for the
   enemy or for a block force moving to its position.
 - **Completeness is scoped to marked pairs** (see above).

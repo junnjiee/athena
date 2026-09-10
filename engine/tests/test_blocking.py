@@ -916,3 +916,136 @@ def test_missing_composition_stays_unknown_without_affecting_coverage() -> None:
     assert plan.sealing[0].outcome == "unknown"
     assert "no catalogued" in plan.sealing[0].reason
     assert plan.sealing[0].reaction.objective_outcome == "unknown"
+
+
+# Attrition as composition reduction
+
+
+def atgm_block(count: int) -> Orbat:
+    return Orbat(
+        units=(
+            unit(
+                "block",
+                Echelon.SECTION,
+                0,
+                weapons=(WeaponHolding(id="atgm", weapon=WeaponSystem.ATGM, count=count),),
+            ),
+        )
+    )
+
+
+def element(
+    designation: str,
+    order: int,
+    count: int,
+    echelon: AggressorEchelon = AggressorEchelon.COMPANY,
+    modifier: CompositionModifier = CompositionModifier.FULL,
+    platform: str = "BTR-90",
+) -> TaskOrganizationElement:
+    return TaskOrganizationElement(
+        id=designation.lower(),
+        designation=designation,
+        echelon=echelon,
+        modifier=modifier,
+        order_of_move=order,
+        platforms=[PlatformCount(id=f"{designation}-p", platform=platform, establishment_count=count)],
+    )
+
+
+def convoy(*elements: TaskOrganizationElement) -> Mark:
+    return Mark(id="res1", name="Reserve 1", lon=0, lat=0, task_organization=list(elements))
+
+
+def written(plan) -> list[str]:  # noqa: ANN001
+    return [entry.written for entry in plan.sealing[0].attrition]
+
+
+def test_a_third_lost_is_written_as_one_minus_stroke() -> None:
+    # 9 BTR-90 at full establishment; 3 destroyed leaves 6/9 = two thirds.
+    plan = plan_blocks(GRAPH, [WEST], atgm_block(3), [convoy(element("RRC", 1, 9))])
+
+    assert written(plan) == ["RRC(-)"]
+    assert plan.sealing[0].attrition[0].echelon_dropped is False
+
+
+def test_two_thirds_lost_is_written_as_equals() -> None:
+    plan = plan_blocks(GRAPH, [WEST], atgm_block(6), [convoy(element("RRC", 1, 9))])
+
+    assert written(plan) == ["RRC(=)"]
+
+
+def test_below_a_third_drops_an_echelon() -> None:
+    # 8 of 9 destroyed leaves 1/9 -- no notation remains at company level, so the
+    # remnant is written one echelon down, as the source records RRC -> RRP.
+    plan = plan_blocks(GRAPH, [WEST], atgm_block(8), [convoy(element("RRC", 1, 9))])
+
+    result = plan.sealing[0].attrition[0]
+    assert result.written == "RRC platoon"
+    assert result.echelon_dropped is True
+    assert result.echelon_after == "platoon"
+    assert result.remaining_platform_count.model_dump() == {"numerator": 1, "denominator": 1}
+
+
+def test_remnant_is_rounded_to_the_nearest_third() -> None:
+    # 10 BTR-90, 1 destroyed: 9/10 remains, nearest third is full strength.
+    light = plan_blocks(GRAPH, [WEST], atgm_block(1), [convoy(element("RRC", 1, 10))])
+    # 10 BTR-90, 5 destroyed: 1/2 remains, exactly between (=) and (-). The tie
+    # goes to the larger remnant, so the enemy is not understated.
+    half = plan_blocks(GRAPH, [WEST], atgm_block(5), [convoy(element("RRC", 1, 10))])
+
+    assert written(light) == ["RRC"]
+    assert light.sealing[0].attrition[0].modifier_after == "full"
+    assert written(half) == ["RRC(-)"]
+
+
+def test_losses_are_taken_in_order_of_move() -> None:
+    # DRC leads with 3, ABG(-) follows with 9 x 2/3 = 6. Four effective weapons
+    # destroy the lead element outright and take one from the follower.
+    reserve_mark = convoy(
+        element("ABG", 2, 9, AggressorEchelon.BATTALION, CompositionModifier.MINUS),
+        element("DRC", 1, 3),
+    )
+    plan = plan_blocks(GRAPH, [WEST], atgm_block(4), [reserve_mark])
+
+    lead, follower = plan.sealing[0].attrition
+    assert lead.designation == "DRC"
+    assert lead.destroyed is True
+    assert lead.written == "DRC destroyed"
+    assert follower.designation == "ABG"
+    # 5 of 9 establishment remain: 15/9 thirds rounds to 2 -> (-), unchanged.
+    assert follower.written == "ABG(-)"
+    assert follower.remaining_platform_count.model_dump() == {"numerator": 5, "denominator": 1}
+
+
+def test_a_starting_modifier_is_the_baseline_not_the_establishment() -> None:
+    # ABG(=) holds 9 x 1/3 = 3 platforms. Losing 2 leaves 1/9 of establishment,
+    # below the last stroke, so the battalion is written as a company.
+    plan = plan_blocks(
+        GRAPH,
+        [WEST],
+        atgm_block(2),
+        [convoy(element("ABG", 1, 9, AggressorEchelon.BATTALION, CompositionModifier.EQUAL))],
+    )
+
+    result = plan.sealing[0].attrition[0]
+    assert result.written == "ABG company"
+    assert result.echelon_dropped is True
+
+
+def test_elements_without_the_hardest_class_are_not_assessed() -> None:
+    reserve_mark = convoy(
+        element("RRC", 1, 9),
+        element("LOG", 2, 4, AggressorEchelon.PLATOON, platform="Truck"),
+    )
+    plan = plan_blocks(GRAPH, [WEST], atgm_block(3), [reserve_mark])
+
+    assert [entry.designation for entry in plan.sealing[0].attrition] == ["RRC"]
+
+
+def test_no_attrition_is_written_when_nothing_is_effective_or_known() -> None:
+    passed = plan_blocks(GRAPH, [WEST], Orbat(units=(unit("block", Echelon.SECTION, 0),)), [reserve()])
+    unknown = plan_blocks(GRAPH, [WEST], atgm_block(3), [Mark(id="res1", name="Reserve 1", lon=0, lat=0)])
+
+    assert passed.sealing[0].outcome == "passed"
+    assert passed.sealing[0].attrition == []
+    assert unknown.sealing[0].attrition == []

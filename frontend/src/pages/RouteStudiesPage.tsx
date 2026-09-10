@@ -881,6 +881,7 @@ export function RouteStudiesPage() {
           resetToken={resetToken}
           areaBbox={area?.bbox ?? null}
           marks={marks}
+          overlay={branch === 's2' ? 'conduct' : 'deployment'}
           lines={lines}
           selectedCorridorId={selectedCorridorId}
           courseEmphasis={emphasis}

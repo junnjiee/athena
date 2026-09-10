@@ -1,7 +1,8 @@
 # Planned changes
 
 A log of intended changes to the planning surface, captured from discussion.
-Not a spec and not a plan of record — no implementation has started. One open
+Not a spec and not a plan of record. Struck-through items are implemented; the
+evidence sits beside each. As of 2026-09-10 every item below is done. One open
 question remains and it blocks nothing; everything else is settled.
 
 Grouped A–F. **Order: B first, then A**, then the rest — fix the corridor model
@@ -22,12 +23,13 @@ Frontend only. Self-contained. Builds the shell that C and D later fill.
 
 ### Layout
 
-- **Left rail becomes retractable.** `components/layout/Sidebar.tsx`, currently
-  fixed `w-52`. The page header and the library aside are both hard-pinned to
-  `left-60` in `pages/RouteStudiesPage.tsx`, so those offsets have to become
-  dynamic rather than constant.
-- **Delete the top bar.** The `<header>` in `RouteStudiesPage.tsx`. Verified
-  redundant — every one of its four tool buttons arms an identical mode
+- ~~**Left rail becomes retractable.**~~ **Done** — `state/shell.ts` holds
+  `railCollapsed` and `useRailOffset()` gives every pinned panel the same edge.
+  Originally: `Sidebar.tsx` fixed `w-52`; header and library aside hard-pinned to
+  `left-60` in `pages/RouteStudiesPage.tsx`.
+- ~~**Delete the top bar.**~~ **Done** — the `<header>` is gone; the
+  `ROUTE SUBSTRATE` title line sits at the head of the right sidebar. It was
+  redundant — every one of its four tool buttons armed an identical mode
   reachable elsewhere:
 
   | Top-bar button | Already reachable from |
@@ -41,23 +43,23 @@ Frontend only. Self-contained. Builds the shell that C and D later fill.
   needs rehoming — proposed destination is the head of the new right sidebar.
   Removing the header also drops one of the three `left-60` pins above.
 
-- **Right panel column becomes a full sidebar, segmented three ways:**
-  **Ground** (neutral), **S2**, **S3**. Ground belongs to neither staff branch —
-  it is common to both. This replaces the current floating `w-80` stack of
-  marks panel plus four-tab strip (`corridors` / `courses` / `orbat` / `block`).
+- ~~**Right panel column becomes a full sidebar, segmented three ways:**~~
+  **Done** — **Ground** (neutral), **S2**, **S3** (`RouteStudiesPage.tsx`,
+  `BRANCHES`). Ground belongs to neither staff branch — it is common to both.
+  Replaced the floating `w-80` stack of marks panel plus four-tab strip.
 
-### Renames
+### Renames — done
 
-| Current | Becomes |
+| Was | Now |
 |---|---|
 | Operational Library | Theater |
 | Areas | AO |
 | Studies | Terrain Study |
 | "Ingest road graph" | "Create road graph" |
 
-Literal strings at `RouteStudiesPage.tsx:701`, `:717`, `:772`, `:825`. The
-underlying domain type is `OperationalAreaMeta` (frontend types, server
-`operational_areas` table, engine wire shapes).
+The underlying domain type remains `OperationalAreaMeta` (frontend types,
+server `operational_areas` table, engine wire shapes); only operator-facing
+strings changed.
 
 ### Step 1 — declare the AO
 
@@ -68,38 +70,30 @@ underlying domain type is `OperationalAreaMeta` (frontend types, server
 - ~~**Highlight the AO name input** so it reads as the field awaiting input.~~
   **Done** — the selected-ground form now presents a focused, accented field
   with lookup progress in its placeholder.
-- **Once the area is declared, black out everything but the AO.** The globe
-  ceases to exist outside the selected portion — the Battlefield tab's
-  behaviour. **This already exists and is directly reusable:**
-  `frontend/src/lib/clipping.ts` — `applyGlobeClipping(viewer, rectangle)`
-  builds a `ClippingPolygonCollection` with `inverse: true`, clipping everything
-  outside the rectangle; `clearGlobeClipping` undoes it. Called from
-  `BattlegroundSelectorPage.tsx:269,391,412`, cleared at `:365`. The
-  route-studies page never adopted it and sets only a zoom cap.
-  - Caveat already documented in that file: clipping is skipped below a 100 m
-    diagonal (`MIN_CLIPPING_DIAGONAL_METERS`) because float32 precision in the
-    clipping shader blanks the globe. An AO is ≥10 km a side, so this never
-    applies here.
-- **Remove the 2D/3D toggle — always 2D.** `toggleSceneMode` in
-  `hooks/useMapControls.ts` (Cesium `morphTo2D`/`morphTo3D`) and its button in
-  `components/globe/MapControls.tsx`.
-- **Add a camera-angle tool so depth still reads.** Note `useMapControls`
-  already carries an unused `toggleElevation` — vertical exaggeration (2.5×)
-  plus a camera-tracking headlamp light. Directly relevant.
+- ~~**Once the area is declared, black out everything but the AO.**~~ **Done** —
+  `RouteStudiesPage` calls `applyGlobeClipping(viewer, rectangle)` from
+  `frontend/src/lib/clipping.ts`, the same inverse `ClippingPolygonCollection`
+  the Battlefield tab uses. The 100 m-diagonal float32 caveat in that file never
+  applies to an AO ≥10 km a side.
+- ~~**Remove the 2D/3D toggle — always 2D.**~~ **Done** — the planning surface
+  passes `MapControls` no `onToggleSceneMode`; it is tilted, never morphed.
+- ~~**Add a camera-angle tool so depth still reads.**~~ **Done** — `tilt` /
+  `pitchDegrees` in `useMapControls`, surfaced as the chevron pair in
+  `MapControls`.
 
 ### Step 2 — create the road graph
 
-- **Draw every detected road as a black line.** Roads are currently never
-  rendered: the graph is fetched and held in state, but only *corridors* get
-  polylines (`hooks/useCorridorEntities.ts`). This is a new overlay.
-- **Allow the operator to add roads.**
-- **Road naming on a theme.** Auto-assigned names must be **two syllables** —
-  `FALCON`, `COBRA`, `RAVEN`, `KESTREL` — so a road can be called unambiguously
-  over voice. **The operator picks the theme per AO** from a built-in set (birds
-  of prey, big cats, weather, trees), so roads in adjacent AOs stay
-  distinguishable. Names are drawn from the chosen list in sequence without
-  collision, and every one stays operator-editable.
-- **Road coding**, confirmed grammar (see [`DOCTRINE.md` §4](DOCTRINE.md)):
+- ~~**Draw every detected road as a black line.**~~ **Done** —
+  `hooks/useRoadNetworkEntities.ts`, drawn beneath every other overlay.
+- ~~**Allow the operator to add roads.**~~ **Done** — `draw-road` tool mode,
+  two clicks snapped to live junctions; engine assigns `added:N:index` ids.
+- ~~**Road naming on a theme.**~~ **Done** — `lib/roadNames.ts` carries four
+  curated two-syllable lists (birds of prey, big cats, weather, trees); the
+  operator picks the theme per AO in the road register and names are issued in
+  sequence without collision, every one editable.
+- ~~**Road coding**~~ **Done** — `lib/roadCodes.ts` parses and formats the
+  grammar below, prefilled from OSM `lanes` and highway class. Confirmed grammar
+  (see [`DOCTRINE.md` §4](DOCTRINE.md)):
 
   ```
   KRANJI(4 X)     single carriageway, all-weather heavy
@@ -173,19 +167,20 @@ Consequences to handle deliberately:
   replaced by intact/broken/intact children and two new negative-id nodes. Every
   child retains the source `wayId`, name and road code; only the middle child is
   marked destroyed and omitted from routing.
-- **Destruction is a state change, never a deletion.** A revision marks an axis
-  destroyed; it does not drop it. `PROTON` destroyed is still `PROTON`, so the
-  operator can ask how its loss reshaped the theater — and comparing corridor
-  shape across revisions is the point of keeping it.
-- **Names attach to road identity, not to a segment.** A partial break splits one
-  edge into three, all still `PROTON`, with only the middle destroyed. A name
-  held against an edge would be lost or triplicated by that split. So the name
-  lives on a road/way id and segments reference it. This also means axis names
-  are durable across revisions by construction, and need no re-attachment.
-- **Operator-added edges need synthetic ids** that cannot collide with the
-  OSM-derived `wayId:index` scheme — and so do the segments produced by a split.
-- **Two different kinds of "impassable" now exist, and they must not be
-  conflated:**
+- ~~**Destruction is a state change, never a deletion.**~~ **Done** — a revision
+  keeps the edge with `destroyed: true` and omits it from routing adjacency
+  only. `PROTON` destroyed is still `PROTON`, so the operator can ask how its
+  loss reshaped the theater.
+- ~~**Names attach to road identity, not to a segment.**~~ **Done** — road edits
+  key on the road/way id; every child of a split retains the source `wayId`,
+  name and code, so axis names survive revisions by construction and need no
+  re-attachment.
+- ~~**Operator-added edges need synthetic ids**~~ **Done** — added roads use
+  negative road ids and `added:N:index` edges; split children use
+  `split:<source>:<serial>:<part>` and negative node ids. OSM ids are positive,
+  so neither space can collide.
+- ~~**Two different kinds of "impassable" now exist, and they must not be
+  conflated:**~~ **Done** — both exist and stay apart:
 
   | Kind | Meaning | Level |
   |---|---|---|
@@ -193,11 +188,12 @@ Consequences to handle deliberately:
   | Study assumption | *What if* we drop this bridge | Study — the existing `edgeOverrides` |
 
   The first changes the ground for every study over that AO. The second is one
-  study's hypothesis. Today only the second exists.
+  study's hypothesis.
 
-**Also needed:** `GraphEdge` has no `name` field, and OSM `name` and `lanes`
-tags are fetched by Overpass then discarded at `services/roadGraph.ts:96`.
-Both are required for naming and for pre-filling the road code.
+~~**Also needed:** `GraphEdge` has no `name` field, and OSM `name` and `lanes`
+tags are fetched by Overpass then discarded.~~ **Done** — edges carry the source
+OSM name and lane count; the engine treats both as operator-facing prefill and
+does not route on them.
 
 ---
 
@@ -239,36 +235,37 @@ movement rate. That is a property of the axis, not terrain analysis.
 
 ### What actually changes
 
-Replace the grouping rule in `cluster_into_corridors`. Axes belong to the same
-corridor when they are:
+~~Replace the grouping rule in `cluster_into_corridors`.~~ **Done** — all three
+criteria are in, each configurable per request (see `engine/ENGINE.md`
+§Corridors). Axes belong to the same corridor when they are:
 
-1. laterally close — small straight-line separation
-2. ~~directionally aligned — running the same way~~ **Done** — the engine now
-   compares start-to-finish travel headings against a configurable 45° limit;
-   crossing routes and routes moving in opposite directions remain separate.
-3. laterally connected — network distance of the same order as straight-line
-   separation
+1. ~~laterally close — small straight-line separation~~ **Done** — median
+   node-to-nearest-node separation at or under `CORRIDOR_SEPARATION_METERS`
+   (5 km). Median, not minimum, so two approaches that merely touch at a shared
+   objective are not thereby close.
+2. ~~directionally aligned — running the same way~~ **Done** — start-to-finish
+   travel headings within `CORRIDOR_MAX_HEADING_DEGREES` (45°); crossing routes
+   and opposite-direction routes remain separate.
+3. ~~laterally connected — network distance of the same order as straight-line
+   separation~~ **Done** — middle-to-middle network distance at most
+   `CORRIDOR_DETOUR_RATIO` (3.0) times straight-line separation.
 
 Criterion 3 does the separating, and needs no terrain: two axes across a
 reservoir satisfy 1 and 2 but fail 3, because the network has to go around.
 Absence of roads *is* the obstacle.
 
-Shared edge length is removed as the criterion. `route_similarity` and
-`CORRIDOR_SIMILARITY` (`engine/athena/params.py`) go with it.
+~~Shared edge length is removed as the criterion. `route_similarity` and
+`CORRIDOR_SIMILARITY` (`engine/athena/params.py`) go with it.~~ **Done** — both
+are gone.
 
-### Knock-on
+### Knock-on — done
 
-- **Corridor ids.** `_corridor_id` hashes the sorted edge ids of a corridor's
-  routes, and operator renames plus the learned preference feedback attach to
-  that id. Changing the grouping changes the membership and therefore the ids —
-  existing `corridorEdits` and `course_feedback` rows will not match. Needs a
-  deliberate decision, not an accident.
-- **Choke points.** A choke exists only where every axis in the corridor crosses
-  the same ground. Where axes share nothing, the corridor has no single choke
-  and must be held axis by axis — which is exactly why coverage beats
-  concentration in group D.
-- **Inlets.** Each axis is an inlet, its own way in. This is the unit the block
-  pass allocates against.
+- ~~**Corridor ids.**~~ Handled by the geometry re-attachment under A: names and
+  categories carry across the id change at ≥50% shared ground, visibly.
+  Preference feedback persists as corridor-independent feature vectors.
+- ~~**Choke points.**~~ A corridor whose axes share no ground reports an empty
+  choke rather than an invented one, and is held axis by axis.
+- ~~**Inlets.**~~ Each axis is an inlet, and `plan_blocks` allocates per inlet.
 
 ## C. S2 — the reserve model
 
@@ -374,9 +371,16 @@ battle-procedure fit:
 | Enemy Conduct of Battle | courses of action (Step 6) |
 | Enemy Reaction to Ops Plan | block forces (Step 8) |
 
-Colour semantics are **overlay-scoped**: assessed/confirmed is pink/red on the
+~~Colour semantics are **overlay-scoped**: assessed/confirmed is pink/red on the
 Deployment overlay, while on the Conduct of Battle overlay colour encodes
-reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
+reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).~~ **Done**
+— `lib/overlays.ts` takes the overlay as an explicit input. While the S2 branch
+is open the map stands in for Conduct of Battle and reserve marks colour by the
+**echelon** of the largest formation in their task organisation (company
+orange, battalion pink, regiment brown); everywhere else they colour by
+intelligence status. The K-serial is chronology, not the thing colour encodes.
+Conduct pink is a different hex from assessed pink, and echelons doctrine gives
+no colour for fall back to the hostile default rather than an invented hue.
 
 ---
 
@@ -551,9 +555,9 @@ pairing table, and §6 for the platform catalogue.
 - ~~**Hardness is a property of the platform, never typed per unit.**~~ **Done** —
   case-insensitive catalogue lookup is the only conversion from a platform name
   to hardness.
-- **This settles an open question under C.** Unit and reserve composition must
-  be structured as `count × platform`, not free text — otherwise weapon matching
-  has nothing to match on. `9xBRT` becomes `{count: 9, platform: "BTR-90"}`.
+- ~~**This settles an open question under C.**~~ **Done** under C — unit and
+  reserve composition is structured `count × platform`, so weapon matching has
+  something to match on. `9xBRT` is `{count: 9, platform: "BTR-90"}`.
 - ~~**Matching pass** — given a target's hardness and the effect required, return
   which of the force's weapon systems can achieve it, which are acceptable, and
   which would be wasteful or ineffective.~~ **Done** — a deterministic engine
@@ -571,15 +575,22 @@ Matching is a gate (*can* this weapon defeat that target); attrition is the
 quantity question that follows (*how much* of the force is left). They must not
 be conflated — rifles do not become effective against armour by being numerous.
 
-- **No casualty percentages.** Attrition is expressed as **composition
-  reduction**, in the notation of `DOCTRINE.md` §1: `RRC(-)` reduced by a third,
-  `RRC(=)` by two thirds, `RRP` when the loss goes far enough to take the HQ and
-  genuinely drop an echelon. This is how the source records it — *attrited from
-  1 x RRC to 1 x RRP*.
-- The calculation is therefore **deterministic and needs no supplied figures**:
-  effective weapons counted against reserve platforms, the shortfall continues.
-- This reproduces the Reaction to Ops Plan outcome chain directly, and keeps the
-  output inside vocabulary already in use.
+- ~~**No casualty percentages.** Attrition is expressed as **composition
+  reduction**, in the notation of `DOCTRINE.md` §1.~~ **Done** — each sealing
+  assessment carries `attrition[]`: every task-organisation element after the
+  block, written as `ABG(-)`, `RRC(=)`, or one echelon down (`RRC → RRP`) when
+  the remnant falls below the last stroke. Losses are taken in **order of move**
+  — the lead element is contacted first — and the remnant is rounded to the
+  **nearest third**, ties to the larger remnant so the enemy is never
+  understated. The exact count is kept beside the notation. The block panel
+  renders `before → after` per element in place of the old platform count, and
+  the reaction chain carries an `ATTRITED ·` line. See `engine/ENGINE.md`
+  §Attrition.
+- ~~The calculation is therefore **deterministic and needs no supplied
+  figures**~~ **Done** — effective weapons counted one-for-one against
+  hardest-class platforms; the shortfall continues.
+- ~~This reproduces the Reaction to Ops Plan outcome chain directly~~ **Done** —
+  and keeps the output inside vocabulary already in use.
 
 ---
 

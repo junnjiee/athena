@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as Cesium from 'cesium'
 import { syncEntityGroups } from '../lib/entitySync'
 import { objectiveStarIcon, reserveMarkerIcon } from '../lib/markerIcons'
-import { ACCENT_HEX, ASSESSED_HEX, HOSTILE_HEX } from '../lib/colors'
+import { ACCENT_HEX } from '../lib/colors'
+import { reserveMarkColor, type S2Overlay } from '../lib/overlays'
 import type { StudyMark, StudyMarks } from '../types/routeStudy'
 
 interface DisplayMark extends StudyMark {
@@ -16,9 +17,12 @@ const PULSE_MS = 900
 export function useStudyMarkEntities({
   viewer,
   marks,
+  overlay,
 }: {
   viewer: Cesium.Viewer | undefined
   marks: StudyMarks
+  /** Which S2 overlay the reserve colours should read as (DOCTRINE.md §3). */
+  overlay: S2Overlay
 }) {
   const entityMapRef = useRef(new Map<string, { item: DisplayMark; entities: Cesium.Entity[] }>())
   // When each mark first appeared, so the drop animation runs once per mark
@@ -42,7 +46,7 @@ export function useStudyMarkEntities({
 
     syncEntityGroups(viewer, displayMarks, entityMapRef, (mark) => {
       const reserve = mark.kind === 'reserve'
-      const reserveColor = mark.intelligence_status === 'confirmed' ? HOSTILE_HEX : ASSESSED_HEX
+      const reserveColor = reserveMarkColor(mark, overlay)
       const color = Cesium.Color.fromCssColorString(reserve ? reserveColor : ACCENT_HEX)
 
       let placedAt = pulseStartRef.current.get(mark.id)
@@ -106,7 +110,7 @@ export function useStudyMarkEntities({
         },
       ]
     })
-  }, [viewer, displayMarks])
+  }, [viewer, displayMarks, overlay])
 
   useEffect(() => {
     const entityMap = entityMapRef.current
