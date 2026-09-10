@@ -9,6 +9,7 @@ import type {
   BlockPlan,
   BlockPointInput,
   CorridorEdit,
+  CourseOfAction,
   CourseCorridor,
   DelayAssessmentInput,
   EnemyIntent,
@@ -219,6 +220,18 @@ export function blockPlanMatchesResult(plan: BlockPlan | null, result: StudyResu
     routeTimes.splice(matchIndex, 1)
   }
   return true
+}
+
+export function courseForFeedback(
+  intent: EnemyIntent | null,
+  courses: RankedCourses | null,
+  marks: StudyMarks,
+  result: StudyResult,
+  courseName: string,
+): CourseOfAction | null {
+  const grounded = reconcileCourseState(intent, courses, marks.objectives, result).courses
+  const matches = grounded?.courses.filter((course) => course.name === courseName) ?? []
+  return matches.length === 1 ? matches[0] : null
 }
 
 const markBoundsSchema = z.object({
@@ -826,7 +839,13 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       const row = rows[0]
       if (!row) return reply.status(404).send({ error: 'unknown route study' })
 
-      const course = row.courses?.courses.find((c) => c.name === parsed.data.courseName)
+      const course = courseForFeedback(
+        row.intent,
+        row.courses,
+        row.marks,
+        row.result,
+        parsed.data.courseName,
+      )
       if (!course) {
         return reply.status(404).send({ error: 'no such course in this study' })
       }

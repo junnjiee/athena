@@ -162,6 +162,11 @@ Consequences to handle deliberately:
     The same invalidation applies when any other model input changes — route
     timing/count/choke context, corridor labels, reserve scenario details, or
     objective details — even when no new graph search is required.
+  - **Done: feedback identity grounding.** Model-returned course names are
+    trimmed, non-blank, and unique case-insensitively within one assessment.
+    Duplicate names are rejected and surfaced; a verdict can update learned
+    weights only when it resolves one uniquely named, still-grounded saved
+    course.
 - ~~**Breaking a portion of an axis, not just a whole edge.**~~ **Done.** The
   operator selects two cut points on one intact graph segment. Athena snaps the
   picks to that segment and writes a new immutable revision in which the edge is

@@ -19,7 +19,7 @@ import json
 import os
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from athena.intent import EnemyIntent
 from athena.params import (
@@ -58,6 +58,14 @@ class CourseOfAction(BaseModel):
     """How probable this is given the stated intent."""
     danger: float = Field(ge=0.0, le=1.0)
     """How much it costs us if it happens, regardless of probability."""
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("course name must not be blank")
+        return value
 
 
 class DraftCourses(BaseModel):
@@ -234,6 +242,7 @@ def build_prompt(
         f"Assessment from the S2:\n{narrative}\n\n"
         "## Task\n"
         "Give the courses of action this enemy could realistically take. Each is "
+        "given a distinct non-empty name and "
         "a scheme: exactly one main effort, plus any supporting efforts that "
         "stretch or fix the defender. Every effort must name a corridor id, reserve "
         "id, and objective id from one routed combination above — do not invent or "
@@ -265,9 +274,20 @@ def ground_courses(
 
     accepted: list[CourseOfAction] = []
     rejected: list[RejectedReference] = []
+    name_counts: dict[str, int] = {}
+    for course in draft.courses:
+        identity = course.name.casefold()
+        name_counts[identity] = name_counts.get(identity, 0) + 1
 
     for course in draft.courses:
         problems: list[RejectedReference] = []
+        if name_counts[course.name.casefold()] > 1:
+            problems.append(
+                RejectedReference(
+                    course_name=course.name,
+                    reason="course name is not unique in this assessment",
+                )
+            )
         for effort in course.efforts:
             if effort.corridor_id not in known_corridors:
                 problems.append(
