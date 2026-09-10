@@ -705,6 +705,11 @@ export function registerRouteStudyRoutes(app: FastifyInstance): void {
       blockPlan,
       intent,
       courses,
+      analysisChanges: {
+        coursesInvalidated: row.courses !== null && courses === null,
+        blockPlanRecalculated: replanBlocks && row.orbat !== null && blockPlan !== null,
+        blockPlanInvalidated: row.blockPlan !== null && blockPlan === null,
+      },
     }
   })
 

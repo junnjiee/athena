@@ -477,6 +477,9 @@ reserve level instead (Coy Res orange, Bn Res pink, Regt Res brown).
   Legacy saved studies are checked on read as well: ungrounded course references
   and block plans whose inlet set no longer matches the stored routes are not
   presented, and the next safe study update persists the reconciliation.
+  Successful updates now surface that lifecycle to the operator: the UI names
+  when enemy courses were cleared, when a block plan was recalculated against
+  current inlets, or when an irreconcilable legacy plan was removed.
 
 ---
 
