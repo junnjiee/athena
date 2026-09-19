@@ -38,7 +38,7 @@ describe('placing marks', () => {
   test('reserve intelligence fields update without moving the mark', () => {
     const id = store().addMark('reserve', 1, 2)
     store().updateMark('reserve', id, {
-      level: 'K3',
+      
       owning_formation: '1/903',
       intelligence_status: 'confirmed',
       intelligence_evidence: [{
@@ -51,7 +51,7 @@ describe('placing marks', () => {
     expect(store().draftMarks.reserves[0]).toMatchObject({
       lon: 1,
       lat: 2,
-      level: 'K3',
+      
       owning_formation: '1/903',
       intelligence_status: 'confirmed',
       intelligence_evidence: [{ source_document_name: 'SITREP.txt' }],

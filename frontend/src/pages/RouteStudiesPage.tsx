@@ -1516,27 +1516,12 @@ function MarkGroup({
             {kind === 'reserve' && (
               <div className="mt-1 grid grid-cols-2 gap-1 pl-2.5">
                 <select
-                  value={mark.level ?? ''}
-                  aria-label={`${mark.name} reserve level`}
-                  onChange={(event) => onUpdate(kind, mark.id, {
-                    level: (event.target.value || undefined) as StudyMark['level'],
-                  })}
-                  className="rounded border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
-                >
-                  <option value="">Level unconfirmed</option>
-                  <option value="K">K · Outside activities</option>
-                  <option value="K1">K1 · Local reinforcement</option>
-                  <option value="K2">K2 · Coy reserve</option>
-                  <option value="K3">K3 · Bn reserve</option>
-                  <option value="K4">K4 · Div reserve</option>
-                </select>
-                <select
                   value={mark.intelligence_status ?? 'assessed'}
                   aria-label={`${mark.name} intelligence status`}
                   onChange={(event) => onUpdate(kind, mark.id, {
                     intelligence_status: event.target.value as StudyMark['intelligence_status'],
                   })}
-                  className="rounded border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
+                  className="col-span-2 rounded border border-(--border) bg-(--panel-bg-solid) px-1.5 py-1 text-[10px] text-(--text-h) focus:outline-none"
                 >
                   <option value="assessed">Assessed · 1 source</option>
                   <option value="confirmed">Confirmed · 2+ sources</option>

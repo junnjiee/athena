@@ -9,7 +9,6 @@ export interface Mark {
   /** Named terrain reference for either a reserve or objective. */
   locality?: string
   /** Reserve-only deployment-overlay fields; absent on objectives and legacy marks. */
-  level?: 'K' | 'K1' | 'K2' | 'K3' | 'K4'
   owning_formation?: string
   intelligence_status?: 'assessed' | 'confirmed'
   /** Evidence retained after operator acceptance; source bytes are never stored. */
@@ -310,6 +309,11 @@ export interface Effort {
   /** Required on new assessments; absent only on saved legacy courses. */
   objective_id?: string
   rationale: string
+  /** K nominal of the committed reserve within this course (K1 moves first).
+   *  Assigned by the engine; absent on saved legacy courses. */
+  trigger?: string | null
+  /** Decision + readiness in minutes, or null when a stage is unassessed. */
+  commencement_minutes?: number | null
 }
 
 export interface CourseOfAction {

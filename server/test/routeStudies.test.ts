@@ -51,7 +51,6 @@ describe('needsResearch', () => {
       reserves: [{
         ...MARKS.reserves[0],
         name: '302 Div Res 1',
-        level: 'K4',
         owning_formation: '301 Div',
         intelligence_status: 'confirmed',
         intelligence_evidence: [{
@@ -126,13 +125,12 @@ describe('needsResearch', () => {
 })
 
 describe('reserve deployment intelligence', () => {
-  test('accepts the fixed K ladder and two-source status', () => {
+  test('accepts deployment intelligence and two-source status', () => {
     expect(reserveMarkSchema.parse({
       id: 'r1',
       name: '302 Div Res 1',
       lon: 103.7,
       lat: 1.4,
-      level: 'K4',
       owning_formation: '301 Div',
       intelligence_status: 'confirmed',
       intelligence_evidence: [{
@@ -151,7 +149,6 @@ describe('reserve deployment intelligence', () => {
       }],
       timing: { decision_minutes: 5, readiness_minutes: 10.5, deployment_minutes: 15 },
     })).toMatchObject({
-      level: 'K4',
       intelligence_status: 'confirmed',
       intelligence_evidence: [{ source_document_name: 'SITREP.txt' }],
     })
@@ -172,10 +169,16 @@ describe('reserve deployment intelligence', () => {
     }).success).toBe(false)
   })
 
-  test('rejects invented levels and intelligence states', () => {
+  test('rejects invented intelligence states', () => {
     expect(reserveMarkSchema.safeParse({
-      id: 'r1', name: 'Reserve', lon: 0, lat: 0, level: 'K5', intelligence_status: 'rumoured',
+      id: 'r1', name: 'Reserve', lon: 0, lat: 0, intelligence_status: 'rumoured',
     }).success).toBe(false)
+  })
+
+  test('a retired K level on a legacy mark is dropped, not rejected', () => {
+    // K nominals are ECA triggers now, assigned per course by the engine.
+    const parsed = reserveMarkSchema.parse({ id: 'r1', name: 'Reserve', lon: 0, lat: 0, level: 'K4' })
+    expect('level' in parsed).toBe(false)
   })
 
   test('rejects free-text echelons, modifiers, and invalid platform counts', () => {

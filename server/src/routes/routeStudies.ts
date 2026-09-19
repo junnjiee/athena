@@ -288,7 +288,6 @@ const intelligenceEvidenceListSchema = z.array(intelligenceEvidenceSchema).max(2
 )
 
 export const reserveMarkSchema = markSchema.extend({
-  level: z.enum(['K', 'K1', 'K2', 'K3', 'K4']).optional(),
   owning_formation: z.string().trim().min(1).max(80).optional(),
   /** Confirmed is an operator assertion backed by the two-source rule. New and
    *  legacy reserve marks therefore enter as assessed unless explicitly set. */

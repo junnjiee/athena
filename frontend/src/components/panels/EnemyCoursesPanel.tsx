@@ -5,9 +5,12 @@ import {
   formatScore,
   intentIsEmpty,
   rejectedSummary,
+  triggerTable,
 } from '../../lib/courses'
+import { formatOperationalOffset } from '../../lib/reserveTiming'
 import type {
   CourseOfAction,
+  Effort,
   EnemyIntent,
   Preferences,
   RouteStudy,
@@ -199,6 +202,7 @@ function CourseRow({
   onSelect: () => void
   onJudge: (verdict: Verdict) => void
 }) {
+  const triggers = triggerTable(course)
   return (
     <div
       role="button"
@@ -250,32 +254,61 @@ function CourseRow({
         <div className="mt-2 border-t border-(--border) pt-2" onClick={(event) => event.stopPropagation()}>
           <p className="text-[11px] leading-relaxed text-(--text)">{course.narrative}</p>
 
-          <div className="mt-2 flex flex-col gap-1.5">
-            {course.efforts.map((effort, index) => {
-              const corridor = corridorNames.get(effort.corridor_id)
-              return (
-                <div key={`${effort.corridor_id}:${index}`} className="flex gap-1.5">
-                  <span
-                    className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: corridor?.color ?? '#64748b' }}
+          {triggers.length > 0 ? (
+            <table className="mt-2 w-full border-collapse text-[10px]" aria-label={`ECA table for ${course.name}`}>
+              <thead>
+                <tr className="text-left tracking-wide text-(--text-dim)">
+                  <th className="pb-1 pr-2 font-normal">K</th>
+                  <th className="pb-1 pr-2 font-normal">RESERVE</th>
+                  <th className="pb-1 pr-2 font-normal">MOVES</th>
+                  <th className="pb-1 font-normal">EFFORT</th>
+                </tr>
+              </thead>
+              <tbody className="align-top">
+                {triggers.map((row) => (
+                  <tr key={row.trigger} className="border-t border-(--border)">
+                    <td className="py-1 pr-2 font-medium text-(--hostile)">{row.trigger}</td>
+                    <td className="py-1 pr-2 text-(--text-h)">
+                      {reserveNames.get(row.reserve_id) ?? row.reserve_id}
+                    </td>
+                    <td className="py-1 pr-2 whitespace-nowrap text-(--text-dim)">
+                      {row.commencement_minutes == null
+                        ? 'unknown'
+                        : formatOperationalOffset(row.commencement_minutes)}
+                    </td>
+                    <td className="py-1">
+                      {row.efforts.map((effort, index) => (
+                        <EffortLine
+                          key={`${effort.corridor_id}:${index}`}
+                          effort={effort}
+                          corridor={corridorNames.get(effort.corridor_id)}
+                          objectiveNames={objectiveNames}
+                        />
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {course.efforts.map((effort, index) => (
+                <div key={`${effort.corridor_id}:${index}`} className="text-[10px]">
+                  <span className="text-(--text-h)">
+                    {reserveNames.get(effort.reserve_id) ?? effort.reserve_id}
+                  </span>
+                  <EffortLine
+                    effort={effort}
+                    corridor={corridorNames.get(effort.corridor_id)}
+                    objectiveNames={objectiveNames}
                   />
-                  <div className="min-w-0">
-                    <div className="text-[11px] text-(--text-h)">
-                      {effort.kind === 'main' ? 'Main effort' : 'Supporting'} ·{' '}
-                      {corridor?.label ?? effort.corridor_id}
-                    </div>
-                    <div className="text-[10px] text-(--text-dim)">
-                      {reserveNames.get(effort.reserve_id) ?? effort.reserve_id}
-                      {effort.objective_id
-                        ? ` → ${objectiveNames.get(effort.objective_id) ?? effort.objective_id}`
-                        : ''}
-                      {effort.rationale ? ` — ${effort.rationale}` : ''}
-                    </div>
-                  </div>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+              <div className="text-[9px] text-(--text-dim)">
+                Saved before K triggers were assigned; re-assess for the ECA table.
+              </div>
+            </div>
+          )}
 
           <div className="mt-2 flex gap-1.5">
             <VerdictButton
@@ -291,6 +324,34 @@ function CourseRow({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function EffortLine({
+  effort,
+  corridor,
+  objectiveNames,
+}: {
+  effort: Effort
+  corridor: { label: string; color: string } | undefined
+  objectiveNames: Map<string, string>
+}) {
+  return (
+    <div className="flex gap-1.5">
+      <span
+        className="mt-1 h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: corridor?.color ?? '#64748b' }}
+      />
+      <div className="min-w-0">
+        <div className="text-(--text-h)">
+          {effort.kind === 'main' ? 'Main effort' : 'Supporting'} · {corridor?.label ?? effort.corridor_id}
+          {effort.objective_id
+            ? ` → ${objectiveNames.get(effort.objective_id) ?? effort.objective_id}`
+            : ''}
+        </div>
+        {effort.rationale && <div className="text-(--text-dim)">{effort.rationale}</div>}
+      </div>
     </div>
   )
 }

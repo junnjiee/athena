@@ -14,6 +14,7 @@ from athena.eca import (
     InvalidIntentError,
     NotConfiguredError,
     RefusedError,
+    assign_triggers,
     build_prompt,
     describe_corridors,
     generate_courses,
@@ -31,7 +32,6 @@ from athena.study import (
     IntelligenceStatus,
     Mark,
     PlatformCount,
-    ReserveLevel,
     ReserveTiming,
     RouteOut,
     TaskOrganizationElement,
@@ -141,7 +141,6 @@ def test_reserve_intelligence_fields_reach_the_assessment() -> None:
             name="302 Div Res 1",
             lon=0,
             lat=0,
-            level=ReserveLevel.DIVISION_RESERVE,
             owning_formation="301 Div",
             intelligence_status=IntelligenceStatus.CONFIRMED,
             locality="TOMA 1b",
@@ -171,7 +170,7 @@ def test_reserve_intelligence_fields_reach_the_assessment() -> None:
 
     described = describe_corridors(CORRIDORS, reserves, OBJECTIVES)
 
-    assert "302 Div Res 1, K4, owned by 301 Div, confirmed, IVO TOMA 1b" in described
+    assert "302 Div Res 1, owned by 301 Div, confirmed, IVO TOMA 1b" in described
     assert "order of move 1. DRC [company]: 10 x BTR-90 establishment; 2. ABG(-) [battalion]" in described
 
 
@@ -424,6 +423,88 @@ def test_ranking_is_deterministic_on_a_tie() -> None:
     b = course(name="Bravo", likelihood=0.5, danger=0.5)
 
     assert rank_courses([a, b])[0].name == rank_courses([b, a])[0].name
+
+
+# K triggers: the reserves a course commits, in the order they move
+
+
+def timed(reserve_id: str, name: str, decision: float | None, readiness: float | None) -> Mark:
+    timing = (
+        None
+        if decision is None and readiness is None
+        else ReserveTiming(decision_minutes=decision, readiness_minutes=readiness)
+    )
+    return Mark(id=reserve_id, name=name, lon=0, lat=0, timing=timing)
+
+
+def test_each_committed_reserve_is_one_trigger_in_order_of_commencement() -> None:
+    reserves = [
+        timed("late", "Div Res", decision=60, readiness=60),
+        timed("early", "Coy Res", decision=5, readiness=10),
+    ]
+    scheme = course(
+        efforts=[
+            effort(reserve="late", kind="main"),
+            effort(reserve="early", kind="supporting"),
+            effort(reserve="early", kind="supporting", corridor_id="cor_b"),
+        ]
+    )
+
+    [assigned] = assign_triggers([scheme], reserves)
+
+    by_reserve = {e.reserve_id: (e.trigger, e.commencement_minutes) for e in assigned.efforts}
+    assert by_reserve == {"early": ("K1", 15.0), "late": ("K2", 120.0)}
+    # Two efforts by one reserve are one trigger, not two.
+    assert [e.trigger for e in assigned.efforts] == ["K2", "K1", "K1"]
+
+
+def test_triggers_are_numbered_within_each_course_not_across_the_assessment() -> None:
+    reserves = [timed("a", "A", 5, 5), timed("b", "B", 50, 50)]
+    first = course(name="One", efforts=[effort(reserve="b")])
+    second = course(name="Two", efforts=[effort(reserve="a"), effort(reserve="b", kind="supporting")])
+
+    one, two = assign_triggers([first, second], reserves)
+
+    assert one.efforts[0].trigger == "K1"
+    assert [e.trigger for e in two.efforts] == ["K1", "K2"]
+
+
+def test_a_reserve_with_unknown_commencement_is_ordered_last_and_says_so() -> None:
+    reserves = [
+        timed("known", "Known", 30, 30),
+        timed("unknown", "Unknown", None, None),
+        timed("partial", "Partial", 5, None),
+    ]
+    scheme = course(
+        efforts=[
+            effort(reserve="unknown", kind="main"),
+            effort(reserve="partial", kind="supporting"),
+            effort(reserve="known", kind="supporting"),
+        ]
+    )
+
+    [assigned] = assign_triggers([scheme], reserves)
+
+    by_reserve = {e.reserve_id: (e.trigger, e.commencement_minutes) for e in assigned.efforts}
+    # Known timing first; the rest keep a nominal so the table is complete, but
+    # their order is by name and their commencement is reported as unknown.
+    assert by_reserve == {
+        "known": ("K1", 60.0),
+        "partial": ("K2", None),
+        "unknown": ("K3", None),
+    }
+
+
+def test_triggers_are_assigned_in_the_generated_assessment() -> None:
+    reserves = [timed("res1", "Depot", 10, 20)]
+
+    def generator(system: str, prompt: str) -> DraftCourses:
+        return DraftCourses(courses=[course()])
+
+    ranked = generate_courses(CORRIDORS, reserves, OBJECTIVES, EnemyIntent(), generator)
+
+    assert ranked.courses[0].efforts[0].trigger == "K1"
+    assert ranked.most_likely.efforts[0].trigger == "K1"
 
 
 # End to end, with the model stubbed

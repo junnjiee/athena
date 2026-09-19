@@ -1,11 +1,10 @@
-import type { IntelligenceStatus, ReserveLevel, ReserveTiming, TaskOrganizationElement } from './routeStudy'
+import type { IntelligenceStatus, ReserveTiming, TaskOrganizationElement } from './routeStudy'
 
 export interface ReserveClaim {
   source_document_id: string
   source_document_name?: string
   name: string
   locality: string
-  level?: ReserveLevel | null
   owning_formation?: string | null
   task_organization: TaskOrganizationElement[]
   timing?: ReserveTiming | null

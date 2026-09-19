@@ -63,7 +63,6 @@ export interface StudyMark {
   /** Named terrain reference for reserves and objectives. */
   locality?: string
   /** Reserve-only S2 fields. Older saved marks legitimately omit them. */
-  level?: ReserveLevel
   owning_formation?: string
   intelligence_status?: IntelligenceStatus
   /** Bounded excerpts retained when a document proposal becomes a mark. Raw
@@ -77,7 +76,6 @@ export interface StudyMark {
   bbox?: BBoxDeg
 }
 
-export type ReserveLevel = 'K' | 'K1' | 'K2' | 'K3' | 'K4'
 export type IntelligenceStatus = 'assessed' | 'confirmed'
 
 export interface IntelligenceEvidence {
@@ -426,6 +424,12 @@ export interface Effort {
   /** Required on new assessments; absent only on saved legacy courses. */
   objective_id?: string
   rationale: string
+  /** K nominal of the committed reserve within this course: K1 moves first.
+   *  A trigger in the ECA table, not a property of the reserve. Assigned by
+   *  the engine; absent on saved legacy courses. */
+  trigger?: string | null
+  /** Decision + readiness in minutes; null when a stage is unassessed. */
+  commencement_minutes?: number | null
 }
 
 export interface CourseOfAction {

@@ -41,6 +41,14 @@ class Effort(BaseModel):
     objective_id: str | None = None
     """Required for a grounded assessment; optional only to read legacy courses."""
     rationale: str = Field(max_length=400)
+    trigger: str | None = None
+    """K nominal of the reserve this effort commits -- ``K1`` for the first to
+    move within the course, ``K2`` the next. Assigned in code after grounding,
+    never by the model; absent only on legacy saved courses."""
+    commencement_minutes: float | None = None
+    """When that reserve commences movement (decision + readiness), or None
+    when either stage is unassessed. Carried so the table can show the basis
+    of the order rather than asserting one."""
 
 
 class CourseOfAction(BaseModel):
@@ -123,8 +131,6 @@ def describe_corridors(
     """
     def describe_reserve(mark: Mark) -> str:
         details = [mark.name]
-        if mark.level:
-            details.append(mark.level.value)
         if mark.owning_formation:
             details.append(f"owned by {mark.owning_formation}")
         if mark.intelligence_status:
@@ -367,6 +373,54 @@ def ground_courses(
     return accepted, rejected
 
 
+def assign_triggers(
+    courses: list[CourseOfAction], reserves: list[Mark]
+) -> list[CourseOfAction]:
+    """Number the reserves each course commits, K1 onward, in the order they move.
+
+    A K nominal is a trigger in the ECA table, not a property of a reserve: the
+    same reserve is K1 in one course and K3 in another, depending on what else
+    that course commits before it. Order is by commencement (decision +
+    readiness). Reserves whose commencement is unassessed still get a nominal so
+    the table is complete, but they go after every timed reserve, in name order,
+    and their commencement is carried as None rather than guessed.
+    """
+    by_id = {mark.id: mark for mark in reserves}
+
+    def commencement(reserve_id: str) -> float | None:
+        mark = by_id.get(reserve_id)
+        return mark.timing.commencement_minutes() if mark and mark.timing else None
+
+    assigned: list[CourseOfAction] = []
+    for course in courses:
+        committed = sorted(
+            {effort.reserve_id for effort in course.efforts},
+            key=lambda reserve_id: (
+                commencement(reserve_id) is None,
+                commencement(reserve_id) or 0.0,
+                by_id[reserve_id].name if reserve_id in by_id else reserve_id,
+                reserve_id,
+            ),
+        )
+        nominal = {reserve_id: f"K{index}" for index, reserve_id in enumerate(committed, start=1)}
+        assigned.append(
+            course.model_copy(
+                update={
+                    "efforts": [
+                        effort.model_copy(
+                            update={
+                                "trigger": nominal[effort.reserve_id],
+                                "commencement_minutes": commencement(effort.reserve_id),
+                            }
+                        )
+                        for effort in course.efforts
+                    ]
+                }
+            )
+        )
+    return assigned
+
+
 def rank_courses(courses: list[CourseOfAction]) -> tuple[CourseOfAction | None, ...]:
     """The doctrinal pair, chosen in code rather than by the model.
 
@@ -405,6 +459,7 @@ def generate_courses(
     prompt = build_prompt(corridors, reserves, objectives, intent)
     draft = generator(system=ECA_SYSTEM_PROMPT, prompt=prompt)
     accepted, rejected = ground_courses(draft, corridors, reserves, objectives)
+    accepted = assign_triggers(accepted, reserves)
     # The doctrinal pair is chosen before any learned weighting touches the
     # list. Most likely and most dangerous are not preferences to be learned
     # away.

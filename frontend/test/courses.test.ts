@@ -7,6 +7,7 @@ import {
   formatScore,
   intentIsEmpty,
   rejectedSummary,
+  triggerTable,
   weightBias,
 } from '../src/lib/courses'
 import type { CourseOfAction, RankedCourses } from '../src/types/routeStudy'
@@ -132,5 +133,35 @@ describe('weightBias', () => {
       'likelihood',
       'speed',
     ])
+  })
+})
+
+describe('triggerTable', () => {
+  test('one row per K trigger, in nominal order, gathering every effort that reserve makes', () => {
+    const scheme = course('Two-up', {
+      efforts: [
+        { kind: 'main', corridor_id: 'cor_a', reserve_id: 'late', rationale: 'weight', trigger: 'K2', commencement_minutes: 120 },
+        { kind: 'supporting', corridor_id: 'cor_b', reserve_id: 'early', rationale: 'fix', trigger: 'K1', commencement_minutes: 15 },
+        { kind: 'supporting', corridor_id: 'cor_c', reserve_id: 'early', rationale: 'screen', trigger: 'K1', commencement_minutes: 15 },
+      ],
+    })
+
+    expect(triggerTable(scheme)).toEqual([
+      { trigger: 'K1', reserve_id: 'early', commencement_minutes: 15, efforts: [scheme.efforts[1], scheme.efforts[2]] },
+      { trigger: 'K2', reserve_id: 'late', commencement_minutes: 120, efforts: [scheme.efforts[0]] },
+    ])
+  })
+
+  test('K10 sorts after K9, not after K1', () => {
+    const efforts = Array.from({ length: 10 }, (_, i) => ({
+      kind: i === 0 ? 'main' as const : 'supporting' as const,
+      corridor_id: 'cor_a', reserve_id: `r${i}`, rationale: '', trigger: `K${10 - i}`, commencement_minutes: null,
+    }))
+    expect(triggerTable(course('Ten', { efforts })).map((row) => row.trigger))
+      .toEqual(['K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8', 'K9', 'K10'])
+  })
+
+  test('a legacy course with no triggers yields no table rather than an invented order', () => {
+    expect(triggerTable(course('Old'))).toEqual([])
   })
 })

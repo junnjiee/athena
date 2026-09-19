@@ -23,14 +23,6 @@ from athena.params import (
 from athena.routing import EdgeGoal, Route, find_diverse_routes_to_any
 
 
-class ReserveLevel(StrEnum):
-    OUTSIDE_ACTIVITIES = "K"
-    LOCAL_REINFORCEMENT = "K1"
-    COMPANY_RESERVE = "K2"
-    BATTALION_RESERVE = "K3"
-    DIVISION_RESERVE = "K4"
-
-
 class IntelligenceStatus(StrEnum):
     ASSESSED = "assessed"
     CONFIRMED = "confirmed"
@@ -181,7 +173,6 @@ class Mark(BaseModel):
     name: str
     lon: float
     lat: float
-    level: ReserveLevel | None = None
     owning_formation: str | None = None
     intelligence_status: IntelligenceStatus | None = None
     intelligence_evidence: list[IntelligenceEvidence] = Field(

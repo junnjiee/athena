@@ -11,7 +11,6 @@ from athena.study import (
     Mark,
     MarkBounds,
     PlatformCount,
-    ReserveLevel,
     ReserveTiming,
     TaskOrganizationElement,
     run_study,
@@ -38,7 +37,6 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         name="302 Div Res 1",
         lon=1,
         lat=2,
-        level=ReserveLevel.DIVISION_RESERVE,
         owning_formation="301 Div",
         intelligence_status=IntelligenceStatus.ASSESSED,
         intelligence_evidence=[
@@ -56,7 +54,6 @@ def test_a_reserve_carries_its_deployment_intelligence() -> None:
         "name": "302 Div Res 1",
         "lon": 1.0,
         "lat": 2.0,
-        "level": "K4",
         "owning_formation": "301 Div",
         "intelligence_status": "assessed",
         "intelligence_evidence": [

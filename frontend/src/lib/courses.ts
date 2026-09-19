@@ -1,5 +1,6 @@
 import type {
   CourseOfAction,
+  Effort,
   EnemyIntent,
   RankedCourses,
   RankingWeights,
@@ -67,6 +68,36 @@ export function courseTags(ranked: RankedCourses, course: CourseOfAction): strin
 
 export function formatScore(value: number): string {
   return `${Math.round(value * 100)}%`
+}
+
+export interface TriggerRow {
+  trigger: string
+  reserve_id: string
+  commencement_minutes: number | null
+  efforts: Effort[]
+}
+
+/** The ECA table for one course: a row per K trigger — one committed reserve,
+ *  in the order the engine numbered them — carrying every effort that reserve
+ *  makes. A legacy course saved before triggers existed has no rows; the
+ *  order is the engine's finding, not something to reconstruct here. */
+export function triggerTable(course: CourseOfAction): TriggerRow[] {
+  const rows = new Map<string, TriggerRow>()
+  for (const effort of course.efforts) {
+    if (!effort.trigger) continue
+    const row = rows.get(effort.trigger)
+    if (row) row.efforts.push(effort)
+    else {
+      rows.set(effort.trigger, {
+        trigger: effort.trigger,
+        reserve_id: effort.reserve_id,
+        commencement_minutes: effort.commencement_minutes ?? null,
+        efforts: [effort],
+      })
+    }
+  }
+  const ordinal = (trigger: string) => Number(trigger.replace(/^K/, '')) || 0
+  return [...rows.values()].sort((a, b) => ordinal(a.trigger) - ordinal(b.trigger))
 }
 
 /** A rejected reference means the assessment was incomplete — the course named

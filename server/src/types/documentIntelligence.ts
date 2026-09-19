@@ -11,7 +11,6 @@ export interface ReserveClaim {
   source_document_name?: string
   name: string
   locality: string
-  level?: Mark['level'] | null
   owning_formation?: string | null
   task_organization: NonNullable<Mark['task_organization']>
   timing?: Mark['timing'] | null

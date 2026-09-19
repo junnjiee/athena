@@ -250,8 +250,12 @@ centre snap preserves point behavior. Marks are *scenario input*.
 
 Every mark may carry an IVO locality: a named terrain reference suggested by
 the terrain service and editable by the operator. Reserve marks additionally
-carry their deployment intelligence: optional K level (`K` through `K4`),
-owning formation, and assessed/confirmed status. These fields do not alter
+carry their deployment intelligence: owning formation and assessed/confirmed
+status. A reserve carries **no K nominal**: `K1`, `K2`… are triggers in the
+ECA table, numbered by when each committed reserve moves within one course of
+action, so the same reserve is `K1` in one course and `K3` in another. They
+are assigned by the engine after grounding (see *K triggers* below), never
+stored on the mark. These fields do not alter
 snapping or routing; they are preserved for the deployment overlay and supplied
 to the enemy-course assessment. New and legacy reserves default to **assessed**.
 Only the operator can assert **confirmed**, reflecting the
@@ -326,6 +330,21 @@ likely and most dangerous — is then selected **in code** from those scores, no
 chosen by the model, and before any learned weighting is applied. One course can
 be both, and when it is, that is the finding rather than a fault. Ties break on
 name, so the same scores always name the same course. *Hardcoded rule.*
+
+### K triggers
+
+Each course of action commits one or more reserves, and each committed reserve
+is one trigger in the ECA table. Triggers are numbered `K1` onward **within a
+course**, in the order the reserves commence movement (decision + readiness
+from the reserve's timing). Two efforts by the same reserve are one trigger.
+
+A reserve whose commencement is unassessed still receives a nominal so the
+table is complete, but every such reserve is ordered after every timed one, by
+name, and its commencement is reported as unknown rather than treated as zero.
+The nominal and its basis (`trigger`, `commencement_minutes`) ride on each
+effort. The model never sees or assigns them; they are derived in code after
+grounding, so the same accepted course always yields the same table. *Hardcoded
+rule.*
 
 ### Intent
 

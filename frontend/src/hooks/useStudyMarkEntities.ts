@@ -75,7 +75,7 @@ export function useStudyMarkEntities({
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
-          text: reserve && mark.level ? `${mark.level} · ${mark.name}` : mark.name,
+          text: mark.name,
           font: '600 12px system-ui, sans-serif',
           fillColor: color,
           showBackground: true,
