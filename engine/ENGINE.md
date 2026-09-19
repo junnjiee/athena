@@ -129,8 +129,11 @@ of approach.
 **Iterative penalty search.** Take the quickest route, multiply its edges' costs
 by `PENALTY_FACTOR` (1.6), search again. A candidate is admitted only if:
 
-- **Stretch** — within `MAX_STRETCH` (1.6) of the fastest route. An approach
-  twice as slow is not a course of action.
+- **Stretch** — within `MAX_STRETCH` (4.0) of the fastest route. This is a
+  wide net by design: the search hard-stops the first time a candidate exceeds
+  it, so a tight bound was terminating after two or three routes and
+  understating the approaches available. An approach many times slower than
+  the fastest is still not a course of action.
 - **Sharing** — overlaps every accepted route by less than `MAX_SHARING` (0.7)
   of its own length.
 - **Not a repeat** — its exact edge set has not already been accepted.
@@ -720,6 +723,17 @@ model call, deterministic code normalizes designation and locality, counts each
 source document once, and applies the two-source rule: two independent documents
 confirm a matching position; one document leaves it assessed. The response is a
 proposal for operator review, not a mutation of study marks.
+
+Matching is on the **bare** designation and place name. A bracketed
+abbreviation is dropped from the designation — "3rd Mechanised Battalion
+(3 MECH BN)" and "3rd Mechanised Battalion" are one unit — and relational
+phrasing is dropped from the locality: "near X", "in the vicinity of X",
+"IVO X" and "X" are one position. Without this the rule never fired in
+practice, since reports naturally vary the phrasing and each variant became
+its own assessed proposal. The proposal surfaces the shortest bare wording
+among its claims, which is the form the operator matches against the AO.
+The prompt also asks the model for bare forms, but grouping does not rely on
+it obeying. *Hardcoded rule.*
 
 The terrain service converts PDF, DOCX, Markdown, and text uploads in memory;
 raw source bytes are neither stored nor forwarded. It enforces 10 MB and

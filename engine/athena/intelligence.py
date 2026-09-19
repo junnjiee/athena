@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 
 from athena.study import (
     IntelligenceStatus,
-    ReserveLevel,
     ReserveTiming,
     TaskOrganizationElement,
 )
@@ -23,7 +22,6 @@ class ReserveClaim(BaseModel):
     source_document_id: str
     name: str = Field(min_length=1, max_length=120)
     locality: str = Field(min_length=1, max_length=240)
-    level: ReserveLevel | None = None
     owning_formation: str | None = Field(default=None, max_length=160)
     task_organization: list[TaskOrganizationElement] = Field(default_factory=list)
     timing: ReserveTiming | None = None
@@ -76,13 +74,40 @@ def build_prompt(documents: list[SourceDocument]) -> str:
         )
     parts.append(
         "## Task\nExtract each stated enemy reserve designation and named locality. "
-        "Include level, owner, composition, and timing only when explicit."
+        "Give the designation in full without bracketed abbreviations, and the "
+        "locality as the bare place name with no 'near', 'vicinity of' or 'IVO'. "
+        "Include owner, composition, and timing only when explicit."
     )
     return "\n".join(parts)
 
 
+_LOCALITY_PREFIX = re.compile(
+    r"^(?:(?:in|at|around|near|nr|vic|vicinity|ivo|of|the)\s+)+", re.IGNORECASE
+)
+
+
 def _identity(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def _bare_name(value: str) -> str:
+    """A designation with any bracketed abbreviation dropped: "3rd Mechanised
+    Battalion (3 MECH BN)" and "3rd Mechanised Battalion" are one unit."""
+    return re.sub(r"\s*[(\[].*?[)\]]", "", value).strip() or value.strip()
+
+
+def _bare_locality(value: str) -> str:
+    """A place name with relational phrasing stripped: "near X", "vicinity of X",
+    "IVO X" and "X" are the same position. Three reports of one laager must
+    confirm it rather than describing it three times."""
+    return _LOCALITY_PREFIX.sub("", value.strip()).strip() or value.strip()
+
+
+def _display(values: list[str]) -> str:
+    """The shortest bare wording, which is what the operator matches against
+    the AO to accept a proposal. Ties prefer mixed case over a report's
+    shouted TENGAH, then the text itself."""
+    return min(values, key=lambda v: (len(v), v.isupper(), v))
 
 
 def ground_claims(
@@ -105,7 +130,7 @@ def ground_claims(
                 )
             )
             continue
-        identity = (_identity(claim.name), _identity(claim.locality))
+        identity = (_identity(_bare_name(claim.name)), _identity(_bare_locality(claim.locality)))
         occurrence = (claim.source_document_id, *identity)
         if occurrence in seen:
             continue
@@ -117,8 +142,8 @@ def ground_claims(
         source_ids = sorted({claim.source_document_id for claim in claims})
         proposals.append(
             ReserveProposal(
-                name=claims[0].name,
-                locality=claims[0].locality,
+                name=_display([_bare_name(claim.name) for claim in claims]),
+                locality=_display([_bare_locality(claim.locality) for claim in claims]),
                 intelligence_status=(
                     IntelligenceStatus.CONFIRMED
                     if len(source_ids) >= 2

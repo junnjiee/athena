@@ -43,7 +43,7 @@ legal the other.
 ROUTES_PER_PAIR = 8
 """``K``: routes returned per reserve-objective pair."""
 
-MAX_STRETCH = 1.6
+MAX_STRETCH = 4.0
 """``alpha``: a route slower than this multiple of the fastest is not a course
 of action, however different it looks."""
 

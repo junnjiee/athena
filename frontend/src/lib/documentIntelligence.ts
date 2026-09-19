@@ -1,11 +1,19 @@
 import type { ReserveClaim, ReserveProposal } from '../types/documentIntelligence'
-import type { StudyMark } from '../types/routeStudy'
+import type { ReserveTiming, StudyMark } from '../types/routeStudy'
 
 function consensus<T>(claims: ReserveClaim[], read: (claim: ReserveClaim) => T | null | undefined): T | undefined {
   const values = claims.map(read).filter((value): value is T => value != null)
   if (values.length === 0) return undefined
   const encoded = new Set(values.map((value) => JSON.stringify(value)))
   return encoded.size === 1 ? values[0] : undefined
+}
+
+/** The engine reports an unassessed stage as null; a mark records it by
+ *  leaving the field out, which is also all the server accepts. */
+function assessedTiming(timing: ReserveTiming | null | undefined): ReserveTiming | undefined {
+  if (!timing) return undefined
+  const stages = Object.entries(timing).filter(([, minutes]) => minutes != null)
+  return stages.length > 0 ? Object.fromEntries(stages) : undefined
 }
 
 /** Populate only facts on which the cited claims agree. Disagreements remain
@@ -20,9 +28,8 @@ export function proposalMarkPatch(proposal: ReserveProposal): Partial<StudyMark>
       source_document_name: claim.source_document_name ?? claim.source_document_id,
       excerpt: claim.evidence,
     })),
-    level: consensus(proposal.claims, (claim) => claim.level),
     owning_formation: consensus(proposal.claims, (claim) => claim.owning_formation),
-    timing: consensus(proposal.claims, (claim) => claim.timing),
+    timing: consensus(proposal.claims, (claim) => assessedTiming(claim.timing)),
     task_organization: taskOrganization?.map((element) => ({
       ...element,
       id: crypto.randomUUID(),

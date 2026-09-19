@@ -45,6 +45,47 @@ def test_two_independent_documents_confirm_the_same_reserve_position() -> None:
     assert result.proposals[0].source_document_ids == ["log", "sitrep"]
 
 
+def test_locality_phrasing_and_abbreviations_do_not_split_one_position() -> None:
+    # Verbatim variants a model produced for one position across four reports.
+    draft = DraftReserveClaims.model_validate(
+        {
+            "claims": [
+                claim("sitrep", name="3rd Mechanised Battalion (3 MECH BN)", locality="vicinity of TENGAH"),
+                claim("log", name="3rd Mechanised Battalion", locality="Tengah"),
+                claim("sitrep", name="Divisional Reserve Tank Regiment", locality="near SARIMBUN"),
+                claim("log", name="Divisional Reserve Tank Regiment", locality="in the vicinity of Sarimbun"),
+                claim("humint", name="Divisional Reserve Tank Regiment", locality="IVO Sarimbun"),
+            ]
+        }
+    )
+    documents = [*DOCUMENTS, SourceDocument(id="humint", name="HUMINT", text="tanks")]
+
+    result = ground_claims(draft, documents)
+
+    # The bare wording is surfaced, since the operator matches it against the AO.
+    assert [(p.name, p.locality, p.intelligence_status) for p in result.proposals] == [
+        ("3rd Mechanised Battalion", "Tengah", "confirmed"),
+        ("Divisional Reserve Tank Regiment", "Sarimbun", "confirmed"),
+    ]
+    assert result.proposals[1].source_document_ids == ["humint", "log", "sitrep"]
+
+
+def test_different_localities_for_one_designation_remain_separate() -> None:
+    draft = DraftReserveClaims.model_validate(
+        {
+            "claims": [
+                claim("sitrep", name="Recce Company 2/14", locality="vicinity of MURAI"),
+                claim("log", name="Recce Company 2/14", locality="Lim Chu Kang"),
+            ]
+        }
+    )
+
+    result = ground_claims(draft, DOCUMENTS)
+
+    assert len(result.proposals) == 2
+    assert all(p.intelligence_status == "assessed" for p in result.proposals)
+
+
 def test_repeated_claims_in_one_document_remain_assessed() -> None:
     draft = DraftReserveClaims.model_validate(
         {"claims": [claim("sitrep"), claim("sitrep")]}
