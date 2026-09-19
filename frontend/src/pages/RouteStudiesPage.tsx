@@ -871,7 +871,7 @@ export function RouteStudiesPage() {
                         setToolMode('place-orbat-unit')
                       },
                     }
-                  : { label: 'Open Block', run: () => { setBranch('s3'); setS3Panel('block') } }
+                  : { label: 'Open Block Force', run: () => { setBranch('s3'); setS3Panel('block') } }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-(--bg) text-(--text)">
@@ -1154,7 +1154,7 @@ export function RouteStudiesPage() {
               <div className="glass flex items-center gap-0.5 rounded-lg p-0.5">
                 {([
                   ['orbat', 'ORBAT', Users],
-                  ['block', 'Block', ShieldCheck],
+                  ['block', 'Block Force', ShieldCheck],
                 ] as const).map(([id, label, Icon]) => (
                   <button
                     key={id}

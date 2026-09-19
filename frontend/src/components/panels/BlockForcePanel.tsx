@@ -88,7 +88,7 @@ export function BlockForcePanel({
       <div className="mb-2 flex items-center justify-between text-xs tracking-wide text-(--text-dim)">
         <span className="flex items-center gap-1.5">
           <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />
-          BLOCK FORCES
+          BLOCK FORCE
         </span>
         {running && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
       </div>
@@ -105,7 +105,7 @@ export function BlockForcePanel({
         className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-(--accent) py-2 text-sm font-medium text-(--panel-bg-solid) hover:bg-(--accent-hover) disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-(--text-dim)"
       >
         {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-        {running ? 'Allocating…' : plan ? 'Re-run block forces' : 'Find block forces'}
+        {running ? 'Allocating…' : plan ? 'Re-run block force' : 'Find block force'}
       </button>
 
       {units.length === 0 && (
