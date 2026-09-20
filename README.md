@@ -23,7 +23,6 @@ area's road graph from the server, computes, and returns the result.
 > and their courses of action for the S2, deployable block forces for the S3.
 > Behaviour and modelling assumptions are in
 > [`engine/ENGINE.md`](engine/ENGINE.md); the original design is in
-> [`docs/superpowers/specs/2026-09-08-route-substrate-design.md`](docs/superpowers/specs/2026-09-08-route-substrate-design.md).
 
 ## Quick start
 
