@@ -22,7 +22,7 @@ area's road graph from the server, computes, and returns the result.
 > battle procedure rather than fighting the battle: enemy reinforcement routes
 > and their courses of action for the S2, deployable block forces for the S3.
 > Behaviour and modelling assumptions are in
-> [`engine/ENGINE.md`](engine/ENGINE.md); the original design is in
+> [`engine/ENGINE.md`](engine/ENGINE.md).
 
 ## Quick start
 
