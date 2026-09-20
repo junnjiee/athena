@@ -19,6 +19,7 @@ import hashlib
 import heapq
 import math
 import statistics
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from athena.graph import Node, RoadGraph
@@ -86,9 +87,43 @@ def axis_separation_meters(
     if not here or not there:
         return math.inf
 
-    nearest = [min(_meters_between(a, b) for b in there) for a in here]
-    nearest += [min(_meters_between(b, a) for a in here) for b in there]
-    return statistics.median(nearest)
+    # One equirectangular frame for the pair, at their mean latitude. An axis
+    # runs a few hundred junctions, so the all-pairs minimum below is tens of
+    # thousands of distances per axis pair and hundreds of pairs per study;
+    # sorting each axis by easting and scanning outward from the bisection
+    # point finds the same nearest neighbour in a handful of steps.
+    lat_scale = math.cos(
+        math.radians(sum(n.lat for n in here + there) / (len(here) + len(there)))
+    )
+    a = sorted((n.lon * lat_scale, n.lat) for n in here)
+    b = sorted((n.lon * lat_scale, n.lat) for n in there)
+    nearest = [_nearest_degrees(p, b) for p in a]
+    nearest += [_nearest_degrees(p, a) for p in b]
+    return statistics.median(nearest) * METERS_PER_DEGREE
+
+
+def _nearest_degrees(point: tuple[float, float], sorted_points: list[tuple[float, float]]) -> float:
+    """Distance from ``point`` to its nearest neighbour in a list sorted by x."""
+    x, y = point
+    index = bisect_left(sorted_points, (x, y))
+    best = math.inf
+    left, right = index - 1, index
+    while left >= 0 or right < len(sorted_points):
+        # Once the easting gap alone exceeds the best distance, nothing further
+        # out in that direction can be closer.
+        if right < len(sorted_points) and sorted_points[right][0] - x < best:
+            px, py = sorted_points[right]
+            best = min(best, math.hypot(px - x, py - y))
+            right += 1
+        else:
+            right = len(sorted_points)
+        if left >= 0 and x - sorted_points[left][0] < best:
+            px, py = sorted_points[left]
+            best = min(best, math.hypot(px - x, py - y))
+            left -= 1
+        else:
+            left = -1
+    return best
 
 
 def axis_heading_difference_degrees(
@@ -210,10 +245,13 @@ def cluster_into_corridors(
 
     nodes = graph.nodes_by_id()
 
+    # Cheapest test first: heading is two endpoints, separation is every node
+    # of both axes, and the detour is a shortest-path search. All three must
+    # hold, so the order changes nothing but the time.
     def same_corridor(one: Route, other: Route) -> bool:
-        if axis_separation_meters(one, other, nodes) > separation_meters:
-            return False
         if axis_heading_difference_degrees(one, other, nodes) > max_heading_degrees:
+            return False
+        if axis_separation_meters(one, other, nodes) > separation_meters:
             return False
         return lateral_detour_ratio(one, other, graph) <= detour_ratio
 

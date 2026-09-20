@@ -11,11 +11,14 @@ import { useOrbatEntities } from '../../hooks/useOrbatEntities'
 import { useBlockLinkEntities } from '../../hooks/useBlockLinkEntities'
 import { useRoadNetworkEntities } from '../../hooks/useRoadNetworkEntities'
 import { useRoadLabelEntities } from '../../hooks/useRoadLabelEntities'
+import { useRoadHighlightEntities } from '../../hooks/useRoadHighlightEntities'
+import { useRoadPicking } from '../../hooks/useRoadPicking'
 import { useOperationalRoadDrawing } from '../../hooks/useOperationalRoadDrawing'
 import { RectangleSelectionController } from './RectangleSelectionController'
 import { ViewerBridge } from './ViewerBridge'
 import type { CorridorLine } from '../../lib/routeStudy'
 import type { S2Overlay } from '../../lib/overlays'
+import type { RoadHit } from '../../lib/roadIndex'
 import type { LonLat } from '../../types/entities'
 import type { SelectionResult } from '../../types/selection'
 import type { BBoxDeg } from '../../types/terrain'
@@ -51,6 +54,12 @@ interface Props {
   blockPlan: BlockPlan | null
   graph: RoadGraph | null
   roadEdits: Record<string, RoadEdit>
+  /** Road under the cursor and the road the operator clicked; the map is the
+   *  road register, so both are drawn on it. */
+  hoveredRoadWayId: number | null
+  selectedRoadWayId: number | null
+  onRoadHover: (wayId: number | null) => void
+  onRoadSelect: (hit: RoadHit | null) => void
   onSelectionFinalize: (selection: SelectionResult) => void
   onObjectiveAreaFinalize: (selection: SelectionResult) => void
   onViewerReady: (viewer: Cesium.Viewer) => void
@@ -77,6 +86,10 @@ function OperationalOverlayController({
   blockPlan,
   graph,
   roadEdits,
+  hoveredRoadWayId,
+  selectedRoadWayId,
+  onRoadHover,
+  onRoadSelect,
   onPlace,
   onRoadComplete,
   onRoadCancel,
@@ -94,6 +107,10 @@ function OperationalOverlayController({
   | 'blockPlan'
   | 'graph'
   | 'roadEdits'
+  | 'hoveredRoadWayId'
+  | 'selectedRoadWayId'
+  | 'onRoadHover'
+  | 'onRoadSelect'
   | 'onPlace'
   | 'onRoadComplete'
   | 'onRoadCancel'
@@ -104,6 +121,9 @@ function OperationalOverlayController({
   // Under everything else: the detected network is context, not a finding.
   useRoadNetworkEntities({ viewer, graph })
   useRoadLabelEntities({ viewer, graph, roadEdits })
+  useRoadHighlightEntities({ viewer, graph, hoveredWayId: hoveredRoadWayId, selectedWayId: selectedRoadWayId })
+  // Only the pointer picks roads; every armed tool owns the click instead.
+  useRoadPicking({ viewer, graph, active: toolMode === 'navigate', onHover: onRoadHover, onSelect: onRoadSelect })
   useAreaBoundsEntity({ viewer, bbox: areaBbox })
   useStudyMarkEntities({ viewer, marks, overlay })
   useCorridorEntities({ viewer, lines, selectedCorridorId, courseEmphasis })
@@ -141,6 +161,10 @@ export function OperationalGlobe({
   blockPlan,
   graph,
   roadEdits,
+  hoveredRoadWayId,
+  selectedRoadWayId,
+  onRoadHover,
+  onRoadSelect,
   onSelectionFinalize,
   onObjectiveAreaFinalize,
   onViewerReady,
@@ -170,6 +194,7 @@ export function OperationalGlobe({
         armed={toolMode === 'select-area'}
         resetToken={resetToken}
         maxExtentMeters={OPERATIONAL_MAX_SELECTION_EXTENT_METERS}
+        frameOnFinalize={false}
         onSelectionFinalize={onSelectionFinalize}
       />
       <RectangleSelectionController
@@ -193,6 +218,10 @@ export function OperationalGlobe({
         blockPlan={blockPlan}
         graph={graph}
         roadEdits={roadEdits}
+        hoveredRoadWayId={hoveredRoadWayId}
+        selectedRoadWayId={selectedRoadWayId}
+        onRoadHover={onRoadHover}
+        onRoadSelect={onRoadSelect}
         onPlace={onPlace}
         onRoadComplete={onRoadComplete}
         onRoadCancel={onRoadCancel}

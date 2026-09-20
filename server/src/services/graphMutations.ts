@@ -37,6 +37,41 @@ export type AddRoadResult =
   | { ok: true; graph: RoadGraph; wayId: number }
   | { ok: false; reason: string }
 
+export type RemoveRoadResult =
+  | { ok: true; graph: RoadGraph }
+  | { ok: false; reason: string }
+
+/** Drops an operator-added road from the graph outright.
+ *
+ * Extracted roads are never removed -- their loss is a terrain state, recorded
+ * with `setRoadDestroyed` so the axis keeps its identity. An added road is the
+ * operator's own observation, so withdrawing it is a correction rather than an
+ * event on the ground. Cut junctions a break left on the road go with it; the
+ * live junctions it was snapped to stay, since other roads still meet there. */
+export function removeAddedRoad(graph: RoadGraph, wayId: number): RemoveRoadResult {
+  if (!graph.edges.some((edge) => edge.wayId === wayId)) return { ok: false, reason: 'unknown road' }
+  if (wayId >= 0) {
+    return {
+      ok: false,
+      reason: 'only operator-added roads can be removed; mark an extracted road destroyed instead',
+    }
+  }
+  const edges = graph.edges.filter((edge) => edge.wayId !== wayId)
+  const referenced = new Set<number>()
+  for (const edge of edges) {
+    referenced.add(edge.from)
+    referenced.add(edge.to)
+  }
+  return {
+    ok: true,
+    graph: {
+      ...graph,
+      nodes: graph.nodes.filter((node) => node.id >= 0 || referenced.has(node.id)),
+      edges,
+    },
+  }
+}
+
 function distanceMeters(a: [number, number], b: [number, number]): number {
   const mpd = metersPerDegree((a[1] + b[1]) / 2)
   return Math.hypot((b[0] - a[0]) * mpd.lon, (b[1] - a[1]) * mpd.lat)

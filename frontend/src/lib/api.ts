@@ -294,6 +294,15 @@ export async function updateOperationalRoadState(
   return body.meta
 }
 
+/** Withdraws an operator-added road. Extracted roads are refused by the server:
+ *  their loss is recorded as destruction, never deletion. */
+export async function removeOperationalRoad(id: string, wayId: number): Promise<OperationalAreaMeta> {
+  const res = await fetch(`/api/operational-area/${id}/graph/roads/${wayId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  const body = (await res.json()) as { meta: OperationalAreaMeta }
+  return body.meta
+}
+
 export async function breakOperationalRoad(
   id: string,
   wayId: number,

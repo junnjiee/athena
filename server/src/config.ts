@@ -69,8 +69,9 @@ export const config = {
    *  this, areas still ingest and the study endpoints report it is unset. */
   engineUrl: (process.env.ENGINE_URL ?? '').replace(/\/+$/, ''),
   /** A study is a graph search over tens of thousands of edges, not a model
-   *  call, so this bounds a slow network rather than slow thinking. */
-  engineTimeoutMs: 60_000,
+   *  call. A 2x2 study over a 50k-edge AO takes seconds; this leaves room for
+   *  a many-mark study without letting a hung engine pin a request forever. */
+  engineTimeoutMs: 180_000,
   /** The courses-of-action pass is a model reasoning about how a force would
    *  fight, not a graph search, so it runs to minutes rather than seconds. */
   engineReasoningTimeoutMs: 300_000,

@@ -70,18 +70,37 @@ export function useRectangleSelection({
   useEffect(() => {
     if (!viewer || !armed) return
 
-    // Only an armed selector touches the camera flags. More than one of these
+    // Only an armed selector touches the camera bindings. More than one of these
     // hooks runs at a time (ground selection and objective drawing are separate
-    // instances), so an unarmed one writing `true` here would hand the camera
-    // back mid-drag of whichever one is actually armed.
+    // instances), so an unarmed one restoring defaults here would hand the
+    // camera back mid-drag of whichever one is actually armed.
+    //
+    // Left-drag becomes the box, but the camera is not taken away: panning moves
+    // to right-drag or Shift+drag and zoom stays on the wheel, so an operator
+    // can still reach ground that is off screen without leaving the tool. The
+    // handler below is registered without a modifier, and Cesium dispatches by
+    // the modifier held, so a Shift+drag never starts a box.
     //
     // viewerRef is our own ref mirroring Cesium's imperative Viewer; toggling controller
-    // flags through it is the sanctioned mutable-escape-hatch pattern, not React state.
+    // bindings through it is the sanctioned mutable-escape-hatch pattern, not React state.
     /* eslint-disable react-hooks/immutability */
     const controller = viewerRef.current?.scene.screenSpaceCameraController
+    const saved = controller && {
+      rotate: controller.rotateEventTypes,
+      translate: controller.translateEventTypes,
+      zoom: controller.zoomEventTypes,
+      look: controller.lookEventTypes,
+    }
     if (controller) {
-      controller.enableRotate = false
-      controller.enableTranslate = false
+      const pan = [
+        Cesium.CameraEventType.RIGHT_DRAG,
+        { eventType: Cesium.CameraEventType.LEFT_DRAG, modifier: Cesium.KeyboardEventModifier.SHIFT },
+      ]
+      controller.rotateEventTypes = pan
+      controller.translateEventTypes = pan
+      controller.zoomEventTypes = [Cesium.CameraEventType.WHEEL, Cesium.CameraEventType.PINCH]
+      // Default free-look sits on Shift+drag; it would fight the pan binding.
+      controller.lookEventTypes = undefined as unknown as Cesium.CameraEventType
     }
     /* eslint-enable react-hooks/immutability */
 
@@ -124,9 +143,11 @@ export function useRectangleSelection({
       isDraggingRef.current = false
       startCartographicRef.current = null
       const cleanupController = viewerRef.current?.scene.screenSpaceCameraController
-      if (cleanupController) {
-        cleanupController.enableRotate = true
-        cleanupController.enableTranslate = true
+      if (cleanupController && saved) {
+        cleanupController.rotateEventTypes = saved.rotate
+        cleanupController.translateEventTypes = saved.translate
+        cleanupController.zoomEventTypes = saved.zoom
+        cleanupController.lookEventTypes = saved.look
       }
     }
   }, [viewer, armed, maxExtentMeters, colorHex, frameOnFinalize])

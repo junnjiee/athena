@@ -28,26 +28,130 @@ area's road graph from the server, computes, and returns the result.
 
 ### Everything at once, with Docker
 
+This is the recommended way to run Athena if you are not developing it. The
+only thing to install is Docker; Postgres, migrations and all three services
+are handled by compose.
+
+**Step 1 — Install Docker.** You need Docker Engine 24+ with Compose v2
+(`docker compose`, not `docker-compose`).
+
+- macOS: `brew install --cask docker` (Docker Desktop) or
+  `brew install --cask orbstack`, then launch it and wait until it reports
+  running. Both Apple Silicon and Intel work; every image is multi-arch.
+- Windows: Docker Desktop with the WSL 2 backend.
+- Linux: your distribution's `docker` and `docker-compose-plugin` packages.
+
+Check with `docker compose version`.
+
+**Step 2 — Get the code.**
+
 ```bash
-cp .env.docker.example .env   # optional keys; the stack runs without them
+git clone <this repository>
+cd Athena
+```
+
+**Step 3 — Create the root `.env`.**
+
+```bash
+cp .env.docker.example .env
+```
+
+One root `.env` covers all three services — compose passes the variables in
+directly, so the per-process `.env` files described under *On the host* are
+not used here, and the engine's `--env-file` caveat does not apply.
+
+**Step 4 — Fill in the keys for the full MVP.** The stack starts with every
+value blank; terrain generation, plan drawing, route studies and block forces
+are deterministic and need nothing. The keys below are what turns on the rest.
+
+| Key in `.env` | Feature it unlocks | Where to get it | Without it |
+|---|---|---|---|
+| `PROVIDER_API_KEY` | **Assess enemy courses** — the S2 courses-of-action pass, the one place a model reasons about enemy intent | The console of whichever provider `ATHENA_MODEL` names (OpenAI by default) | The button returns `503` and says plainly that no model is configured. Routes and block forces still work |
+| `ATHENA_MODEL` | Which model the key above is for, as `provider:name` | — | Defaults to `openai:gpt-5.6-sol`. `anthropic:claude-opus-5`, `google:gemini-2.5-pro`, `ollama:llama3.3` also work — one key, whichever provider |
+| `VITE_CESIUM_ION_TOKEN` | Full-speed world imagery and terrain on the globe | Free account at cesium.com → *Access Tokens* | Falls back to Cesium's rate-limited demo token; the globe still works but tiles load noticeably slower |
+| `VITE_GOOGLE_MAPS_KEY` | **RECON** mode — Google Photorealistic 3D Tiles over the area | Google Cloud console → enable *Map Tiles API* → create an API key. Free tier is enough for a demo | RECON falls back to the ion proxy asset (needs a real ion token); with neither, the Recon toggle is disabled |
+| `ELEVENLABS_API_KEY` | Voice assistant — talk to Athena to pick ground and drive planning | elevenlabs.io → profile → *API Keys* | Assistant dock reports "not configured"; everything else works |
+| `ELEVENLABS_AGENT_ID` | The Athena agent on your ElevenLabs account | Generated for you in Step 6 | Same as above |
+| `CORS_ORIGINS` | Only for a deployed frontend | — | Leave blank locally: any localhost port is allowed |
+
+For the complete demo you need four things: a model provider key, a Cesium
+ion token, a Google Maps key, and an ElevenLabs key. Every key stays inside
+the stack — none is ever sent to the browser except the two `VITE_` ones,
+which are public-by-design client tokens.
+
+**Step 5 — Build and start.**
+
+```bash
 docker compose up --build
 ```
+
+The first build downloads three base images and installs every dependency —
+Cesium alone is several hundred megabytes — so expect **3–8 minutes** on a cold
+machine. Later starts take seconds. You are up when the logs show the server
+listening on `8787`, uvicorn on `8000`, and Vite printing its `Local:` URL.
 
 | | |
 |---|---|
 | Web app | http://localhost:5173 |
 | Terrain API | http://localhost:8787 |
 | Engine API | http://localhost:8000 |
+| Postgres | `postgresql://athena:athena@localhost:5432/athena` |
 
-One root `.env` covers all three services here — compose passes the variables in
-directly, so the per-process `.env` files below are not used and the engine's
-`--env-file` caveat does not apply. Postgres and the migrations are handled for
-you. To use the courses-of-action pass, set `ATHENA_MODEL` and
-`PROVIDER_API_KEY` in that root `.env`.
+Open http://localhost:5173. It redirects to the planning surface.
+
+**Step 6 — Create the voice agent (only if you set `ELEVENLABS_API_KEY`).**
+The agent's prompt and tool catalog live in the repo, so it is created from
+code rather than in a dashboard. With the stack running:
+
+```bash
+docker compose run --rm server node_modules/.bin/tsx scripts/sync-agent.ts
+```
+
+It prints an agent id. Paste it into `.env` as `ELEVENLABS_AGENT_ID`, then
+`docker compose up -d server` to restart the server with it. Re-run the same
+command any time `server/src/services/assistantAgent.ts` changes.
+
+**Step 7 — Verify the full MVP.** In order, each should work before the next:
+
+1. Drag-select ground on the globe (≤ 800 m) → *Generate Battlefield*. Terrain
+   ingests live from public DEM/OSM/imagery services and streams progress — no
+   key involved, but it does need outbound internet.
+2. Draw units and routes; the bottom bar reports ETA, exposure, confidence.
+3. Switch on **RECON** — photorealistic tiles appear (`VITE_GOOGLE_MAPS_KEY`).
+4. Open route studies, mark the ground, run a study — corridors and block forces
+   are deterministic and need no key.
+5. **Assess enemy courses** — the model answers (`PROVIDER_API_KEY`).
+6. Open the assistant dock and speak (`ELEVENLABS_*`).
+
+**Day-to-day**
+
+```bash
+docker compose up -d              # run in the background
+docker compose logs -f server     # tail one service (server | engine | frontend | postgres)
+docker compose up -d              # again after editing .env: values are read at container start
+docker compose up --build         # after changing dependencies (package.json, pyproject.toml)
+docker compose down               # stop everything, keep the database
+docker compose down -v            # stop and wipe the database
+```
 
 `frontend/src`, `server/src` and `engine/athena` are bind-mounted, so edits on
 the host are picked up live — Vite keeps HMR and the terrain service runs under
-`tsx watch`. Rebuild only when dependencies change.
+`tsx watch`. Rebuild only when dependencies change. `.env` changes need
+`docker compose up` again (no rebuild) because the values are read at container
+start.
+
+**If something goes wrong**
+
+- `port is already allocated` — something on your machine already uses 5432,
+  5173, 8787 or 8000. Stop it, or change the left-hand side of the `ports:`
+  mapping in `docker-compose.yml` (a local Postgres on 5432 is the usual one).
+- The first battlefield never finishes — the terrain pipeline calls public
+  Overpass mirrors and AWS terrain tiles; on a locked-down network these may be
+  blocked. `docker compose logs -f server` shows which fetch stalled.
+- **Assess enemy courses** says no model is configured while the key is in
+  `.env` — you edited `.env` after starting; run `docker compose up -d engine`.
+- Blank globe or `401` in the browser console — `VITE_CESIUM_ION_TOKEN` is
+  wrong. Remove it to fall back to the demo token.
 
 ### On the host
 

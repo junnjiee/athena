@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { addRoadBody, roadBreakBody, roadSettingsBody, roadStateBody } from '../src/routes/operationalAreas'
-import { addRoad, breakRoadStretch, setRoadDestroyed } from '../src/services/graphMutations'
+import { addRoad, breakRoadStretch, removeAddedRoad, setRoadDestroyed } from '../src/services/graphMutations'
 import type { RoadGraph } from '../src/types'
 
 const graph: RoadGraph = {
@@ -181,5 +181,38 @@ describe('operator-added roads', () => {
       ok: false,
       reason: 'road endpoints must be within 500 m of a junction',
     })
+  })
+
+  test('an added road can be removed outright, leaving the network it joined intact', () => {
+    const added = addRoad(connected, [[103, 1], [103.01, 1.005], [103.02, 1]])
+    if (!added.ok) throw new Error(added.reason)
+
+    const removed = removeAddedRoad(added.graph, added.wayId)
+    if (!removed.ok) throw new Error(removed.reason)
+
+    expect(removed.graph.edges.map((edge) => edge.id)).toEqual(['10:0', '20:0'])
+    expect(removed.graph.nodes).toEqual(connected.nodes)
+  })
+
+  test('removing an added road also drops the cut junctions a break left on it', () => {
+    const added = addRoad(connected, [[103, 1], [103.02, 1]])
+    if (!added.ok) throw new Error(added.reason)
+    const broken = breakRoadStretch(added.graph, added.wayId, [103.005, 1], [103.015, 1])
+    if (!broken.ok) throw new Error(broken.reason)
+    expect(broken.graph.nodes.length).toBe(connected.nodes.length + 2)
+
+    const removed = removeAddedRoad(broken.graph, added.wayId)
+    if (!removed.ok) throw new Error(removed.reason)
+
+    expect(removed.graph.nodes).toEqual(connected.nodes)
+    expect(removed.graph.edges.some((edge) => edge.wayId === added.wayId)).toBe(false)
+  })
+
+  test('an extracted road cannot be removed -- destruction is the only state change', () => {
+    expect(removeAddedRoad(connected, 10)).toEqual({
+      ok: false,
+      reason: 'only operator-added roads can be removed; mark an extracted road destroyed instead',
+    })
+    expect(removeAddedRoad(connected, -7)).toEqual({ ok: false, reason: 'unknown road' })
   })
 })

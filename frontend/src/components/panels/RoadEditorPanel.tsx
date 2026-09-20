@@ -1,16 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Crosshair, Loader2, Plus, RotateCcw, Scissors, Search, ShieldOff, Undo2 } from 'lucide-react'
-import { formatRoadCode, parseRoadCode, prefillRoadClassification } from '../../lib/roadCodes'
+import { MousePointerClick, Plus, Search } from 'lucide-react'
+import { formatRoadCode } from '../../lib/roadCodes'
 import { ROAD_THEMES, nextRoadName } from '../../lib/roadNames'
 import { roadIdentities, type RoadIdentity } from '../../lib/roads'
-import type {
-  OperationalAreaMeta,
-  RoadEdit,
-  RoadGraph,
-  RoadTheme,
-} from '../../types/routeStudy'
+import type { OperationalAreaMeta, RoadGraph, RoadTheme } from '../../types/routeStudy'
 
-const VISIBLE_ROADS = 60
+const SEARCH_RESULTS = 6
 
 interface Props {
   area: OperationalAreaMeta
@@ -18,83 +13,71 @@ interface Props {
   saving: boolean
   error: string | null
   onSetTheme: (theme: RoadTheme) => void
-  onEditRoad: (roadId: string, edit: RoadEdit | null) => void
-  onSetDestroyed: (road: RoadIdentity, destroyed: boolean) => void
   drawingRoad: boolean
-  breakingRoadId: string | null
   canMutateGraph: boolean
   onBeginAdd: () => void
-  onBeginBreak: (road: RoadIdentity) => void
-  onLocate: (road: RoadIdentity) => void
+  /** Search results select on the map; the card there does the editing. */
+  onPick: (road: RoadIdentity) => void
 }
 
+/** The road register, reduced to what the map cannot do: choose the call-sign
+ *  theme, start drawing a road, and find a road by name when it is off screen.
+ *  Everything per road -- naming, coding, breaking, destroying -- happens on the
+ *  road itself, by clicking it. */
 export function RoadEditorPanel({
   area,
   graph,
   saving,
   error,
   onSetTheme,
-  onEditRoad,
-  onSetDestroyed,
   drawingRoad,
-  breakingRoadId,
   canMutateGraph,
   onBeginAdd,
-  onBeginBreak,
-  onLocate,
+  onPick,
 }: Props) {
   const [query, setQuery] = useState('')
   const roads = useMemo(() => roadIdentities(graph), [graph])
-  const usedNames = Object.values(area.roadEdits).map((edit) => edit.name)
-  const nextName = nextRoadName(area.roadTheme, usedNames)
+  const coded = Object.keys(area.roadEdits).length
+  const destroyed = roads.filter((road) => road.partiallyDestroyed).length
+  const added = roads.filter((road) => road.wayId < 0).length
+  const nextName = nextRoadName(area.roadTheme, Object.values(area.roadEdits).map((edit) => edit.name))
   const needle = query.trim().toLowerCase()
-  const matches = roads.filter((road) => {
-    const edit = area.roadEdits[road.id]
-    return !needle || [road.id, road.osmName, edit?.name, road.roadClass, road.lanes]
-      .some((value) => value?.toLowerCase().includes(needle))
-  })
-  const visible = matches.slice(0, VISIBLE_ROADS)
-
-  function assign(road: RoadIdentity) {
-    if (!nextName) return
-    onEditRoad(road.id, {
-      name: nextName,
-      ...prefillRoadClassification(road),
-    })
-  }
+  const matches = needle
+    ? roads.filter((road) => {
+        const edit = area.roadEdits[road.id]
+        return [road.id, road.osmName, edit?.name, edit && formatRoadCode(edit), road.roadClass]
+          .some((value) => value?.toLowerCase().includes(needle))
+      }).slice(0, SEARCH_RESULTS)
+    : []
 
   return (
-    <div className="glass flex h-full min-h-0 flex-col rounded-xl p-3">
+    <div className="glass flex flex-col rounded-xl p-3">
       <div className="flex items-center justify-between text-xs tracking-wide text-(--text-dim)">
-        <span>ROAD REGISTER</span>
-        <div className="flex items-center gap-2">
-          <span>{roads.length.toLocaleString()} roads</span>
-          <button
-            type="button"
-            disabled={saving || !canMutateGraph || !nextName}
-            onClick={onBeginAdd}
-            className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] ${drawingRoad ? 'bg-(--accent) text-(--panel-bg-solid)' : 'border border-(--accent-border) text-(--accent)'} disabled:opacity-40`}
-          >
-            <Plus className="h-3 w-3" /> Add road
-          </button>
-        </div>
+        <span>ROAD GRAPH</span>
+        <button
+          type="button"
+          disabled={saving || !canMutateGraph || !nextName}
+          onClick={onBeginAdd}
+          className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] ${drawingRoad ? 'bg-(--accent) text-(--panel-bg-solid)' : 'border border-(--accent-border) text-(--accent)'} disabled:opacity-40`}
+        >
+          <Plus className="h-3 w-3" /> Add road
+        </button>
       </div>
 
-      {drawingRoad && (
-        <div className="mt-2 rounded-md border border-(--accent-border) bg-(--accent-bg) px-2 py-1.5 text-[10px] text-(--accent)">
-          Click two endpoints near existing junctions. Esc cancels.
-        </div>
-      )}
-      {breakingRoadId && (
-        <div className="mt-2 rounded-md border border-red-400/30 bg-red-950/20 px-2 py-1.5 text-[10px] text-red-200">
-          Click the two ends of the broken stretch on this road. Both cuts must land on one graph segment. Esc cancels.
-        </div>
-      )}
-      {!canMutateGraph && (
-        <div className="mt-2 text-[10px] text-amber-200/80">
-          Re-run this stale study before changing its road graph.
-        </div>
-      )}
+      <div className="mt-2 flex items-start gap-1.5 rounded-md border border-(--border) bg-black/10 px-2 py-1.5 text-[10px] leading-relaxed text-(--text)">
+        <MousePointerClick className="mt-0.5 h-3.5 w-3.5 shrink-0 text-(--accent)" />
+        <span>
+          Click any road on the map to name it, code it, break a stretch, or mark it destroyed.
+          {drawingRoad ? ' Drawing: click two endpoints near existing junctions. Esc cancels.' : ''}
+        </span>
+      </div>
+
+      <div className="mt-2 flex justify-between text-[10px] text-(--text-dim)">
+        <span>{roads.length.toLocaleString()} roads</span>
+        <span>{coded} coded</span>
+        <span className={destroyed ? 'text-red-300' : ''}>{destroyed} destroyed</span>
+        <span>{added} added</span>
+      </div>
 
       <label className="mt-2 block text-[10px] tracking-wide text-(--text-dim)">
         CALL-SIGN THEME
@@ -108,6 +91,7 @@ export function RoadEditorPanel({
             <option key={id} value={id}>{theme.label}</option>
           ))}
         </select>
+        <span className="mt-0.5 block normal-case">{nextName ? `Next call sign: ${nextName}` : 'Theme exhausted'}</span>
       </label>
 
       <div className="relative mt-2">
@@ -115,197 +99,36 @@ export function RoadEditorPanel({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search OSM name, call sign, class, or way id"
-          aria-label="Search roads"
+          placeholder="Find a road by name, call sign, or class"
+          aria-label="Find a road"
           className="w-full rounded-md border border-(--border) bg-black/15 py-1.5 pr-2 pl-7 text-xs text-(--text-h) placeholder:text-(--text-dim) focus:border-(--accent) focus:outline-none"
         />
       </div>
-
-      <div className="mt-2 flex items-center justify-between text-[10px] text-(--text-dim)">
-        <span>{Object.keys(area.roadEdits).length} coded</span>
-        <span>{nextName ? `Next: ${nextName}` : 'Theme exhausted'}</span>
-      </div>
-
-      {error && <div className="mt-2 text-xs text-(--hostile)">{error}</div>}
-
-      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-        {visible.map((road) => {
-          const edit = area.roadEdits[road.id]
-          return edit ? (
-            <RoadCodeRow
-              key={road.id}
-              road={road}
-              edit={edit}
-              saving={saving}
-              onSave={(next) => onEditRoad(road.id, next)}
-              onReset={() => onEditRoad(road.id, null)}
-              onLocate={() => onLocate(road)}
-              onSetDestroyed={() => onSetDestroyed(road, !road.destroyed)}
-              onBeginBreak={() => onBeginBreak(road)}
-              breaking={breakingRoadId === road.id}
-              canMutateGraph={canMutateGraph}
-            />
-          ) : (
-            <div
-              key={road.id}
-              className={`rounded-md border px-2 py-1.5 ${road.destroyed ? 'border-red-400/30 bg-red-950/20' : 'border-white/5 bg-black/10'}`}
-            >
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-(--text-h)">
-                    {road.osmName ?? `OSM way ${road.id}`}
-                  </div>
-                  <div className="text-[10px] text-(--text-dim)">
-                    {road.destroyed ? 'DESTROYED · ' : ''}
-                    {road.roadClass.replace('_', ' ')}
-                    {road.lanes ? ` · ${road.lanes} lanes` : ''}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  title="Locate road"
-                  onClick={() => onLocate(road)}
-                  className="p-1 text-(--text-dim) hover:text-(--text-h)"
-                >
-                  <Crosshair className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || !canMutateGraph || road.destroyed}
-                  title="Break a selected stretch"
-                  aria-label={`Break stretch of ${road.osmName ?? `way ${road.id}`}`}
-                  onClick={() => onBeginBreak(road)}
-                  className={`p-1 ${breakingRoadId === road.id ? 'text-red-300' : 'text-(--text-dim) hover:text-red-300'} disabled:opacity-40`}
-                >
-                  <Scissors className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || !canMutateGraph}
-                  title={road.destroyed ? 'Restore road' : 'Mark road destroyed'}
-                  aria-label={`${road.destroyed ? 'Restore' : 'Destroy'} ${road.osmName ?? `way ${road.id}`}`}
-                  onClick={() => onSetDestroyed(road, !road.destroyed)}
-                  className={`p-1 ${road.destroyed ? 'text-red-300 hover:text-white' : 'text-(--text-dim) hover:text-red-300'}`}
-                >
-                  {road.destroyed
-                    ? <Undo2 className="h-3.5 w-3.5" />
-                    : <ShieldOff className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || !nextName}
-                  onClick={() => assign(road)}
-                  className="rounded-md border border-(--accent-border) bg-(--accent-bg) px-2 py-1 text-[10px] text-(--accent) disabled:opacity-40"
-                >
-                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : `Assign ${nextName ?? 'name'}`}
-                </button>
-              </div>
-            </div>
-          )
-        })}
-        {visible.length === 0 && (
-          <div className="px-1 py-2 text-xs text-(--text-dim)">No roads match this search.</div>
-        )}
-      </div>
-
-      {matches.length > VISIBLE_ROADS && (
-        <div className="mt-1 text-[10px] text-(--text-dim)">
-          Showing the first {VISIBLE_ROADS}. Narrow the search to find another road.
+      {needle && (
+        <div className="mt-1 space-y-0.5">
+          {matches.map((road) => {
+            const edit = area.roadEdits[road.id]
+            return (
+              <button
+                key={road.id}
+                type="button"
+                onClick={() => { onPick(road); setQuery('') }}
+                className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-white/6"
+              >
+                <span className={`truncate ${edit ? 'font-mono' : ''} text-(--text-h)`}>
+                  {edit ? formatRoadCode(edit) : road.osmName ?? `OSM way ${road.id}`}
+                </span>
+                <span className="ml-2 shrink-0 text-[10px] text-(--text-dim)">
+                  {road.partiallyDestroyed ? 'DESTROYED · ' : ''}{road.roadClass.replace('_', ' ')}
+                </span>
+              </button>
+            )
+          })}
+          {matches.length === 0 && <div className="px-2 py-1 text-xs text-(--text-dim)">No roads match.</div>}
         </div>
       )}
-    </div>
-  )
-}
 
-function RoadCodeRow({
-  road,
-  edit,
-  saving,
-  onSave,
-  onReset,
-  onLocate,
-  onSetDestroyed,
-  onBeginBreak,
-  breaking,
-  canMutateGraph,
-}: {
-  road: RoadIdentity
-  edit: RoadEdit
-  saving: boolean
-  onSave: (edit: RoadEdit) => void
-  onReset: () => void
-  onLocate: () => void
-  onSetDestroyed: () => void
-  onBeginBreak: () => void
-  breaking: boolean
-  canMutateGraph: boolean
-}) {
-  const formatted = formatRoadCode(edit)
-  const [draft, setDraft] = useState(formatted)
-  const [invalid, setInvalid] = useState(false)
-
-  function commit() {
-    const parsed = parseRoadCode(draft)
-    if (!parsed) {
-      setInvalid(true)
-      return
-    }
-    setInvalid(false)
-    const next: RoadEdit = parsed
-    setDraft(formatRoadCode(next))
-    if (formatRoadCode(next) !== formatted) onSave(next)
-  }
-
-  return (
-    <div
-      className={`rounded-md border px-2 py-1.5 ${invalid ? 'border-(--hostile)' : road.destroyed ? 'border-red-400/30 bg-red-950/20' : 'border-white/5 bg-black/10'}`}
-    >
-      <div className="flex items-center gap-1">
-        <input
-          value={draft}
-          disabled={saving || !canMutateGraph}
-          aria-label={`Road code for ${road.osmName ?? `way ${road.id}`}`}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
-          className="min-w-0 flex-1 bg-transparent font-mono text-xs text-(--text-h) focus:outline-none"
-        />
-        <button type="button" title="Locate road" onClick={onLocate} className="p-1 text-(--text-dim) hover:text-(--text-h)">
-          <Crosshair className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          disabled={saving || !canMutateGraph || road.destroyed}
-          title="Break a selected stretch"
-          aria-label={`Break stretch of ${road.osmName ?? `way ${road.id}`}`}
-          onClick={onBeginBreak}
-          className={`p-1 ${breaking ? 'text-red-300' : 'text-(--text-dim) hover:text-red-300'} disabled:opacity-40`}
-        >
-          <Scissors className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          disabled={saving}
-          title={road.destroyed ? 'Restore road' : 'Mark road destroyed'}
-          aria-label={`${road.destroyed ? 'Restore' : 'Destroy'} ${road.osmName ?? `way ${road.id}`}`}
-          onClick={onSetDestroyed}
-          className={`p-1 ${road.destroyed ? 'text-red-300 hover:text-white' : 'text-(--text-dim) hover:text-red-300'}`}
-        >
-          {road.destroyed
-            ? <Undo2 className="h-3.5 w-3.5" />
-            : <ShieldOff className="h-3.5 w-3.5" />}
-        </button>
-        <button type="button" title="Return to OSM prefill" disabled={saving} onClick={onReset} className="p-1 text-(--text-dim) hover:text-(--text-h)">
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className={`text-[10px] ${invalid ? 'text-(--hostile)' : 'text-(--text-dim)'}`}>
-        {invalid
-          ? 'Use NAME(2|4|6[//] X|Y|Z)'
-          : `${road.destroyed ? 'DESTROYED · ' : ''}${road.osmName ?? `OSM way ${road.id}`} · ${road.roadClass.replace('_', ' ')}`}
-      </div>
+      {error && <div className="mt-2 text-xs text-(--hostile)">{error}</div>}
     </div>
   )
 }

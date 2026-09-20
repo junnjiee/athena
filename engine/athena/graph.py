@@ -8,6 +8,7 @@ readable from either side without a translation table.
 import gzip
 import json
 from enum import StrEnum
+from functools import cached_property
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,16 +84,17 @@ class RoadGraph(BaseModel):
     nodes: tuple[Node, ...]
     edges: tuple[Edge, ...]
 
-    def nodes_by_id(self) -> dict[int, Node]:
+    # Both indexes are built once per graph and shared by every caller. The
+    # graph is frozen, so they can never go stale; and a study runs hundreds of
+    # searches and connectivity checks over the same snapshot, each of which
+    # used to rebuild a 50k-edge adjacency from scratch. Callers treat the
+    # returned dicts as read-only.
+    @cached_property
+    def _nodes_by_id(self) -> dict[int, Node]:
         return {node.id: node for node in self.nodes}
 
-    def adjacency(self) -> dict[int, list[tuple[int, Edge, bool]]]:
-        """``node id -> [(neighbour, edge, reversed)]``.
-
-        ``reversed`` says the edge is being walked against its stored
-        direction, which is what lets the caller ask for the right gradient
-        without rebuilding the edge.
-        """
+    @cached_property
+    def _adjacency(self) -> dict[int, list[tuple[int, Edge, bool]]]:
         links: dict[int, list[tuple[int, Edge, bool]]] = {node.id: [] for node in self.nodes}
         for edge in self.edges:
             if edge.destroyed:
@@ -101,6 +103,18 @@ class RoadGraph(BaseModel):
             if edge.to_node != edge.from_node:
                 links[edge.to_node].append((edge.from_node, edge, True))
         return links
+
+    def nodes_by_id(self) -> dict[int, Node]:
+        return self._nodes_by_id
+
+    def adjacency(self) -> dict[int, list[tuple[int, Edge, bool]]]:
+        """``node id -> [(neighbour, edge, reversed)]``.
+
+        ``reversed`` says the edge is being walked against its stored
+        direction, which is what lets the caller ask for the right gradient
+        without rebuilding the edge.
+        """
+        return self._adjacency
 
 
 def decode_graph(packed: bytes) -> RoadGraph:

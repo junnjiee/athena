@@ -79,6 +79,7 @@ services:
     environment:
       VITE_API_PROXY: http://server:8787
       VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN:-}
+      VITE_GOOGLE_MAPS_KEY: ${VITE_GOOGLE_MAPS_KEY:-}
     ports:
       - '5173:5173'
     # Same reasoning as the server: without these mounts Vite serves the source

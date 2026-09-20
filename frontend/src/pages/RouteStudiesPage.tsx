@@ -24,6 +24,8 @@ import { CorridorEditorPanel } from '../components/panels/CorridorEditorPanel'
 import { EnemyCoursesPanel } from '../components/panels/EnemyCoursesPanel'
 import { OrbatPanel } from '../components/panels/OrbatPanel'
 import { RoadEditorPanel } from '../components/panels/RoadEditorPanel'
+import { RoadCard } from '../components/panels/RoadCard'
+import { ToolModeBanner } from '../components/panels/ToolModeBanner'
 import { ReasoningPanel } from '../components/panels/ReasoningPanel'
 import { DocumentIntelligencePanel } from '../components/panels/DocumentIntelligencePanel'
 import { useMapControls } from '../hooks/useMapControls'
@@ -39,6 +41,7 @@ import {
   listOperationalAreas,
   listRouteStudies,
   lookupNearestPlace,
+  removeOperationalRoad,
   updateOperationalRoadSettings,
   updateOperationalRoadState,
   type PlaceLookupResult,
@@ -51,7 +54,8 @@ import {
 } from '../lib/blockForces'
 import { currentPlanningStep, planningSteps, type PlanningProgress } from '../lib/planningSteps'
 import { corridorLines, edgePoints } from '../lib/routeStudy'
-import type { RoadIdentity } from '../lib/roads'
+import { roadIdentities, type RoadIdentity } from '../lib/roads'
+import type { RoadHit } from '../lib/roadIndex'
 import { nextRoadName } from '../lib/roadNames'
 import { proposalMarkPatch } from '../lib/documentIntelligence'
 import {
@@ -109,7 +113,10 @@ type LibraryState =
 
 type AreaPhase = 'idle' | 'generating'
 
-const OPERATIONAL_MIN_EXTENT_METERS = 10_000
+const OPERATIONAL_MIN_EXTENT_METERS = 5_000
+
+/** Long enough to read as a descent, short enough not to be waited on. */
+const FRAME_FLIGHT_SECONDS = 1.4
 
 /** Below this, a drag was a click: the operator meant a bridge or a junction,
  *  not ground, so the objective is stored as a point with no footprint. */
@@ -193,6 +200,8 @@ export function RouteStudiesPage() {
   const [roadSaving, setRoadSaving] = useState(false)
   const [roadError, setRoadError] = useState<string | null>(null)
   const [breakingRoad, setBreakingRoad] = useState<RoadIdentity | null>(null)
+  const [hoveredRoadWayId, setHoveredRoadWayId] = useState<number | null>(null)
+  const [selectedRoadWayId, setSelectedRoadWayId] = useState<number | null>(null)
   const [placingEchelon, setPlacingEchelon] = useState<Echelon>('platoon')
   const [placingBlockInletId, setPlacingBlockInletId] = useState<string | null>(null)
   const areaGenerationRef = useRef(0)
@@ -307,16 +316,40 @@ export function RouteStudiesPage() {
     areaUnsubscribeRef.current?.()
   }, [])
 
-  // Every armed tool takes the globe hostage to some degree -- the rectangle
-  // ones stop the camera outright. Escape is the way out of all of them.
+  // Every armed tool takes the left click, and the rectangle ones move the
+  // camera to the right button. Escape is the way out of all of them, and once
+  // no tool is armed it also puts down the selected road.
   useEffect(() => {
-    if (toolMode === 'navigate') return
+    if (toolMode === 'navigate' && selectedRoadWayId === null) return
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setToolMode('navigate')
+      if (event.key !== 'Escape') return
+      if (toolMode !== 'navigate') {
+        setBreakingRoad(null)
+        setToolMode('navigate')
+      } else {
+        setSelectedRoadWayId(null)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toolMode])
+  }, [toolMode, selectedRoadWayId])
+
+  // The cursor is the one indicator that is always under the operator's eye.
+  useEffect(() => {
+    const viewer = getViewer()
+    if (!viewer) return
+    viewer.scene.canvas.style.cursor = toolMode === 'navigate' ? '' : 'crosshair'
+  }, [toolMode, getViewer])
+
+  const roads = useMemo(() => (graph ? roadIdentities(graph) : []), [graph])
+  const selectedRoad = useMemo(
+    () => roads.find((road) => road.wayId === selectedRoadWayId) ?? null,
+    [roads, selectedRoadWayId],
+  )
+
+  const handleRoadSelect = useCallback((hit: RoadHit | null) => {
+    setSelectedRoadWayId(hit?.wayId ?? null)
+  }, [])
 
   useEffect(() => {
     if (!lastMarkId) return
@@ -324,16 +357,41 @@ export function RouteStudiesPage() {
     return () => clearTimeout(timer)
   }, [lastMarkId, clearLastMark])
 
+  /** Flies the camera onto a rectangle, straight down, with the whole footprint
+   *  and a margin in frame. One animated flight rather than a `setView` jump:
+   *  the selector and the ingest both land here, and the cut from globe to
+   *  ground was the jarring part. */
+  function flyToFootprint(rectangle: Cesium.Rectangle, onArrive?: () => void) {
+    const viewer = getViewer()
+    if (!viewer) return
+    viewer.camera.flyTo({
+      destination: withFramingMargin(rectangle),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+      duration: FRAME_FLIGHT_SECONDS,
+      complete: onArrive,
+      cancel: onArrive,
+    })
+  }
+
   /** Opens on the whole area rather than the oblique close-up a tactical
    *  selection gets: the black boundary is only worth drawing if the operator
    *  can see all four sides of it, and 18 km of ground is a map problem, not a
-   *  standing-on-the-hill one. */
+   *  standing-on-the-hill one.
+   *
+   *  Clipping waits for the camera to arrive. Applied at altitude it blacks out
+   *  most of the screen while the ground is still a speck; applied on arrival
+   *  only the margin ring goes dark, which reads as the AO being lit rather
+   *  than the world being switched off. */
   function frameArea(nextArea: OperationalAreaMeta) {
     const rectangle = rectangleFor(nextArea)
     setSelectionZoomCap(rectangle)
+    // A previous AO's clip would black out the new ground for the whole flight.
     const viewer = getViewer()
-    if (viewer) applyGlobeClipping(viewer, rectangle)
-    viewer?.camera.setView({ destination: withFramingMargin(rectangle) })
+    if (viewer) clearGlobeClipping(viewer)
+    flyToFootprint(rectangle, () => {
+      const viewer = getViewer()
+      if (viewer && !viewer.isDestroyed()) applyGlobeClipping(viewer, rectangle)
+    })
   }
 
   function cancelAreaGeneration() {
@@ -347,6 +405,7 @@ export function RouteStudiesPage() {
     cancelAreaGeneration()
     setBusyId(nextArea.id)
     setWorkspaceError(null)
+    setSelectedRoadWayId(null)
     try {
       const nextGraph = await fetchOperationalGraph(nextArea.id)
       if (!keepStudy) resetStudy()
@@ -370,6 +429,7 @@ export function RouteStudiesPage() {
     cancelAreaGeneration()
     setBusyId(summary.id)
     setWorkspaceError(null)
+    setSelectedRoadWayId(null)
     try {
       await loadStudy(summary.id)
       const loaded = useRouteStudy.getState().study
@@ -409,6 +469,7 @@ export function RouteStudiesPage() {
     setStudyName('')
     setAreaError(null)
     setRoadError(null)
+    setSelectedRoadWayId(null)
     setWorkspaceError(null)
     setAreaPhase('idle')
     setAreaSteps(freshAreaSteps())
@@ -431,6 +492,7 @@ export function RouteStudiesPage() {
     setStudyName('New Terrain Study')
     setToolMode('navigate')
     setSelectionZoomCap(result.rectangle)
+    flyToFootprint(result.rectangle)
 
     const center = Cesium.Rectangle.center(result.rectangle)
     const radiusMeters = Math.min(
@@ -791,9 +853,34 @@ export function RouteStudiesPage() {
     }
   }
 
+  async function removeRoad(road: RoadIdentity) {
+    if (!area || roadSaving) return
+    setBreakingRoad(null)
+    setToolMode('navigate')
+    setRoadSaving(true)
+    setRoadError(null)
+    try {
+      const nextArea = await removeOperationalRoad(area.id, road.wayId)
+      replaceArea(nextArea)
+      setSelectedRoadWayId(null)
+      if (study) await loadStudy(study.id)
+      else setGraph(await fetchOperationalGraph(area.id, nextArea.currentRevision))
+    } catch (error: unknown) {
+      setRoadError(error instanceof Error ? error.message : 'failed to remove road')
+    } finally {
+      setRoadSaving(false)
+    }
+  }
+
   function beginRoadBreak(road: RoadIdentity) {
+    setSelectedRoadWayId(road.wayId)
     setBreakingRoad(road)
     setToolMode('break-road')
+  }
+
+  /** From the search box: select on the map and bring it into view. */
+  function pickRoad(road: RoadIdentity) {
+    setSelectedRoadWayId(road.wayId)
     locateRoad(road)
   }
 
@@ -831,19 +918,19 @@ export function RouteStudiesPage() {
   // says how to get back out of it.
   const toolHint =
     toolMode === 'select-area'
-      ? 'Drag a rectangle between 10 and 50 km per side. Esc to cancel.'
+      ? `Drag a box ${formatExtent(OPERATIONAL_MIN_EXTENT_METERS)}–50 km per side · right-drag or Shift+drag to pan · scroll to zoom`
         : toolMode === 'place-reserve'
-        ? 'Click inside the black boundary to place an enemy reserve. Esc when done.'
+        ? 'Click inside the boundary to drop a reserve · drag to pan · one per click, as many as you need'
         : toolMode === 'draw-objective-area'
-          ? 'Drag a box over the objective inside the black boundary. Esc when done.'
+          ? 'Drag a box over the objective · right-drag or Shift+drag to pan · a tiny drag is a point'
           : toolMode === 'draw-road'
-            ? 'Click the two road endpoints near existing junctions. Esc to cancel.'
+            ? 'Click the two road endpoints near existing junctions · drag to pan'
             : toolMode === 'break-road'
-              ? 'Click the two ends of the broken stretch on the selected road. Esc to cancel.'
+              ? 'Click the two ends of the broken stretch on the highlighted road · drag to pan'
           : toolMode === 'place-orbat-unit'
-            ? 'Click inside the black boundary to place a unit of your force. Esc when done.'
+            ? 'Click inside the boundary to place a unit of your force · drag to pan'
             : toolMode === 'place-block-point'
-              ? 'Click on or near the selected inlet to set its block point. Esc to cancel.'
+              ? 'Click on or near the selected inlet to set its block point · drag to pan'
             : null
 
   /** The one control that moves the current step along, when it is not already
@@ -890,6 +977,10 @@ export function RouteStudiesPage() {
           blockPlan={study?.blockPlan ?? null}
           graph={graph}
           roadEdits={area?.roadEdits ?? {}}
+          hoveredRoadWayId={hoveredRoadWayId}
+          selectedRoadWayId={selectedRoadWayId}
+          onRoadHover={setHoveredRoadWayId}
+          onRoadSelect={handleRoadSelect}
           onSelectionFinalize={handleSelectionFinalize}
           onObjectiveAreaFinalize={handleObjectiveArea}
           onViewerReady={handleViewerReady}
@@ -898,6 +989,31 @@ export function RouteStudiesPage() {
           onRoadCancel={cancelRoadDrawing}
         />
       </div>
+
+      <ToolModeBanner
+        toolMode={toolMode}
+        hint={toolHint}
+        onExit={() => { setBreakingRoad(null); setToolMode('navigate') }}
+      />
+
+      {area && selectedRoad && (
+        <div className={`pointer-events-none absolute z-30 ${toolMode === 'navigate' ? 'top-4' : 'top-16'} left-1/2 -translate-x-1/2`}>
+          <RoadCard
+            road={selectedRoad}
+            edit={area.roadEdits[selectedRoad.id]}
+            nextName={nextRoadName(area.roadTheme, Object.values(area.roadEdits).map((edit) => edit.name))}
+            saving={roadSaving}
+            error={roadError}
+            canMutateGraph={!study || !study.stale}
+            breaking={breakingRoad?.id === selectedRoad.id && toolMode === 'break-road'}
+            onEdit={(edit) => editRoad(selectedRoad.id, edit)}
+            onSetDestroyed={(destroyed) => void setRoadDestroyed(selectedRoad, destroyed)}
+            onBeginBreak={() => beginRoadBreak(selectedRoad)}
+            onRemove={() => void removeRoad(selectedRoad)}
+            onClose={() => { setBreakingRoad(null); if (toolMode === 'break-road') setToolMode('navigate'); setSelectedRoadWayId(null) }}
+          />
+        </div>
+      )}
 
       <Sidebar />
 
@@ -1031,7 +1147,7 @@ export function RouteStudiesPage() {
             {!extentValid && (
               <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Each side must be at least 10 km. Drag a larger area.
+                Each side must be at least {formatExtent(OPERATIONAL_MIN_EXTENT_METERS)}. Drag a larger area.
               </div>
             )}
             <button
@@ -1047,21 +1163,17 @@ export function RouteStudiesPage() {
         )}
 
         {area && graph && !study && (
-          <div className="pointer-events-auto min-h-0 flex-1">
+          <div className="pointer-events-auto">
             <RoadEditorPanel
               area={area}
               graph={graph}
               saving={roadSaving}
-              error={roadError}
+              error={selectedRoad ? null : roadError}
               onSetTheme={setRoadTheme}
-              onEditRoad={editRoad}
-              onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
               drawingRoad={toolMode === 'draw-road'}
-              breakingRoadId={breakingRoad?.id ?? null}
               canMutateGraph
-              onBeginAdd={() => { setBreakingRoad(null); setToolMode('draw-road') }}
-              onBeginBreak={beginRoadBreak}
-              onLocate={locateRoad}
+              onBeginAdd={() => { setBreakingRoad(null); setSelectedRoadWayId(null); setToolMode('draw-road') }}
+              onPick={pickRoad}
             />
           </div>
         )}
@@ -1179,16 +1291,12 @@ export function RouteStudiesPage() {
                   area={area}
                   graph={graph}
                   saving={roadSaving}
-                  error={roadError}
+                  error={selectedRoad ? null : roadError}
                   onSetTheme={setRoadTheme}
-                  onEditRoad={editRoad}
-                  onSetDestroyed={(road, destroyed) => void setRoadDestroyed(road, destroyed)}
                   drawingRoad={toolMode === 'draw-road'}
-                  breakingRoadId={breakingRoad?.id ?? null}
                   canMutateGraph={!study.stale}
-                  onBeginAdd={() => { setBreakingRoad(null); setToolMode('draw-road') }}
-                  onBeginBreak={beginRoadBreak}
-                  onLocate={locateRoad}
+                  onBeginAdd={() => { setBreakingRoad(null); setSelectedRoadWayId(null); setToolMode('draw-road') }}
+                  onPick={pickRoad}
                 />
               )}
 

@@ -15,7 +15,7 @@ import {
   persistOperationalGraphRevision,
   updateOperationalRoadSettings,
 } from '../services/operationalAreaStore'
-import { addRoad, breakRoadStretch, setRoadDestroyed } from '../services/graphMutations'
+import { addRoad, breakRoadStretch, removeAddedRoad, setRoadDestroyed } from '../services/graphMutations'
 
 const areaBody = z
   .object({
@@ -170,6 +170,31 @@ export function registerOperationalAreaRoutes(
         return reply.status(409).send({ error: 'road graph changed; reload and retry' })
       }
       return reply.status(201).send({ meta, wayId: mutation.wayId })
+    },
+  )
+
+  app.delete<{ Params: { id: string; wayId: string } }>(
+    '/api/operational-area/:id/graph/roads/:wayId',
+    async (req, reply) => {
+      const wayId = Number(req.params.wayId)
+      if (!Number.isSafeInteger(wayId)) return reply.status(400).send({ error: 'wayId must be an integer' })
+
+      const stored = await loadOperationalArea(req.params.id)
+      if (!stored) return reply.status(404).send({ error: 'unknown operational area' })
+      const mutation = removeAddedRoad(stored.graph, wayId)
+      if (!mutation.ok) {
+        return reply.status(mutation.reason === 'unknown road' ? 404 : 400).send({ error: mutation.reason })
+      }
+      const roadEdits = { ...stored.meta.roadEdits }
+      delete roadEdits[String(wayId)]
+      const meta = await persistOperationalGraphRevision(
+        req.params.id,
+        stored.meta.currentRevision,
+        mutation.graph,
+        roadEdits,
+      )
+      if (!meta) return reply.status(409).send({ error: 'road graph changed; reload and retry' })
+      return { meta }
     },
   )
 
